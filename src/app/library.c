@@ -99,6 +99,13 @@ static int import_lively_package(const wchar_t *folder, ImportStats *st)
         return 1;
     }
     int type = (int)json_num(json_geti(j, "Type"), -1);
+    /* Lively enables event feeds through Arguments in LivelyInfo.json; honor the
+     * known switches so a wallpaper that registers its listener late (or after
+     * async init) still receives the data even if the page probe misses it. */
+    wchar_t args[SP_NAME_LEN];
+    json_str_w(json_geti(j, "Arguments"), args, SP_COUNTOF(args));
+    int argAudio = str_icontains(args, L"--audio");
+    int argSysInfo = str_icontains(args, L"--system-information");
     wchar_t title[SP_NAME_LEN], file[SP_MAX_PATH], tf[SP_MAX_PATH], thumb[SP_MAX_PATH] = L"", target[SP_MAX_PATH];
     json_str_w(json_geti(j, "Title"), title, SP_COUNTOF(title));
     json_str_w(json_geti(j, "FileName"), file, SP_COUNTOF(file));
@@ -117,6 +124,8 @@ static int import_lively_package(const wchar_t *folder, ImportStats *st)
 
     WallpaperType t;
     int flags = 0;
+    if (argAudio) flags |= WPFLAG_AUDIO;
+    if (argSysInfo) flags |= WPFLAG_SYSINFO;
     switch (type) {   /* Lively WallpaperType */
     case 1:  t = WP_HTML; break;                          /* web */
     case 2:  t = WP_HTML; flags = WPFLAG_AUDIO; break;    /* webaudio */

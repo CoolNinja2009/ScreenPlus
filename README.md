@@ -112,7 +112,7 @@ Screen+ implements the Lively and Wallpaper Engine web APIs, so existing wallpap
 | `livelyPropertyListener(name, value)` | Values from `LivelyProperties.json`, including Lively's saved customisations |
 | `livelyAudioListener(audioArray)` | 128 bands from 0 to 1, captured from the default output device |
 | `livelyCurrentTrack(json)` | The Windows media session: title, artist, album and thumbnail (base64) |
-| `livelySystemInformation(json)` | Memory use and battery state |
+| `livelySystemInformation(json)` | Lively system data: cpu/gpu/netcard names, cpu and gpu-3D usage, memory, network speed and battery |
 | `livelyWallpaperPlaybackChanged(json)` | `{"IsPaused": true}` while Screen+ pauses the wallpaper |
 | `wallpaperRegisterAudioListener(callback)` | Wallpaper Engine audio: 64 left + 64 right values |
 | `wallpaperPropertyListener` | Wallpaper Engine `applyUserProperties`, `applyGeneralProperties` and `setPaused` |

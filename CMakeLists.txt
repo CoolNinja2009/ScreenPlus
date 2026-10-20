@@ -84,6 +84,7 @@ set(SOURCES
     src/desktop/desktop_host.c
     src/diagnostics/diag.c
     src/engine/engine.c src/engine/occlusion.c src/engine/audio_visualizer.c src/engine/now_playing.c
+    src/engine/sysinfo.c
     src/renderer/image/image_renderer.c
     src/renderer/video/video_renderer.c src/renderer/video/video_audio.c src/renderer/video/ffmpeg_thumb.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
@@ -107,11 +108,17 @@ target_link_libraries(ScreenPlus PRIVATE
     "${WEBVIEW2_SDK_DIR}/build/native/x64/WebView2LoaderStatic.lib"
     ${FFMPEG_IMPLIBS} delayimp
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
-    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject)
+    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh)
 
-# Validation helper (not shipped): checks the wallpaper is attached and visible behind the icons.
+# Validation helpers (not shipped): check the wallpaper is attached and visible behind the
+# icons, and print the livelySystemInformation payload the engine feeds web wallpapers.
 add_executable(desktop_probe tests/desktop_probe.c)
 target_link_libraries(desktop_probe PRIVATE user32 gdi32 dwmapi)
+add_executable(sysinfo_test tests/sysinfo_test.c
+    src/engine/sysinfo.c src/common/util.c src/common/json.c src/common/log.c src/common/paths.c)
+target_compile_definitions(sysinfo_test PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00)
+target_compile_options(sysinfo_test PRIVATE /W4 /utf-8 /wd4100)
+target_link_libraries(sysinfo_test PRIVATE pdh advapi32 dxgi dxguid bcrypt shlwapi)
 
 # Ship FFmpeg DLLs, licenses and the sample wallpaper next to the executable.
 add_custom_command(TARGET ScreenPlus POST_BUILD

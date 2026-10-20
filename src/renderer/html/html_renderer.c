@@ -737,7 +737,7 @@ static int hr_wants(Renderer *base)
     HtmlRenderer *r = (HtmlRenderer *)base;
     int m = RENDER_WANT_INPUT;
     if ((r->wantMask & 1) || (r->wp.flags & WPFLAG_AUDIO)) m |= RENDER_WANT_AUDIO;
-    if (r->wantMask & 2) m |= RENDER_WANT_SYSINFO;
+    if ((r->wantMask & 2) || (r->wp.flags & WPFLAG_SYSINFO)) m |= RENDER_WANT_SYSINFO;
     if (r->wantMask & 4) m |= RENDER_WANT_TRACK;
     return m;
 }

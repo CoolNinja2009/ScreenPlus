@@ -13,8 +13,9 @@ typedef enum ThemeMode { THEME_SYSTEM = 0, THEME_LIGHT = 1, THEME_DARK = 2 } The
 
 /* Origin of a wallpaper package: drives which JavaScript APIs the HTML engine provides. */
 typedef enum WallpaperFormat { WPF_PLAIN = 0, WPF_LIVELY = 1, WPF_WE = 2 } WallpaperFormat;
-enum { WPFLAG_AUDIO = 1,    /* audio-reactive (Lively "webaudio") */
-       WPFLAG_URL   = 2 };  /* online page: path is an http(s) URL */
+enum { WPFLAG_AUDIO   = 1,  /* audio-reactive (Lively "webaudio") */
+       WPFLAG_URL     = 2,  /* online page: path is an http(s) URL */
+       WPFLAG_SYSINFO = 4 };/* wants livelySystemInformation (Lively "--system-information") */
 
 typedef struct WallpaperEntry {
     wchar_t       id[SP_ID_LEN];

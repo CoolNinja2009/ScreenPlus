@@ -2,6 +2,7 @@
 #include "occlusion.h"
 #include "audio_visualizer.h"
 #include "now_playing.h"
+#include "sysinfo.h"
 #include "../common/util.h"
 #include "../common/log.h"
 #include "../common/paths.h"
@@ -466,14 +467,10 @@ static void wallpaper_data_tick(void)
     }
     if (wantTrack) now_playing_start(); else now_playing_stop();
     if (wantAudio && E.cfg.s.htmlAudio) audio_visualizer_start(); else audio_visualizer_stop();
-    char sys[320] = "";
-    if (wantSystem) {
-        MEMORYSTATUSEX ms = { sizeof ms }; SYSTEM_POWER_STATUS ps;
-        GlobalMemoryStatusEx(&ms); GetSystemPowerStatus(&ps);
-        snprintf(sys, sizeof sys, "{\"CpuUsage\":0,\"MemoryUsage\":%lu,\"TotalMemory\":%llu,\"BatteryPercent\":%u,\"IsSystemOnBatteryPower\":%s}",
-                 ms.dwMemoryLoad, (unsigned long long)ms.ullTotalPhys, ps.BatteryLifePercent,
-                 ps.ACLineStatus == 0 ? "true" : "false");
-    }
+    /* Lively system data (cpu/gpu/ram/net) only when a page asks for it; the
+     * sampling windows in sysinfo expect a steady tick. */
+    char sys[2048] = "";
+    if (wantSystem) sysinfo_sample(sys, sizeof sys);
     float bands[64]; BOOL spectrum = wantAudio && E.cfg.s.htmlAudio && audio_visualizer_spectrum(bands);
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &E.slots[i];
