@@ -1,0 +1,49 @@
+# ---- build output (build.cmd / CMake + Ninja); installers and zips come from GitHub Releases
+/build/
+/out/
+/dist/
+/release/
+CMakeUserPresets.json
+CMakeFiles/
+CMakeCache.txt
+
+# ---- FFmpeg is built by scripts/build-ffmpeg.sh (cached in CI), never committed
+/third_party/ffmpeg/
+
+# ---- compiler, linker and resource intermediates
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.res
+*.idb
+*.ipch
+*.tlog
+*.log
+
+# ---- binaries and packages (published as release assets)
+*.exe
+*.dll
+*.zip
+*.7z
+*.nupkg
+
+# ---- editors and IDEs
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+*.code-workspace
+
+# ---- local tool settings
+.claude/settings.local.json
+
+# ---- OS clutter
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store

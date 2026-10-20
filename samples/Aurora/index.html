@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aurora</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #070a18; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: .55; will-change: transform; }
+  .b1 { width: 55vw; height: 55vw; left: -5vw; top: -10vw; background: radial-gradient(circle, #2878ff 0%, transparent 70%); animation: drift1 38s ease-in-out infinite alternate; }
+  .b2 { width: 50vw; height: 50vw; right: -8vw; top: -6vw; background: radial-gradient(circle, #783cff 0%, transparent 70%); animation: drift2 46s ease-in-out infinite alternate; }
+  .b3 { width: 60vw; height: 60vw; left: 25vw; bottom: -30vw; background: radial-gradient(circle, #00c8aa 0%, transparent 70%); animation: drift3 52s ease-in-out infinite alternate; }
+  .b4 { width: 35vw; height: 35vw; left: -6vw; bottom: -12vw; background: radial-gradient(circle, #ff46a0 0%, transparent 70%); animation: drift1 60s ease-in-out infinite alternate-reverse; opacity: .35; }
+  @keyframes drift1 { to { transform: translate(18vw, 12vh) scale(1.15); } }
+  @keyframes drift2 { to { transform: translate(-14vw, 18vh) scale(.9); } }
+  @keyframes drift3 { to { transform: translate(-10vw, -14vh) scale(1.1); } }
+  canvas { position: absolute; inset: 0; }
+  @media (prefers-reduced-motion: reduce) { .blob { animation: none; } }
+</style>
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+<canvas id="stars"></canvas>
+<script>
+  // Gentle twinkling stars. requestAnimationFrame stops automatically while Screen+ hides
+  // or suspends the page, so this costs nothing when the wallpaper is not visible.
+  const c = document.getElementById('stars'), g = c.getContext('2d');
+  let stars = [];
+  function resize() {
+    c.width = innerWidth * devicePixelRatio; c.height = innerHeight * devicePixelRatio;
+    stars = Array.from({ length: Math.round(innerWidth * innerHeight / 9000) }, () => ({
+      x: Math.random() * c.width, y: Math.random() * c.height,
+      r: (Math.random() * 1.2 + 0.3) * devicePixelRatio, p: Math.random() * Math.PI * 2, s: 0.4 + Math.random()
+    }));
+  }
+  function frame(t) {
+    g.clearRect(0, 0, c.width, c.height);
+    for (const s of stars) {
+      g.globalAlpha = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(s.p + t / 1000 * s.s));
+      g.beginPath(); g.arc(s.x, s.y, s.r, 0, 6.2832); g.fillStyle = '#fff'; g.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+  addEventListener('resize', resize); resize(); requestAnimationFrame(frame);
+</script>
+</body>
+</html>

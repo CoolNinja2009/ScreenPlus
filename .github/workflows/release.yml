@@ -1,0 +1,145 @@
+# Builds Screen+ and publishes a GitHub release with the installer and a portable zip.
+#
+# Every push to main that changes the app gets a new version automatically:
+#   - the next patch after the newest vX.Y.Z tag (v1.0.3 -> v1.0.4), or
+#   - SCREENPLUS_VERSION from CMakeLists.txt when that is higher (bump it there for a
+#     new minor/major version).
+# Pushing a tag yourself (git tag v1.2.0 && git push --tags) releases exactly that version.
+# Pull requests are built but not released.
+name: Build and release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*.*.*']
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'installer/**'
+      - 'samples/**'
+      - 'scripts/**'
+      - 'CMakeLists.txt'
+      - 'build.cmd'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
+      - '.github/workflows/release.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'resources/**'
+      - 'installer/**'
+      - 'CMakeLists.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # tags are needed to pick the next version
+
+      - name: Pick version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=$(sed -n 's/^set(SCREENPLUS_VERSION "\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' CMakeLists.txt)
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ver="${GITHUB_REF#refs/tags/v}"
+          else
+            latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+            latest="${latest#v}"
+            if [[ -z "$latest" ]]; then
+              ver="$base"
+            elif [[ "$(printf '%s\n%s\n' "$base" "$latest" | sort -V | tail -n1)" == "$base" && "$base" != "$latest" ]]; then
+              ver="$base"
+            else
+              IFS=. read -r major minor patch <<< "$latest"
+              ver="$major.$minor.$((patch + 1))"
+            fi
+          fi
+          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version '$ver' must be major.minor.patch"; exit 1; }
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "Building Screen+ $ver"
+
+      # FFmpeg (LGPL, shared) is built once per scripts/build-ffmpeg.sh revision and cached.
+      - name: Restore FFmpeg
+        id: ffmpeg-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/ffmpeg
+          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+
+      - name: Set up MSYS2 (FFmpeg build)
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            make diffutils tar xz curl
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-nasm
+
+      - name: Build FFmpeg
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: bash ./scripts/build-ffmpeg.sh
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and
+              -not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe')) {
+            choco install nsis -y --no-progress
+          }
+
+      - name: Build app and installer
+        shell: cmd
+        run: call build.cmd Release ${{ steps.version.outputs.version }}
+
+      - name: Package
+        id: package
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          $setup = "build\ScreenPlus-Setup-$v.exe"
+          if (-not (Test-Path $setup)) { throw "Installer was not built: $setup" }
+          $stage = 'dist\ScreenPlus'
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item build\ScreenPlus.exe, build\*.dll $stage
+          Copy-Item build\licenses, build\samples $stage -Recurse
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item $setup release\
+          Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$v-win-x64-portable.zip"
+          Get-ChildItem release -File | ForEach-Object {
+            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
+          } | Set-Content -Encoding ascii release\SHA256SUMS.txt
+          Get-ChildItem release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenPlus-${{ steps.version.outputs.version }}
+          path: release/*
+
+      - name: Publish release
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="v${{ steps.version.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release/* --clobber
+          else
+            gh release create "$tag" release/* --target "$GITHUB_SHA" --title "Screen+ ${tag#v}" --generate-notes
+          fi
