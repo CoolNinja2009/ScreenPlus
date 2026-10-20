@@ -1,4 +1,4 @@
-<!-- Badges and download links: replace OWNER with your GitHub user or organisation. -->
+<!-- Repository badges and links for CoolNinja2009/ScreenPlus. -->
 <div align="center">
 
 <img src="docs/media/icon.png" width="88" alt="">
@@ -7,14 +7,14 @@
 
 **Live wallpapers for Windows: video, GIF, image and web.<br>Native, light on resources, and compatible with Lively Wallpaper.**
 
-[![Latest release](https://img.shields.io/github/v/release/OWNER/ScreenPlus?style=flat-square&color=0a84ff&label=release)](https://github.com/OWNER/ScreenPlus/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/OWNER/ScreenPlus/total?style=flat-square&color=0a84ff)](https://github.com/OWNER/ScreenPlus/releases)
-[![Build](https://img.shields.io/github/actions/workflow/status/OWNER/ScreenPlus/release.yml?style=flat-square&label=build)](https://github.com/OWNER/ScreenPlus/actions/workflows/release.yml)
+[![Latest release](https://img.shields.io/github/v/release/CoolNinja2009/ScreenPlus?style=flat-square&color=0a84ff&label=release)](https://github.com/CoolNinja2009/ScreenPlus/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/CoolNinja2009/ScreenPlus/total?style=flat-square&color=0a84ff)](https://github.com/CoolNinja2009/ScreenPlus/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/CoolNinja2009/ScreenPlus/release.yml?style=flat-square&label=build)](https://github.com/CoolNinja2009/ScreenPlus/actions/workflows/release.yml)
 ![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4?style=flat-square)
 ![C17, Win32, Direct2D, Direct3D 11](https://img.shields.io/badge/C17-Win32%20%7C%20Direct2D%20%7C%20D3D11-555?style=flat-square)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square)](LICENSE)
 
-[**Download**](https://github.com/OWNER/ScreenPlus/releases/latest) &nbsp;·&nbsp; [Features](#features) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Docs](#documentation) &nbsp;·&nbsp; [Build](#build-from-source)
+[**Download**](https://github.com/CoolNinja2009/ScreenPlus/releases/latest) &nbsp;·&nbsp; [Features](#features) &nbsp;·&nbsp; [Install](#install) &nbsp;·&nbsp; [Docs](#documentation) &nbsp;·&nbsp; [Build](#build-from-source)
 
 <br>
 
@@ -58,7 +58,7 @@
 
 ## Install
 
-1. Download **`ScreenPlus-Setup-<version>.exe`** from the [latest release](https://github.com/OWNER/ScreenPlus/releases/latest).
+1. Download **`ScreenPlus-Setup-<version>.exe`** from the [latest release](https://github.com/CoolNinja2009/ScreenPlus/releases/latest).
 2. Run it. No administrator rights are needed; Screen+ installs for your account only.
 3. Pick an installation type:
    - **Default** includes the Aurora sample and imports your Lively Wallpaper library.

@@ -6,6 +6,10 @@
 #     new minor/major version).
 # Pushing a tag yourself (git tag v1.2.0 && git push --tags) releases exactly that version.
 # Pull requests are built but not released.
+#
+# FFmpeg is compiled only once per revision of scripts/build-ffmpeg.sh: the result is kept as
+# ffmpeg-<hash>.zip on the "deps" pre-release (never evicted, unlike the Actions cache), so a
+# normal run downloads it in seconds instead of spending ~15 minutes compiling.
 name: Build and release
 
 on:
@@ -70,16 +74,26 @@ jobs:
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "Building Screen+ $ver"
 
-      # FFmpeg (LGPL, shared) is built once per scripts/build-ffmpeg.sh revision and cached.
-      - name: Restore FFmpeg
-        id: ffmpeg-cache
-        uses: actions/cache@v4
-        with:
-          path: third_party/ffmpeg
-          key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh') }}
+      - name: Download prebuilt FFmpeg
+        id: ffmpeg
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $key = 'ffmpeg-' + '${{ hashFiles('scripts/build-ffmpeg.sh') }}'.Substring(0, 16)
+          "key=$key" >> $env:GITHUB_OUTPUT
+          gh release download deps --pattern "$key.zip" --dir $env:RUNNER_TEMP 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            Expand-Archive "$env:RUNNER_TEMP\$key.zip" -DestinationPath third_party -Force
+            "hit=true" >> $env:GITHUB_OUTPUT
+            Write-Host "Using prebuilt $key"
+          } else {
+            Write-Host "No prebuilt $key yet: building FFmpeg once"
+          }
+          exit 0
 
       - name: Set up MSYS2 (FFmpeg build)
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        if: steps.ffmpeg.outputs.hit != 'true'
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -90,9 +104,24 @@ jobs:
             mingw-w64-ucrt-x86_64-nasm
 
       - name: Build FFmpeg
-        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        if: steps.ffmpeg.outputs.hit != 'true'
         shell: msys2 {0}
         run: bash ./scripts/build-ffmpeg.sh
+
+      - name: Keep FFmpeg for later runs
+        if: steps.ffmpeg.outputs.hit != 'true' && github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $key = '${{ steps.ffmpeg.outputs.key }}'
+          Compress-Archive -Path third_party\ffmpeg -DestinationPath "$env:RUNNER_TEMP\$key.zip" -Force
+          gh release view deps 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create deps --prerelease --title "Build dependencies (CI)" `
+              --notes "Prebuilt LGPL FFmpeg used by the build workflow, produced by scripts/build-ffmpeg.sh. Not a Screen+ release."
+          }
+          gh release upload deps "$env:RUNNER_TEMP\$key.zip" --clobber
 
       - name: Install NSIS
         shell: pwsh
