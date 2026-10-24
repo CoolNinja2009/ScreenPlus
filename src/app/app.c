@@ -12,7 +12,6 @@
 AppState g_app;
 static UINT g_msgTaskbarCreated;
 
-#define WM_SP_SHELLCMD (WM_APP + 70)
 enum { T_ENGINE_RESTART = 1 };
 
 void app_notice(int kind, const wchar_t *fmt, ...)
@@ -193,6 +192,10 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 g_app.status.firstFrame > g_app.processStart)
                 g_app.wallpaperMs = (double)(g_app.status.firstFrame - g_app.processStart) / 10000.0;
             PostMessageW(h, WM_SP_STATUS, 0, 0);
+            return TRUE;
+        }
+        if (cds->dwData == IPC_CLI_REQUEST && cds->cbData && cds->lpData) {
+            cli_server_handle((HWND)wp, cds->lpData, cds->cbData);
             return TRUE;
         }
         if (cds->dwData == IPC_SHELL_CMD && cds->cbData == sizeof(IpcCommand)) {

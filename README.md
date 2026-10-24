@@ -124,11 +124,31 @@ Pages run sandboxed in WebView2 at `https://wallpaper.screenplus.example/`. Desk
 <summary><b>Command line</b></summary>
 <br>
 
+Setup puts `screenplus` on your PATH (`screenplus path add` does it for a copied install). In a terminal it runs
+`ScreenPlus.com`, the console twin of `ScreenPlus.exe`, and talks to the running app. Without arguments it opens an
+interactive `screen+>` prompt; commands can also be piped in as a script.
+
+```text
+screenplus status [--watch]               what runs on each display (--watch: live, Ctrl+C stops)
+screenplus list [image|video|html|text]   the library, * = on screen
+screenplus apply <name|number|id|path> [--display N]
+screenplus import <path>... [--apply]   |   remove <wallpaper>   |   displays
+screenplus pause | resume | toggle | next | restart | audio [on|off]
+screenplus look [set <key> <value> ... | reset]        brightness contrast saturation hue gamma tint ...
+screenplus props [set <name> <value> | reset]          the wallpaper's own Lively / WE settings
+screenplus settings [set <key> <value>]
+screenplus start [--show] | show | hide | stop
+screenplus logs [app|engine] [-n N] [-f]   |   paths   |   path [add|remove]   |   help [command]
+```
+
+`--json` prints machine-readable output, e.g. `(screenplus status --json | ConvertFrom-Json).displays`.
+Exit codes: 0 ok, 1 command failed, 2 bad usage, 3 Screen+ not running. `screenplus help` lists everything.
+
 ```text
 ScreenPlus.exe [--tray | --show | --pause | --resume | --toggle-pause | --next | --exit]
 ```
 
-Commands go to the running Screen+; `--next` switches to the next wallpaper.
+The executable's own switches also reach the running Screen+; `--next` switches to the next wallpaper.
 
 ```text
 ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/D=<folder>]     silent install (/D must come last)

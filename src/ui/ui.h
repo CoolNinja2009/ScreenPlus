@@ -7,4 +7,5 @@ BOOL ui_show(void);
 void ui_destroy(void);
 void ui_on_status(void);          /* engine status / app state changed */
 void ui_on_config_changed(void);  /* library or settings changed */
+void ui_on_customise_changed(void); /* look or wallpaper properties changed elsewhere (CLI) */
 BOOL ui_translate(MSG *m);        /* keyboard shortcuts; TRUE if consumed */

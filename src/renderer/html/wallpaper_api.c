@@ -503,6 +503,115 @@ CustomProp *wpapi_props_list(const WallpaperEntry *wp, int *count)
     return n ? list : NULL;
 }
 
+/* ---- typed values and choices, shared by the Customise page and the CLI */
+
+JVal *wpapi_num_value(double v, double step)
+{
+    char t[48];
+    int dec = step > 0.0 && step < 1.0 ? (int)ceil(-log10(step) - 1e-9) : 0;
+    snprintf(t, sizeof t, "%.*f", SP_CLAMP(dec, 0, 8), v);
+    return json_parse(t, strlen(t));
+}
+
+JVal *wpapi_bool_value(int on) { return json_parse(on ? "true" : "false", on ? 4 : 5); }
+
+JVal *wpapi_str_value(const wchar_t *s)
+{
+    StrBuf b = { 0 };
+    char *u = utf8_from_wide(s ? s : L"", NULL);
+    json_write_string(&b, u ? u : "");
+    free(u);
+    JVal *j = b.failed ? NULL : json_parse(b.p, b.len);
+    sb_free(&b);
+    return j;
+}
+
+static void jval_text(const JVal *v, char *out, size_t cap)
+{
+    if (!v) out[0] = 0;
+    else if (v->t == J_STR) snprintf(out, cap, "%s", v->str ? v->str : "");
+    else if (v->t == J_BOOL) snprintf(out, cap, "%s", v->b ? "true" : "false");
+    else snprintf(out, cap, "%.10g", json_num(v, 0.0));
+}
+
+int wpapi_choice_count(const CustomProp *cp)
+{
+    return cp && cp->items && cp->items->t == J_ARR ? cp->items->n : 0;
+}
+
+int wpapi_choice_current(const CustomProp *cp)
+{
+    int n = wpapi_choice_count(cp);
+    if (cp->type == CP_DROPDOWN) {
+        int i = (int)json_num(cp->value, -1.0);
+        return i >= 0 && i < n ? i : -1;
+    }
+    char cur[256], it[256];
+    jval_text(cp->value, cur, sizeof cur);
+    for (int i = 0; i < n; i++) {
+        const JVal *item = &cp->items->kids[i];
+        jval_text(cp->type == CP_COMBO ? json_get(item, "value") : item, it, sizeof it);
+        if (cp->type == CP_FILE ? !_stricmp(it, cur) : !strcmp(it, cur)) return i;
+    }
+    return -1;
+}
+
+void wpapi_choice_label(const CustomProp *cp, int i, wchar_t *out, size_t cap)
+{
+    out[0] = 0;
+    if (i < 0 || i >= wpapi_choice_count(cp)) return;
+    const JVal *item = &cp->items->kids[i];
+    if (cp->type == CP_COMBO) {
+        json_str_w(json_get(item, "label"), out, cap);
+        if (out[0]) return;
+        item = json_get(item, "value");
+    }
+    if (item && item->t == J_STR) json_str_w(item, out, cap);
+    else if (item) str_printf(out, cap, L"%.6g", json_num(item, 0.0));
+}
+
+JVal *wpapi_choice_value(const CustomProp *cp, int i)
+{
+    if (i < 0 || i >= wpapi_choice_count(cp)) return NULL;
+    if (cp->type == CP_DROPDOWN) return wpapi_num_value(i, 1.0);
+    JVal *v = NULL;
+    const JVal *item = &cp->items->kids[i];
+    wpapi_jval_copy(&v, cp->type == CP_COMBO ? json_get(item, "value") : item);
+    return v;
+}
+
+static uint32_t rgb_from_floats(float r, float g, float b)
+{
+    return ((uint32_t)lroundf(SP_CLAMP(r, 0.0f, 1.0f) * 255.0f) << 16) |
+           ((uint32_t)lroundf(SP_CLAMP(g, 0.0f, 1.0f) * 255.0f) << 8) | (uint32_t)lroundf(SP_CLAMP(b, 0.0f, 1.0f) * 255.0f);
+}
+
+uint32_t wpapi_color_get(const CustomProp *cp, int *style)
+{
+    const char *s = json_str(cp->value, "");
+    float r, g, b;
+    *style = 0;
+    if (s[0] == '#') return (uint32_t)strtoul(s + 1, NULL, 16) & 0xFFFFFF;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        *style = 1;
+        return (uint32_t)strtoul(s + 2, NULL, 16) & 0xFFFFFF;
+    }
+    if (sscanf(s, "%f %f %f", &r, &g, &b) == 3) {
+        *style = 2;
+        return rgb_from_floats(r, g, b);
+    }
+    return (uint32_t)strtoul(s, NULL, 16) & 0xFFFFFF;
+}
+
+JVal *wpapi_color_value(uint32_t rgb, int style)
+{
+    wchar_t text[48];
+    unsigned r = (rgb >> 16) & 255, g = (rgb >> 8) & 255, b = rgb & 255;
+    if (style == 2) str_printf(text, SP_COUNTOF(text), L"%.4g %.4g %.4g", r / 255.0, g / 255.0, b / 255.0);
+    else str_printf(text, SP_COUNTOF(text), style == 1 ? L"0x%02X%02X%02X" : L"#%02X%02X%02X", r, g, b);
+    return wpapi_str_value(text);
+}
+
 void wpapi_props_free(CustomProp *list, int count)
 {
     if (!list) return;

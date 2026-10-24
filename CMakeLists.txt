@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "1.3.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
+set(SCREENPLUS_VERSION "1.4.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
 project(ScreenPlus VERSION ${SCREENPLUS_VERSION} LANGUAGES C)
 
 if(NOT MSVC)
@@ -89,6 +89,7 @@ set(SOURCES
     src/renderer/video/video_renderer.c src/renderer/video/video_audio.c src/renderer/video/ffmpeg_thumb.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
+    src/app/cli_server.c
     src/tray/tray.c
     src/ui/ui_core.c src/ui/ui_pages.c src/ui/thumbs.c
     resources/screenplus.rc
@@ -109,6 +110,17 @@ target_link_libraries(ScreenPlus PRIVATE
     ${FFMPEG_IMPLIBS} delayimp
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
     d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh)
+
+# Terminal companion, shipped as ScreenPlus.com next to ScreenPlus.exe: a terminal resolves
+# `screenplus` to the .com first (PATHEXT order), shortcuts and the startup entry name the .exe.
+add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/json.c src/common/paths.c)
+set_target_properties(ScreenPlusCli PROPERTIES OUTPUT_NAME ScreenPlus SUFFIX ".com" PDB_NAME ScreenPlusCli)
+target_include_directories(ScreenPlusCli PRIVATE src)
+target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
+                                                 _CRT_SECURE_NO_WARNINGS SP_VERSION_STR="${PROJECT_VERSION}")
+target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /wd4221 /wd4100)
+target_link_options(ScreenPlusCli PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /INCREMENTAL:NO)
+target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 advapi32 bcrypt)
 
 # Validation helpers (not shipped): check the wallpaper is attached and visible behind the
 # icons, and print the livelySystemInformation payload the engine feeds web wallpapers.
@@ -142,7 +154,7 @@ if(MAKENSIS)
     add_custom_command(OUTPUT "${SETUP_EXE}"
         COMMAND "${MAKENSIS}" /V2 "/DVERSION=${PROJECT_VERSION}" "/DSTAGE=${_stage}" "/DOUTFILE=${_setup}"
                 "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi"
-        DEPENDS ScreenPlus "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi" "${CMAKE_SOURCE_DIR}/installer/wizard.bmp"
+        DEPENDS ScreenPlus ScreenPlusCli "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi" "${CMAKE_SOURCE_DIR}/installer/wizard.bmp"
                 "${CMAKE_SOURCE_DIR}/installer/header.bmp" "${CMAKE_SOURCE_DIR}/LICENSE"
         COMMENT "Building ScreenPlus-Setup-${PROJECT_VERSION}.exe" VERBATIM)
     add_custom_target(ScreenPlusSetup ALL DEPENDS "${SETUP_EXE}")

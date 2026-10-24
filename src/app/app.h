@@ -9,6 +9,7 @@
 #define WM_SP_ENGINE_EXITED (WM_APP + 60)
 #define WM_SP_TRAY          (WM_APP + 61)
 #define WM_SP_STATUS        (WM_APP + 62)
+#define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
 
@@ -80,6 +81,9 @@ BOOL supervisor_send(uint32_t cmd, uint32_t arg);
 void supervisor_stop(void);
 void supervisor_restart(void);
 void supervisor_sample_stats(void);
+
+/* cli_server.c: one ScreenPlus.com request (IPC_CLI_REQUEST), answered to replyTo */
+void cli_server_handle(HWND replyTo, const void *request, DWORD size);
 
 /* startup.c */
 BOOL startup_is_enabled(void);

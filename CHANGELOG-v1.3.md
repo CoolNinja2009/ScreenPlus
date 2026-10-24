@@ -260,3 +260,31 @@ resets, and edits made while the wallpaper is paused.
   only and keeps the look; neutral settings delete the stored key/file.
 - Image renderer: a re-decoded texture (resize) is presented again; texture ref leak on
   a failed present fixed. Graded present falls back to a plain copy if a view fails.
+
+---
+
+## Terminal interface (ScreenPlus.com)
+
+`screenplus <command>` from cmd or PowerShell; no arguments opens a `screen+>` prompt, and
+piped input runs as a script. Built as a second CMake target (`ScreenPlusCli`, console
+subsystem, output `ScreenPlus.com`) next to `ScreenPlus.exe`: terminals resolve the `.com`
+first (PATHEXT), shortcuts and the Run key keep naming the `.exe`. Setup installs it and
+runs `screenplus path add` (uninstall: `path remove`), which edits `HKCU\Environment\Path`
+in C, so long PATH values are safe (no NSIS string limit).
+
+- Protocol: `IPC_CLI_REQUEST` (UTF-8 JSON `{"argv":[...]}`, reply window in wParam) and
+  `IPC_CLI_REPLY` (`{"ok","text","data"}`), sent back before the request's SendMessage
+  returns. `src/app/cli_server.c` runs every command on the shell's UI thread through the
+  same functions the window uses; the Customise page reloads after CLI edits
+  (`ui_on_customise_changed`). Apps older than this answer FALSE: the CLI says so and still
+  drives show/pause/resume/toggle/next/stop through the old `IPC_SHELL_CMD` channel.
+- Commands: status (`--watch`), list, apply (name, `list` number, id or path; `--display N`),
+  import, remove, next, pause/resume/toggle, audio, restart, displays, look (set/reset),
+  props (set/reset; dropdowns by label or index, file pickers by name, labels that repeat
+  must be given by key), settings (set), start/show/hide/stop, ping. Local-only: help,
+  version, logs (`-n`, `-f` follow with rotation), paths, path.
+- `--json` prints the reply's data for scripts; exit codes 0 ok / 1 failed / 2 usage /
+  3 not running. Output is UTF-16 on a console (VT colours, `NO_COLOR` honoured), UTF-8 when
+  redirected; piped input is read as UTF-8 and a leading BOM is skipped.
+- Property value helpers moved from the Customise page into `wallpaper_api.c`
+  (`wpapi_choice_*`, `wpapi_color_*`, `wpapi_*_value`) so the window and the CLI share them.

@@ -7,6 +7,7 @@
 #define SP_SHELL_CLASS     L"ScreenPlus.Shell"
 #define SP_ENGINE_CLASS    L"ScreenPlus.Engine"
 #define SP_WALLPAPER_CLASS L"ScreenPlus.Wallpaper"
+#define SP_CLI_CLASS       L"ScreenPlus.Cli"
 #define SP_INSTANCE_MUTEX  L"Local\\ScreenPlus.Instance.v1"
 #define SP_IPC_VERSION     1
 
@@ -14,7 +15,11 @@ enum {
     IPC_ENGINE_HELLO  = 0x53500001, /* engine -> shell : IpcHello */
     IPC_ENGINE_STATUS = 0x53500002, /* engine -> shell : IpcEngineStatus */
     IPC_ENGINE_CMD    = 0x53500003, /* shell -> engine : IpcCommand */
-    IPC_SHELL_CMD     = 0x53500004  /* 2nd instance -> shell : IpcCommand */
+    IPC_SHELL_CMD     = 0x53500004, /* 2nd instance -> shell : IpcCommand */
+    /* Terminal interface (ScreenPlus.com). wParam of the request is the CLI's reply window; the
+     * shell answers with IPC_CLI_REPLY before the request's SendMessage returns. */
+    IPC_CLI_REQUEST   = 0x53500005, /* CLI -> shell : UTF-8 JSON {"argv":["command", ...]} */
+    IPC_CLI_REPLY     = 0x53500006  /* shell -> CLI : UTF-8 JSON {"ok":bool,"text":"...","data":<json>} */
 };
 
 typedef enum IpcCommandId {

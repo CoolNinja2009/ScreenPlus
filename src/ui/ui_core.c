@@ -1316,7 +1316,14 @@ void ui_on_config_changed(void)
 {
     if (!g_ui) return;
     pages_rebuild_view();
+    theme_build(g_ui);   /* the theme setting may have changed (CLI) */
     ui_invalidate();
+}
+
+void ui_on_customise_changed(void)
+{
+    pages_customise_reload();   /* the page keeps its cache while closed too */
+    if (g_ui) ui_invalidate();
 }
 
 BOOL ui_translate(MSG *m)

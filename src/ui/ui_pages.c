@@ -754,6 +754,12 @@ static struct {
     double          lastSend;          /* time_ms of the last commit */
 } cus;
 
+/* Look or properties changed outside the page (CLI): re-read them on the next paint. */
+void pages_customise_reload(void)
+{
+    cus.forceReload = 1;
+}
+
 static WallpaperEntry *customise_entry(void)
 {
     return config_find(&g_app.cfg, app_wallpaper_for(target_id()));
@@ -829,28 +835,6 @@ static void look_commit(int live)
     app_apply_customise();
 }
 
-/* property values: native JSON scalars, exactly what the package stores */
-static JVal *jprop_num(double v, double step)
-{
-    char t[48];
-    int dec = step > 0.0 && step < 1.0 ? (int)ceil(-log10(step) - 1e-9) : 0;
-    snprintf(t, sizeof t, "%.*f", SP_CLAMP(dec, 0, 8), v);
-    return json_parse(t, strlen(t));
-}
-
-static JVal *jprop_bool(int v) { return json_parse(v ? "true" : "false", v ? 4 : 5); }
-
-static JVal *jprop_str(const wchar_t *w)
-{
-    StrBuf b = { 0 };
-    char *s = utf8_from_wide(w ? w : L"", NULL);
-    json_write_string(&b, s ? s : "");
-    free(s);
-    JVal *j = b.failed ? NULL : json_parse(b.p, b.len);
-    sb_free(&b);
-    return j;
-}
-
 /* Replaces the value (nv == NULL keeps it), saves the override and pushes it to the wallpaper. */
 static void prop_commit(CustomProp *cp, JVal *nv, int live)
 {
@@ -869,63 +853,10 @@ static void prop_commit(CustomProp *cp, JVal *nv, int live)
 
 /* ---- choice properties: Lively dropdown (index), WE combo (option value), Lively folderDropdown (file) */
 
-static int prop_item_count(const CustomProp *cp)
-{
-    return cp->items && cp->items->t == J_ARR ? cp->items->n : 0;
-}
-
-static void jval_text(const JVal *v, char *out, size_t cap)
-{
-    if (!v) out[0] = 0;
-    else if (v->t == J_STR) snprintf(out, cap, "%s", v->str ? v->str : "");
-    else if (v->t == J_BOOL) snprintf(out, cap, "%s", v->b ? "true" : "false");
-    else snprintf(out, cap, "%.10g", json_num(v, 0.0));
-}
-
-static int prop_item_current(const CustomProp *cp)
-{
-    int n = prop_item_count(cp);
-    if (cp->type == CP_DROPDOWN) {
-        int i = (int)json_num(cp->value, -1.0);
-        return i >= 0 && i < n ? i : -1;
-    }
-    char cur[256], it[256];
-    jval_text(cp->value, cur, sizeof cur);
-    for (int i = 0; i < n; i++) {
-        const JVal *item = &cp->items->kids[i];
-        jval_text(cp->type == CP_COMBO ? json_get(item, "value") : item, it, sizeof it);
-        if (cp->type == CP_FILE ? !_stricmp(it, cur) : !strcmp(it, cur)) return i;
-    }
-    return -1;
-}
-
-static void prop_item_label(const CustomProp *cp, int i, wchar_t *out, size_t cap)
-{
-    out[0] = 0;
-    if (i < 0 || i >= prop_item_count(cp)) return;
-    const JVal *item = &cp->items->kids[i];
-    if (cp->type == CP_COMBO) {
-        json_str_w(json_get(item, "label"), out, cap);
-        if (out[0]) return;
-        item = json_get(item, "value");
-    }
-    if (item && item->t == J_STR) json_str_w(item, out, cap);
-    else if (item) str_printf(out, cap, L"%.6g", json_num(item, 0.0));
-}
-
-static JVal *prop_item_value(const CustomProp *cp, int i)
-{
-    if (cp->type == CP_DROPDOWN) return jprop_num(i, 1.0);
-    JVal *v = NULL;
-    const JVal *item = &cp->items->kids[i];
-    wpapi_jval_copy(&v, cp->type == CP_COMBO ? json_get(item, "value") : item);
-    return v;
-}
-
 static void prop_choice_text(const CustomProp *cp, wchar_t *out, size_t cap)
 {
-    int i = prop_item_current(cp);
-    if (i >= 0) prop_item_label(cp, i, out, cap);
+    int i = wpapi_choice_current(cp);
+    if (i >= 0) wpapi_choice_label(cp, i, out, cap);
     else if (cp->value && cp->value->t == J_STR) json_str_w(cp->value, out, cap);
     else str_printf(out, cap, L"%.6g", json_num(cp->value, 0.0));
     if (!out[0]) str_copy(out, cap, L"(none)");
@@ -943,14 +874,14 @@ static void prop_menu(int idx, int id)
 {
     Ui *u = g_ui;
     CustomProp *cp = &cus.props[idx];
-    int n = prop_item_count(cp);
+    int n = wpapi_choice_count(cp);
     if (n <= 0) return;
     HMENU m = CreatePopupMenu();
     if (!m) return;
-    int cur = prop_item_current(cp);
+    int cur = wpapi_choice_current(cp);
     for (int i = 0; i < n && i < 1000; i++) {
         wchar_t l[160];
-        prop_item_label(cp, i, l, SP_COUNTOF(l));
+        wpapi_choice_label(cp, i, l, SP_COUNTOF(l));
         AppendMenuW(m, MF_STRING | (i == cur ? MF_CHECKED : 0), (UINT_PTR)i + 1, l[0] ? l : L"(unnamed)");
     }
     D2D1_RECT_F r = hit_rect(id);
@@ -958,33 +889,16 @@ static void prop_menu(int idx, int id)
     ClientToScreen(u->hwnd, &p);
     UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, u->hwnd, NULL);
     DestroyMenu(m);
-    if (cmd && (int)cmd - 1 != cur) prop_commit(cp, prop_item_value(cp, (int)cmd - 1), 0);
+    if (cmd && (int)cmd - 1 != cur) prop_commit(cp, wpapi_choice_value(cp, (int)cmd - 1), 0);
 }
 
 /* ---- colour properties: "#RRGGBB" / "0xRRGGBB" (Lively) or "r g b" floats 0..1 (Wallpaper Engine) */
-
-static uint32_t prop_color(const CustomProp *cp, int *style)
-{
-    const char *s = json_str(cp->value, "");
-    float r, g, b;
-    *style = 0;
-    if (s[0] == '#') return (uint32_t)strtoul(s + 1, NULL, 16) & 0xFFFFFF;
-    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
-        *style = 1;
-        return (uint32_t)strtoul(s + 2, NULL, 16) & 0xFFFFFF;
-    }
-    if (sscanf(s, "%f %f %f", &r, &g, &b) == 3) {
-        *style = 2;
-        return rgb_of((D2D1_COLOR_F){ r, g, b, 1.0f });
-    }
-    return (uint32_t)strtoul(s, NULL, 16) & 0xFFFFFF;
-}
 
 static void prop_pick_colour(int idx)
 {
     CustomProp *cp = &cus.props[idx];
     int style;
-    uint32_t rgb = prop_color(cp, &style);
+    uint32_t rgb = wpapi_color_get(cp, &style);
     static COLORREF custom[16];
     CHOOSECOLORW cc = { sizeof cc };
     cc.hwndOwner = g_ui->hwnd;
@@ -993,12 +907,7 @@ static void prop_pick_colour(int idx)
     cc.Flags = CC_FULLOPEN | CC_RGBINIT;
     if (!ChooseColorW(&cc)) return;
     COLORREF r = cc.rgbResult;
-    wchar_t text[48];
-    if (style == 2)
-        str_printf(text, SP_COUNTOF(text), L"%.4g %.4g %.4g", GetRValue(r) / 255.0, GetGValue(r) / 255.0, GetBValue(r) / 255.0);
-    else
-        str_printf(text, SP_COUNTOF(text), style == 1 ? L"0x%02X%02X%02X" : L"#%02X%02X%02X", GetRValue(r), GetGValue(r), GetBValue(r));
-    prop_commit(cp, jprop_str(text), 0);
+    prop_commit(cp, wpapi_color_value(((uint32_t)GetRValue(r) << 16) | ((uint32_t)GetGValue(r) << 8) | GetBValue(r), style), 0);
 }
 
 /* ---- dragging (sliders, colour wheel): called on press, move and release */
@@ -1033,7 +942,7 @@ void pages_drag(int id, float x, float y, int commit)
         double v = cp->min + (cp->max - cp->min) * slider_norm_from_x(r, x);
         v = SP_CLAMP(cp->min + floor((v - cp->min) / step + 0.5) * step, cp->min, cp->max);
         if (fabs(v - json_num(cp->value, cp->min)) < step * 1e-3 && !commit) return;
-        prop_commit(cp, jprop_num(v, step), !commit);
+        prop_commit(cp, wpapi_num_value(v, step), !commit);
     }
 }
 
@@ -1053,7 +962,7 @@ static int customise_key(UINT vk, int shift)
         CustomProp *cp = &cus.props[data];
         double step = cp->step > 0 ? cp->step : 1.0;
         double v = SP_CLAMP(json_num(cp->value, cp->min) + dir * step * (shift ? 10 : 1), cp->min, cp->max);
-        prop_commit(cp, jprop_num(v, step), 0);
+        prop_commit(cp, wpapi_num_value(v, step), 0);
     }
     u->focusVisible = 1;
     return 1;
@@ -1108,7 +1017,7 @@ void pages_text_end(int commit)
     int i = u->textFocus;
     u->textFocus = -1;
     if (i < 0 || i >= cus.propCount) return;
-    if (commit) prop_commit(&cus.props[i], jprop_str(cus.edit), 0);
+    if (commit) prop_commit(&cus.props[i], wpapi_str_value(cus.edit), 0);
     ui_invalidate();
 }
 
@@ -1240,7 +1149,7 @@ static void draw_prop_row(Ui *u, float x, float y, float w, CustomProp *cp, int 
     }
     case CP_COLOR: {
         int id = HIT_ID(HK_PCOLOR, idx), style;
-        uint32_t rgb = prop_color(cp, &style);
+        uint32_t rgb = wpapi_color_get(cp, &style);
         D2D1_RECT_F sw = rectf(right - 64, cy - 15, 64, 30);
         ui_rrect(sw, 8, col(rgb, 1));
         ui_rrect_stroke(sw, 8, ui_is_hot(id) ? 2.0f : 1.0f, ui_is_hot(id) ? t->accent : t->border);
@@ -1433,7 +1342,7 @@ void pages_activate(int id, int dbl)
     case HK_TOGGLE:        toggle_setting(data); break;
     case HK_PCHECK:
         if (data >= 0 && data < cus.propCount && cus.props[data].type == CP_CHECKBOX)
-            prop_commit(&cus.props[data], jprop_bool(!json_bool(cus.props[data].value, 0)), 0);
+            prop_commit(&cus.props[data], wpapi_bool_value(!json_bool(cus.props[data].value, 0)), 0);
         break;
     case HK_PDOWN:
         if (data >= 0 && data < cus.propCount) prop_menu(data, id);

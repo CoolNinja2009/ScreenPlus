@@ -72,3 +72,18 @@ int wpapi_save_override(const WallpaperEntry *wp, const char *name, const JVal *
 
 /* Helper for changing a stored JVal clone: replaces *dst with a deep copy of src. */
 void wpapi_jval_copy(JVal **dst, const JVal *src);
+
+/* Typed values to store (native JSON scalars, exactly what the packages use). */
+JVal *wpapi_num_value(double v, double step);   /* rounded to the step's decimals */
+JVal *wpapi_bool_value(int on);
+JVal *wpapi_str_value(const wchar_t *s);
+
+/* Choice properties (CP_DROPDOWN / CP_COMBO / CP_FILE). */
+int   wpapi_choice_count(const CustomProp *cp);
+int   wpapi_choice_current(const CustomProp *cp);                          /* -1: the value matches no item */
+void  wpapi_choice_label(const CustomProp *cp, int i, wchar_t *out, size_t cap);
+JVal *wpapi_choice_value(const CustomProp *cp, int i);                     /* value that selects item i */
+
+/* Colour properties: style 0 "#RRGGBB", 1 "0xRRGGBB", 2 Wallpaper Engine "r g b" floats. */
+uint32_t wpapi_color_get(const CustomProp *cp, int *style);
+JVal    *wpapi_color_value(uint32_t rgb, int style);

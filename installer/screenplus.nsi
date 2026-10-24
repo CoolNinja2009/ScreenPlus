@@ -2,7 +2,7 @@
 ;
 ; Built by CMake when makensis is available, or by hand:
 ;   makensis /DVERSION=1.2.3 /DSTAGE=<folder with ScreenPlus.exe> /DOUTFILE=<setup.exe> installer\screenplus.nsi
-; STAGE is the build output: ScreenPlus.exe, the FFmpeg DLLs, licenses\ and samples\.
+; STAGE is the build output: ScreenPlus.exe, ScreenPlus.com (terminal), the FFmpeg DLLs, licenses\ and samples\.
 ;
 ; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/D=<install folder>]   (/D must be last)
 ; An existing installation is found automatically and updated in place, keeping the library.
@@ -303,6 +303,7 @@ Section "Install"
 
   SetOutPath "$INSTDIR"
   File "${STAGE}\${APP_EXE}"
+  File "${STAGE}\ScreenPlus.com"                       ; terminal companion: `screenplus <command>`
   File "${STAGE}\avcodec-*.dll"
   File "${STAGE}\avformat-*.dll"
   File "${STAGE}\avutil-*.dll"
@@ -325,6 +326,8 @@ Section "Install"
   ${EndIf}
 
   SetOutPath "$INSTDIR"
+  nsExec::Exec '"$INSTDIR\ScreenPlus.com" path add --quiet'   ; `screenplus` in new terminals
+  Pop $0
   WriteUninstaller "$INSTDIR\uninstall.exe"
   CreateShortcut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${APP_EXE}"
   ${If} $OptDesktop == 1
@@ -372,7 +375,10 @@ Section "Uninstall"
   SetShellVarContext current
   !insertmacro StopScreenPlus
 
+  nsExec::Exec '"$INSTDIR\ScreenPlus.com" path remove --quiet'
+  Pop $0
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\ScreenPlus.com"
   Delete "$INSTDIR\avcodec-*.dll"
   Delete "$INSTDIR\avformat-*.dll"
   Delete "$INSTDIR\avutil-*.dll"
