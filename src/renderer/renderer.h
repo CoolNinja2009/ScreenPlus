@@ -47,6 +47,7 @@ typedef struct RendererVtbl {
     void (*input)(Renderer *r, const RendererInput *in);
     void (*feed)(Renderer *r, int what, const char *payload);    /* RENDER_FEED_* (UTF-8 JS literal) */
     void (*on_timer)(Renderer *r, UINT_PTR id);                  /* WM_TIMER on the host window */
+    void (*apply)(Renderer *r);                                  /* customise panel changed: reload properties + grading */
 } RendererVtbl;
 
 struct Renderer {
@@ -99,5 +100,7 @@ HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, H
 struct ID3D11Texture2D;
 struct IDXGISwapChain1;
 BOOL    gfx_texture_from_bgra(const void *bits, int w, int h, struct ID3D11Texture2D **tex, wchar_t *err, size_t cap);
-HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h);
+struct WallpaperAdjust;
+HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h,
+                    const struct WallpaperAdjust *adj);   /* NULL: no colour grading */
 void    gfx_release(struct IDXGISwapChain1 **swap);

@@ -612,6 +612,15 @@ static void handle_command(const IpcCommand *c)
     case CMD_REQUEST_STATUS:
         status_send();
         break;
+    case CMD_APPLY_CUSTOMISE:
+        /* every live renderer, paused or covered ones included: a paused wallpaper must not miss
+         * the change (video re-presents its frozen frame graded, web pages queue the script) */
+        LOGD(L"command: apply customise changes");
+        for (int i = 0; i < SP_MAX_MONITORS; i++) {
+            Slot *s = &E.slots[i];
+            if (s->used && s->r && s->r->vt && s->r->vt->apply) s->r->vt->apply(s->r);
+        }
+        break;
     case CMD_SHUTDOWN:
         LOGI(L"command: shutdown");
         DestroyWindow(E.ctl);

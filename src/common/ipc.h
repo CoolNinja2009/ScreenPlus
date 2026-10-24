@@ -26,6 +26,7 @@ typedef enum IpcCommandId {
     CMD_RESTART_RENDERERS,   /* arg 0 = failed only, 1 = all */
     CMD_SHUTDOWN,
     CMD_REQUEST_STATUS,
+    CMD_APPLY_CUSTOMISE,     /* Customise panel changed: renderers re-read properties + grading */
     /* shell commands (second instance / command line) */
     CMD_SHOW_UI = 100,
     CMD_TOGGLE_PAUSE,

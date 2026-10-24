@@ -11,6 +11,36 @@
 
 typedef enum ThemeMode { THEME_SYSTEM = 0, THEME_LIGHT = 1, THEME_DARK = 2 } ThemeMode;
 
+/* Colour grading applied to any wallpaper (video/image shaders, web CSS): the Customise
+ * panel edits it, <data>\props\<id>.json keeps it under "_screenplus_adjust". */
+typedef struct WallpaperAdjust {
+    int      used;          /* 0: defaults, no grading at all */
+    int      brightness;    /* -100..100 */
+    int      contrast;      /* -100..100 */
+    int      saturation;    /* -100..100 */
+    int      hue;           /* -180..180 degrees */
+    int      gamma;         /* -100..100 (0 = 1.0) */
+    uint32_t tint;          /* 0xRRGGBB */
+    int      tintLift;      /* 0..100: tint colour strength ('lift the blacks') */
+    int      tintBrightness;/* 0..100: tint colour brightness (100 = full) */
+} WallpaperAdjust;
+
+static inline WallpaperAdjust adjust_defaults(void)
+{
+    WallpaperAdjust a;
+    ZeroMemory(&a, sizeof a);
+    a.tint = 0xFF7575;      /* styling default; does nothing until tintLift > 0 */
+    a.tintBrightness = 100;
+    return a;
+}
+
+/* Grading is on as soon as any control leaves neutral (the tint colour alone changes nothing).
+ * `used` is always derived from the values, never trusted from storage. */
+static inline int adjust_active(const WallpaperAdjust *a)
+{
+    return a->brightness || a->contrast || a->saturation || a->hue || a->gamma || a->tintLift > 0;
+}
+
 /* Origin of a wallpaper package: drives which JavaScript APIs the HTML engine provides. */
 typedef enum WallpaperFormat { WPF_PLAIN = 0, WPF_LIVELY = 1, WPF_WE = 2 } WallpaperFormat;
 enum { WPFLAG_AUDIO   = 1,  /* audio-reactive (Lively "webaudio") */

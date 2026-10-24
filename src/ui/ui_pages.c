@@ -4,10 +4,13 @@
 #include "../common/util.h"
 #include "../common/log.h"
 #include "../common/paths.h"
+#include "../common/json.h"
 #include "../renderer/renderer.h"
 #include "../desktop/desktop_host.h"
 #include <stdlib.h>
 #include <math.h>
+#include <stdio.h>
+#include <commdlg.h>
 
 #define SIDEBAR_W 232.0f
 #define PAD       32.0f
@@ -96,8 +99,8 @@ static void draw_sidebar(Ui *u)
     ui_line(35, 46, 43, 46, 1.6f, t->onAccent);
     ui_text(L"Screen+", u->fBrand, rectf(64, 22, 150, 30), t->text);
 
-    static const wchar_t *labels[] = { L"Library", L"Displays", L"Settings" };
-    static const wchar_t icons[] = { GL_LIBRARY, GL_DISPLAY, GL_SETTINGS };
+    static const wchar_t *labels[] = { L"Library", L"Displays", L"Customise", L"Settings" };
+    static const wchar_t icons[] = { GL_LIBRARY, GL_DISPLAY, GL_COLOR, GL_SETTINGS };
     float y = 84;
     for (int i = 0; i < PAGE_COUNT; i++) {
         int id = HIT_ID(HK_NAV, i);
@@ -721,6 +724,626 @@ static void draw_settings(Ui *u, float cx, float cw)
     draw_scrollbar(u, view, PAGE_SETTINGS);
 }
 
+/* ================================================================ customise */
+
+/* Look controls: order matches the WallpaperAdjust fields the renderers consume. */
+enum { SL_BRIGHT = 0, SL_CONTRAST, SL_SAT, SL_HUE, SL_GAMMA, SL_TINTLIFT, SL_TINTV, SL_COUNT };
+static const struct { const wchar_t *label; int min, max; } k_look[SL_COUNT] = {
+    { L"Brightness", -100, 100 },
+    { L"Contrast",   -100, 100 },
+    { L"Saturation", -100, 100 },
+    { L"Hue shift",  -180, 180 },
+    { L"Gamma",      -100, 100 },
+    { L"Strength",      0, 100 },   /* tint: how far the blacks are lifted towards the colour */
+    { L"Brightness",    0, 100 },   /* tint: brightness of the colour */
+};
+
+#define LOOK_ROW  50.0f
+#define PROP_ROW  56.0f
+#define LABEL_W   150.0f
+#define DISC_R    68.0f
+#define LIVE_MS   40.0     /* live preview while dragging: at most one engine round trip per 40 ms */
+
+static struct {
+    wchar_t         wpId[SP_ID_LEN];
+    WallpaperAdjust adj;               /* working copy: edits land here and are saved on commit */
+    CustomProp     *props;
+    int             propCount;
+    wchar_t         edit[SP_MAX_PATH]; /* text property being edited (u->textFocus) */
+    int             forceReload;       /* re-resolve property values (after a reset) */
+    double          lastSend;          /* time_ms of the last commit */
+} cus;
+
+static WallpaperEntry *customise_entry(void)
+{
+    return config_find(&g_app.cfg, app_wallpaper_for(target_id()));
+}
+
+static void customise_refresh(void)
+{
+    Ui *u = g_ui;
+    WallpaperEntry *e = customise_entry();
+    if (!e || !e->id[0]) {
+        wpapi_props_free(cus.props, cus.propCount);
+        cus.props = NULL;
+        cus.propCount = 0;
+        cus.wpId[0] = 0;
+        u->textFocus = -1;
+        return;
+    }
+    if (str_ieq(cus.wpId, e->id) && !cus.forceReload) return;
+    str_copy(cus.wpId, SP_COUNTOF(cus.wpId), e->id);
+    cus.forceReload = 0;
+    u->textFocus = -1;
+    wpapi_load_adjust(e->id, &cus.adj);
+    wpapi_props_free(cus.props, cus.propCount);
+    cus.props = wpapi_props_list(e, &cus.propCount);
+}
+
+static int *look_field(int def)
+{
+    WallpaperAdjust *a = &cus.adj;
+    switch (def) {
+    case SL_BRIGHT:   return &a->brightness;
+    case SL_CONTRAST: return &a->contrast;
+    case SL_SAT:      return &a->saturation;
+    case SL_HUE:      return &a->hue;
+    case SL_GAMMA:    return &a->gamma;
+    case SL_TINTLIFT: return &a->tintLift;
+    case SL_TINTV:    return &a->tintBrightness;
+    default:          return NULL;
+    }
+}
+
+/* Slider geometry shared with ui_slider (track inset 11 on both sides). */
+static float slider_norm_from_x(D2D1_RECT_F r, float x)
+{
+    float inset = 11.0f, span = SP_MAX((r.right - r.left) - inset * 2.0f, 1.0f);
+    return SP_CLAMP((x - (r.left + inset)) / span, 0.0f, 1.0f);
+}
+
+static uint32_t rgb_of(D2D1_COLOR_F c)
+{
+    return ((uint32_t)lroundf(SP_CLAMP(c.r, 0.0f, 1.0f) * 255.0f) << 16) |
+           ((uint32_t)lroundf(SP_CLAMP(c.g, 0.0f, 1.0f) * 255.0f) << 8) |
+           (uint32_t)lroundf(SP_CLAMP(c.b, 0.0f, 1.0f) * 255.0f);
+}
+
+/* The tint as the renderers apply it: colour scaled by the tint brightness. */
+static uint32_t tint_effective(void)
+{
+    D2D1_COLOR_F c = col(cus.adj.tint, 1.0f);
+    float v = cus.adj.tintBrightness / 100.0f;
+    return rgb_of((D2D1_COLOR_F){ c.r * v, c.g * v, c.b * v, 1.0f });
+}
+
+/* Saves and pushes the look; `live` commits (mid-drag) are throttled, the release always sends. */
+static void look_commit(int live)
+{
+    ui_invalidate();
+    WallpaperEntry *e = customise_entry();
+    double now = time_ms();
+    if (!e || (live && now - cus.lastSend < LIVE_MS)) return;
+    cus.lastSend = now;
+    wpapi_save_adjust(e->id, &cus.adj);
+    app_apply_customise();
+}
+
+/* property values: native JSON scalars, exactly what the package stores */
+static JVal *jprop_num(double v, double step)
+{
+    char t[48];
+    int dec = step > 0.0 && step < 1.0 ? (int)ceil(-log10(step) - 1e-9) : 0;
+    snprintf(t, sizeof t, "%.*f", SP_CLAMP(dec, 0, 8), v);
+    return json_parse(t, strlen(t));
+}
+
+static JVal *jprop_bool(int v) { return json_parse(v ? "true" : "false", v ? 4 : 5); }
+
+static JVal *jprop_str(const wchar_t *w)
+{
+    StrBuf b = { 0 };
+    char *s = utf8_from_wide(w ? w : L"", NULL);
+    json_write_string(&b, s ? s : "");
+    free(s);
+    JVal *j = b.failed ? NULL : json_parse(b.p, b.len);
+    sb_free(&b);
+    return j;
+}
+
+/* Replaces the value (nv == NULL keeps it), saves the override and pushes it to the wallpaper. */
+static void prop_commit(CustomProp *cp, JVal *nv, int live)
+{
+    if (nv) {
+        json_free(cp->value);
+        cp->value = nv;
+        cp->overridden = 1;
+    }
+    ui_invalidate();
+    WallpaperEntry *e = customise_entry();
+    double now = time_ms();
+    if (!e || (live && now - cus.lastSend < LIVE_MS)) return;
+    cus.lastSend = now;
+    if (wpapi_save_override(e, cp->name, cp->value)) app_apply_customise();
+}
+
+/* ---- choice properties: Lively dropdown (index), WE combo (option value), Lively folderDropdown (file) */
+
+static int prop_item_count(const CustomProp *cp)
+{
+    return cp->items && cp->items->t == J_ARR ? cp->items->n : 0;
+}
+
+static void jval_text(const JVal *v, char *out, size_t cap)
+{
+    if (!v) out[0] = 0;
+    else if (v->t == J_STR) snprintf(out, cap, "%s", v->str ? v->str : "");
+    else if (v->t == J_BOOL) snprintf(out, cap, "%s", v->b ? "true" : "false");
+    else snprintf(out, cap, "%.10g", json_num(v, 0.0));
+}
+
+static int prop_item_current(const CustomProp *cp)
+{
+    int n = prop_item_count(cp);
+    if (cp->type == CP_DROPDOWN) {
+        int i = (int)json_num(cp->value, -1.0);
+        return i >= 0 && i < n ? i : -1;
+    }
+    char cur[256], it[256];
+    jval_text(cp->value, cur, sizeof cur);
+    for (int i = 0; i < n; i++) {
+        const JVal *item = &cp->items->kids[i];
+        jval_text(cp->type == CP_COMBO ? json_get(item, "value") : item, it, sizeof it);
+        if (cp->type == CP_FILE ? !_stricmp(it, cur) : !strcmp(it, cur)) return i;
+    }
+    return -1;
+}
+
+static void prop_item_label(const CustomProp *cp, int i, wchar_t *out, size_t cap)
+{
+    out[0] = 0;
+    if (i < 0 || i >= prop_item_count(cp)) return;
+    const JVal *item = &cp->items->kids[i];
+    if (cp->type == CP_COMBO) {
+        json_str_w(json_get(item, "label"), out, cap);
+        if (out[0]) return;
+        item = json_get(item, "value");
+    }
+    if (item && item->t == J_STR) json_str_w(item, out, cap);
+    else if (item) str_printf(out, cap, L"%.6g", json_num(item, 0.0));
+}
+
+static JVal *prop_item_value(const CustomProp *cp, int i)
+{
+    if (cp->type == CP_DROPDOWN) return jprop_num(i, 1.0);
+    JVal *v = NULL;
+    const JVal *item = &cp->items->kids[i];
+    wpapi_jval_copy(&v, cp->type == CP_COMBO ? json_get(item, "value") : item);
+    return v;
+}
+
+static void prop_choice_text(const CustomProp *cp, wchar_t *out, size_t cap)
+{
+    int i = prop_item_current(cp);
+    if (i >= 0) prop_item_label(cp, i, out, cap);
+    else if (cp->value && cp->value->t == J_STR) json_str_w(cp->value, out, cap);
+    else str_printf(out, cap, L"%.6g", json_num(cp->value, 0.0));
+    if (!out[0]) str_copy(out, cap, L"(none)");
+}
+
+static D2D1_RECT_F hit_rect(int id)
+{
+    Ui *u = g_ui;
+    for (int i = 0; i < u->hitCount; i++)
+        if (u->hits[i].id == id) return u->hits[i].r;
+    return u->pressedRect;
+}
+
+static void prop_menu(int idx, int id)
+{
+    Ui *u = g_ui;
+    CustomProp *cp = &cus.props[idx];
+    int n = prop_item_count(cp);
+    if (n <= 0) return;
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    int cur = prop_item_current(cp);
+    for (int i = 0; i < n && i < 1000; i++) {
+        wchar_t l[160];
+        prop_item_label(cp, i, l, SP_COUNTOF(l));
+        AppendMenuW(m, MF_STRING | (i == cur ? MF_CHECKED : 0), (UINT_PTR)i + 1, l[0] ? l : L"(unnamed)");
+    }
+    D2D1_RECT_F r = hit_rect(id);
+    POINT p = { (LONG)(r.left * u->scale), (LONG)((r.bottom + 4.0f) * u->scale) };
+    ClientToScreen(u->hwnd, &p);
+    UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, u->hwnd, NULL);
+    DestroyMenu(m);
+    if (cmd && (int)cmd - 1 != cur) prop_commit(cp, prop_item_value(cp, (int)cmd - 1), 0);
+}
+
+/* ---- colour properties: "#RRGGBB" / "0xRRGGBB" (Lively) or "r g b" floats 0..1 (Wallpaper Engine) */
+
+static uint32_t prop_color(const CustomProp *cp, int *style)
+{
+    const char *s = json_str(cp->value, "");
+    float r, g, b;
+    *style = 0;
+    if (s[0] == '#') return (uint32_t)strtoul(s + 1, NULL, 16) & 0xFFFFFF;
+    if (s[0] == '0' && (s[1] == 'x' || s[1] == 'X')) {
+        *style = 1;
+        return (uint32_t)strtoul(s + 2, NULL, 16) & 0xFFFFFF;
+    }
+    if (sscanf(s, "%f %f %f", &r, &g, &b) == 3) {
+        *style = 2;
+        return rgb_of((D2D1_COLOR_F){ r, g, b, 1.0f });
+    }
+    return (uint32_t)strtoul(s, NULL, 16) & 0xFFFFFF;
+}
+
+static void prop_pick_colour(int idx)
+{
+    CustomProp *cp = &cus.props[idx];
+    int style;
+    uint32_t rgb = prop_color(cp, &style);
+    static COLORREF custom[16];
+    CHOOSECOLORW cc = { sizeof cc };
+    cc.hwndOwner = g_ui->hwnd;
+    cc.lpCustColors = custom;
+    cc.rgbResult = RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+    if (!ChooseColorW(&cc)) return;
+    COLORREF r = cc.rgbResult;
+    wchar_t text[48];
+    if (style == 2)
+        str_printf(text, SP_COUNTOF(text), L"%.4g %.4g %.4g", GetRValue(r) / 255.0, GetGValue(r) / 255.0, GetBValue(r) / 255.0);
+    else
+        str_printf(text, SP_COUNTOF(text), style == 1 ? L"0x%02X%02X%02X" : L"#%02X%02X%02X", GetRValue(r), GetGValue(r), GetBValue(r));
+    prop_commit(cp, jprop_str(text), 0);
+}
+
+/* ---- dragging (sliders, colour wheel): called on press, move and release */
+
+void pages_drag(int id, float x, float y, int commit)
+{
+    int kind = HIT_KIND(id), data = HIT_DATA(id);
+    D2D1_RECT_F r = g_ui->pressedRect;
+    if (kind == HK_SLIDER) {
+        int *f = look_field(data);
+        if (!f) return;
+        int v = k_look[data].min + (int)lroundf((k_look[data].max - k_look[data].min) * slider_norm_from_x(r, x));
+        if (v == *f && !commit) return;
+        *f = v;
+        look_commit(!commit);
+        return;
+    }
+    if (kind == HK_DISC) {
+        float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
+        float radius = SP_MAX((r.right - r.left) * 0.5f, 1.0f), dx = x - cx, dy = y - cy;
+        float sat = SP_MIN(sqrtf(dx * dx + dy * dy) / radius, 1.0f);
+        uint32_t tint = rgb_of(ui_hsv(atan2f(dy, dx) * 180.0f / 3.14159265f, sat, 1.0f, 1.0f));
+        if (tint == cus.adj.tint && !commit) return;
+        cus.adj.tint = tint;
+        if (!cus.adj.tintLift) cus.adj.tintLift = 30;   /* picking a colour turns the tint on */
+        look_commit(!commit);
+        return;
+    }
+    if (kind == HK_PSLIDER && data >= 0 && data < cus.propCount) {
+        CustomProp *cp = &cus.props[data];
+        double step = cp->step > 0 ? cp->step : 1.0;
+        double v = cp->min + (cp->max - cp->min) * slider_norm_from_x(r, x);
+        v = SP_CLAMP(cp->min + floor((v - cp->min) / step + 0.5) * step, cp->min, cp->max);
+        if (fabs(v - json_num(cp->value, cp->min)) < step * 1e-3 && !commit) return;
+        prop_commit(cp, jprop_num(v, step), !commit);
+    }
+}
+
+/* Arrow keys on a focused slider: one step (Shift: ten). */
+static int customise_key(UINT vk, int shift)
+{
+    Ui *u = g_ui;
+    int kind = HIT_KIND(u->focus), data = HIT_DATA(u->focus);
+    if ((kind != HK_SLIDER && kind != HK_PSLIDER) || (vk != VK_LEFT && vk != VK_RIGHT)) return 0;
+    int dir = vk == VK_RIGHT ? 1 : -1;
+    if (kind == HK_SLIDER) {
+        int *f = look_field(data);
+        if (!f) return 1;
+        *f = SP_CLAMP(*f + dir * (shift ? 10 : 1), k_look[data].min, k_look[data].max);
+        look_commit(0);
+    } else if (data >= 0 && data < cus.propCount) {
+        CustomProp *cp = &cus.props[data];
+        double step = cp->step > 0 ? cp->step : 1.0;
+        double v = SP_CLAMP(json_num(cp->value, cp->min) + dir * step * (shift ? 10 : 1), cp->min, cp->max);
+        prop_commit(cp, jprop_num(v, step), 0);
+    }
+    u->focusVisible = 1;
+    return 1;
+}
+
+/* ---- text properties */
+
+int pages_text_char(wchar_t ch)
+{
+    Ui *u = g_ui;
+    if (u->textFocus < 0 || u->textFocus >= cus.propCount) return 0;
+    size_t n = wcslen(cus.edit);
+    if (ch == 8) {
+        if (n) cus.edit[n - 1] = 0;
+    } else if (ch == 127) {              /* Ctrl+Backspace: delete the last word */
+        while (n && cus.edit[n - 1] == L' ') cus.edit[--n] = 0;
+        while (n && cus.edit[n - 1] != L' ') cus.edit[--n] = 0;
+    } else if (ch == 22) {               /* Ctrl+V */
+        if (OpenClipboard(u->hwnd)) {
+            HANDLE h = GetClipboardData(CF_UNICODETEXT);
+            const wchar_t *p = h ? (const wchar_t *)GlobalLock(h) : NULL;
+            if (p) {
+                str_cat(cus.edit, SP_COUNTOF(cus.edit), p);
+                str_sanitize_line(cus.edit);
+                GlobalUnlock(h);
+            }
+            CloseClipboard();
+        }
+    } else if (ch >= 32 && n + 1 < SP_COUNTOF(cus.edit)) {
+        cus.edit[n] = ch;
+        cus.edit[n + 1] = 0;
+    } else {
+        return 1;
+    }
+    ui_invalidate();
+    return 1;
+}
+
+int pages_text_key(UINT vk, int ctrl, int shift)
+{
+    Ui *u = g_ui;
+    (void)ctrl; (void)shift;
+    if (u->textFocus < 0) return 0;
+    if (vk == VK_ESCAPE) pages_text_end(0);
+    else if (vk == VK_RETURN) pages_text_end(1);
+    return 1;                            /* characters arrive via WM_CHAR; consume the rest */
+}
+
+void pages_text_end(int commit)
+{
+    Ui *u = g_ui;
+    int i = u->textFocus;
+    u->textFocus = -1;
+    if (i < 0 || i >= cus.propCount) return;
+    if (commit) prop_commit(&cus.props[i], jprop_str(cus.edit), 0);
+    ui_invalidate();
+}
+
+/* ---- drawing */
+
+static void look_value_text(int def, int val, wchar_t *out, size_t cap)
+{
+    if (def == SL_HUE) str_printf(out, cap, L"%+d°", val);
+    else if (def == SL_TINTLIFT || def == SL_TINTV) str_printf(out, cap, L"%d%%", val);
+    else str_printf(out, cap, L"%+d", val);
+}
+
+static void row_separator(Ui *u, float x, float y, float w)
+{
+    ui_line(x + 18, y, x + w - 18, y, 1.0f, u->t.separator);
+}
+
+/* label | slider | value, vertically centred in one row */
+static void look_slider(Ui *u, float x, float y, float w, float labelW, int def, int enabled)
+{
+    Theme *t = &u->t;
+    int *f = look_field(def);
+    int val = f ? *f : 0;
+    ui_text(k_look[def].label, u->fBody, rectf(x, y, labelW, LOOK_ROW), enabled ? t->text : t->text3);
+    wchar_t v[32];
+    if (enabled) look_value_text(def, val, v, SP_COUNTOF(v));
+    else str_copy(v, SP_COUNTOF(v), L"n/a");
+    text_right(v, u->fBody, x + w, y, LOOK_ROW, enabled ? t->text2 : t->text3);
+    D2D1_RECT_F sr = rectf(x + labelW, y + (LOOK_ROW - 24.0f) * 0.5f, w - labelW - 56.0f, 24.0f);
+    if (enabled) {
+        ui_slider(HIT_ID(HK_SLIDER, def), sr, (float)(val - k_look[def].min) / (float)(k_look[def].max - k_look[def].min));
+    } else {
+        float cy = (sr.top + sr.bottom) * 0.5f;
+        ui_rrect(rectf(sr.left + 11.0f, cy - 2.0f, (sr.right - sr.left) - 22.0f, 4.0f), 2.0f, col_a(t->track, 0.5f));
+    }
+}
+
+static float draw_look_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
+{
+    Theme *t = &u->t;
+    int web = e->type == WP_HTML;
+    y = section(u, x, y, L"LOOK & COLOUR");
+    const int rows[] = { SL_BRIGHT, SL_CONTRAST, SL_SAT, SL_HUE, SL_GAMMA };
+    float tintH = DISC_R * 2.0f + 40.0f, footH = 52.0f;
+    float card = (float)SP_COUNTOF(rows) * LOOK_ROW + 8.0f + tintH + footH;
+    ui_glass(rectf(x, y, w, card), 14, 0, 0);
+
+    float ry = y + 4.0f;
+    for (int i = 0; i < (int)SP_COUNTOF(rows); i++) {
+        if (i) row_separator(u, x, ry, w);
+        look_slider(u, x + 18, ry, w - 36, LABEL_W, rows[i], !(web && rows[i] == SL_GAMMA));
+        ry += LOOK_ROW;
+    }
+    ry += 4.0f;
+    row_separator(u, x, ry, w);
+
+    /* tint: hue/saturation wheel + strength and brightness of the colour */
+    float discCx = x + 18 + DISC_R + 6.0f, discCy = ry + tintH * 0.5f;
+    float hue, sat, val;
+    ui_rgb_hsv(col(cus.adj.tint, 1.0f), &hue, &sat, &val);
+    ui_disc(HIT_ID(HK_DISC, 0), discCx, discCy, DISC_R, hue, sat);
+    float colX = discCx + DISC_R + 30.0f, colW = x + w - 18 - colX;
+    float cy = ry + 22.0f;
+    ui_text(L"Tint", u->fBodyB, rectf(colX, cy, colW, 20), t->text);
+    ui_text(L"Lifts the dark parts of the wallpaper towards this colour.", u->fSmall, rectf(colX, cy + 20, colW, 18), t->text2);
+    look_slider(u, colX, cy + 44, colW, 96.0f, SL_TINTLIFT, 1);
+    look_slider(u, colX, cy + 44 + LOOK_ROW - 6.0f, colW, 96.0f, SL_TINTV, 1);
+    uint32_t eff = tint_effective();
+    D2D1_RECT_F sw = rectf(colX, cy + 44 + LOOK_ROW * 2.0f - 4.0f, 26, 26);
+    ui_rrect(sw, 7, col(eff, 1.0f));
+    ui_rrect_stroke(sw, 7, 1, t->border);
+    wchar_t hex[16];
+    str_printf(hex, SP_COUNTOF(hex), L"#%06X", eff);
+    ui_text(hex, u->fBody, rectf(colX + 36, sw.top, 120, 26), t->text2);
+    ry += tintH;
+    row_separator(u, x, ry, w);
+
+    /* footer: what applies to this wallpaper type + reset */
+    const wchar_t *note = web ? L"Web wallpaper: applied as CSS filters. Gamma is not available for web pages."
+                              : L"Applied on the GPU while the wallpaper plays.";
+    float bw = ui_button_width(L"Reset look", GL_REFRESH);
+    ui_text(note, u->fSmall, rectf(x + 18, ry, w - 54 - bw, footH), t->text3);
+    if (adjust_active(&cus.adj) || cus.adj.tint != adjust_defaults().tint || cus.adj.tintBrightness != 100)
+        ui_button(HIT_ID(HK_RESET_LOOK, 0), rectf(x + w - 14 - bw, ry + 10, bw, 32), L"Reset look", GL_REFRESH, BTN_GHOST);
+    return y + card + 26.0f;
+}
+
+static void draw_choice(Ui *u, int id, D2D1_RECT_F r, const wchar_t *text)
+{
+    Theme *t = &u->t;
+    int hot = ui_is_hot(id);
+    ui_rrect(r, 8, hot ? t->panelHover : t->field);
+    ui_rrect_stroke(r, 8, 1, t->border);
+    ui_text(text, u->fBody, rectf(r.left + 12, r.top, r.right - r.left - 44, r.bottom - r.top), t->text);
+    ui_icon(0xE70D, u->fIconS, rectf(r.right - 34, r.top, 26, r.bottom - r.top), t->text2);   /* chevron down */
+    ui_hit(id, r, 1, 1);
+    ui_focus_ring(r, 8, id);
+}
+
+static void draw_prop_row(Ui *u, float x, float y, float w, CustomProp *cp, int idx)
+{
+    Theme *t = &u->t;
+    float ctrlW = SP_MIN(300.0f, w * 0.48f), right = x + w - 18;
+    float cy = y + PROP_ROW * 0.5f;
+    if (cp->type == CP_LABEL) {
+        ui_text(cp->label, u->fSmall, rectf(x + 18, y, w - 36, PROP_ROW), t->text2);
+        return;
+    }
+    ui_text(cp->label, u->fBody, rectf(x + 18, y, w - ctrlW - 60, PROP_ROW), t->text);
+    switch (cp->type) {
+    case CP_CHECKBOX:
+        ui_toggle(HIT_ID(HK_PCHECK, idx), right - 42, cy - 12, -1, json_bool(cp->value, 0));
+        break;
+    case CP_SLIDER: {
+        wchar_t v[40];
+        str_printf(v, SP_COUNTOF(v), L"%.6g", json_num(cp->value, cp->min));
+        text_right(v, u->fBody, right, y, PROP_ROW, t->text2);
+        float norm = (float)((json_num(cp->value, cp->min) - cp->min) / SP_MAX(cp->max - cp->min, 1e-9));
+        ui_slider(HIT_ID(HK_PSLIDER, idx), rectf(right - ctrlW - 52, cy - 12, ctrlW, 24), SP_CLAMP(norm, 0.0f, 1.0f));
+        break;
+    }
+    case CP_DROPDOWN:
+    case CP_COMBO:
+    case CP_FILE: {
+        wchar_t text[160];
+        prop_choice_text(cp, text, SP_COUNTOF(text));
+        draw_choice(u, HIT_ID(HK_PDOWN, idx), rectf(right - ctrlW, cy - 17, ctrlW, 34), text);
+        break;
+    }
+    case CP_COLOR: {
+        int id = HIT_ID(HK_PCOLOR, idx), style;
+        uint32_t rgb = prop_color(cp, &style);
+        D2D1_RECT_F sw = rectf(right - 64, cy - 15, 64, 30);
+        ui_rrect(sw, 8, col(rgb, 1));
+        ui_rrect_stroke(sw, 8, ui_is_hot(id) ? 2.0f : 1.0f, ui_is_hot(id) ? t->accent : t->border);
+        wchar_t hex[16];
+        str_printf(hex, SP_COUNTOF(hex), L"#%06X", rgb);
+        text_right(hex, u->fBody, sw.left - 12, y, PROP_ROW, t->text2);
+        ui_hit(id, sw, 1, 1);
+        ui_focus_ring(sw, 8, id);
+        break;
+    }
+    case CP_TEXT: {
+        int id = HIT_ID(HK_PTEXT, idx), focused = u->textFocus == idx;
+        D2D1_RECT_F f = rectf(right - ctrlW, cy - 17, ctrlW, 34);
+        ui_rrect(f, 8, t->field);
+        ui_rrect_stroke(f, 8, focused ? 1.5f : 1.0f, focused ? t->accent : t->border);
+        D2D1_RECT_F tr = rectf(f.left + 10, f.top, f.right - f.left - 20, f.bottom - f.top);
+        if (focused) {
+            ui_text(cus.edit, u->fBody, tr, t->text);
+            if (u->caretOn) {
+                float caretX = tr.left + SP_MIN(ui_text_width(cus.edit, u->fBody), tr.right - tr.left);
+                ui_line(caretX, f.top + 8, caretX, f.bottom - 8, 1.2f, t->accent);
+            }
+        } else {
+            wchar_t val[256];
+            json_str_w(cp->value, val, SP_COUNTOF(val));
+            ui_text(val[0] ? val : L"(empty)", u->fBody, tr, val[0] ? t->text : t->text3);
+        }
+        ui_hit(id, f, 1, 2);
+        ui_focus_ring(f, 8, id);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static float draw_props_section(Ui *u, float x, float y, float w)
+{
+    Theme *t = &u->t;
+    y = section(u, x, y, L"WALLPAPER PROPERTIES");
+    if (!cus.props || !cus.propCount) {
+        ui_glass(rectf(x, y, w, 56), 14, 0, 0);
+        ui_text(L"This wallpaper has no settings of its own.", u->fSmall, rectf(x + 18, y, w - 36, 56), t->text2);
+        return y + 56 + 26;
+    }
+    int anyOverride = 0;
+    for (int i = 0; i < cus.propCount; i++) anyOverride |= cus.props[i].overridden;
+    float footH = anyOverride ? 52.0f : 0.0f;
+    float card = cus.propCount * PROP_ROW + footH;
+    ui_glass(rectf(x, y, w, card), 14, 0, 0);
+    float ry = y;
+    for (int i = 0; i < cus.propCount; i++) {
+        if (i) row_separator(u, x, ry, w);
+        draw_prop_row(u, x, ry, w, &cus.props[i], i);
+        ry += PROP_ROW;
+    }
+    if (anyOverride) {
+        row_separator(u, x, ry, w);
+        float bw = ui_button_width(L"Restore defaults", GL_REFRESH);
+        ui_text(L"Changes apply to the running wallpaper immediately.", u->fSmall, rectf(x + 18, ry, w - 54 - bw, footH), t->text3);
+        ui_button(HIT_ID(HK_RESET_PROPS, 0), rectf(x + w - 14 - bw, ry + 10, bw, 32), L"Restore defaults", GL_REFRESH, BTN_GHOST);
+    }
+    return y + card + 26.0f;
+}
+
+static void draw_customise(Ui *u, float cx, float cw)
+{
+    Theme *t = &u->t;
+    float x = cx + PAD, w = SP_MIN(cw - PAD * 2, 860.0f);
+    WallpaperEntry *e = customise_entry();
+    wchar_t sub[160];
+    if (e && e->id[0]) {
+        const wchar_t *mid = target_id();
+        str_printf(sub, SP_COUNTOF(sub), L"%.80ls · %ls", e->name[0] ? e->name : L"Wallpaper",
+                   mid ? L"selected display" : L"all displays");
+    } else {
+        str_copy(sub, SP_COUNTOF(sub), L"No wallpaper applied");
+    }
+    draw_title(u, x, L"Customise", sub);
+    customise_refresh();
+    float top = 88;
+    top += draw_notice(u, x, top, w);
+    D2D1_RECT_F view = { cx, top, cx + cw, u->h };
+    u->viewTop = top;
+    u->viewH = u->h - top;
+    ui_push_clip(view);
+    float y = top + 6 - u->scroll[PAGE_CUSTOMIZE];
+    if (!e || !e->id[0]) {
+        D2D1_RECT_F card = rectf(x, y + 20, w, 150);
+        ui_glass(card, 16, 0, 0);
+        ui_icon(GL_COLOR, u->fIconL, rectf(x, y + 44, w, 48), t->text3);
+        ui_text(L"Apply a wallpaper first — Customise edits the wallpaper that is on screen.",
+                u->fBody, rectf(x + 20, y + 100, w - 40, 22), t->text2);
+        y += 190;
+    } else {
+        y = draw_look_section(u, x, y, w, e);
+        y = draw_props_section(u, x, y, w);
+    }
+    ui_pop_clip();
+    finish_scroll(u, PAGE_CUSTOMIZE, y + 8, top);
+    draw_scrollbar(u, view, PAGE_CUSTOMIZE);
+}
+
 /* ================================================================ dispatch */
 
 void pages_draw(void)
@@ -731,9 +1354,10 @@ void pages_draw(void)
     float p = u->pageAnim;
     u->alpha = p * p * (3.0f - 2.0f * p);     /* smoothstep fade-in on page switch */
     switch (u->page) {
-    case PAGE_DISPLAYS: draw_displays(u, cx, cw); break;
-    case PAGE_SETTINGS: draw_settings(u, cx, cw); break;
-    default:            draw_library(u, cx, cw); break;
+    case PAGE_DISPLAYS:  draw_displays(u, cx, cw); break;
+    case PAGE_CUSTOMIZE: draw_customise(u, cx, cw); break;
+    case PAGE_SETTINGS:  draw_settings(u, cx, cw); break;
+    default:             draw_library(u, cx, cw); break;
     }
     u->alpha = 1.0f;
 }
@@ -807,6 +1431,38 @@ void pages_activate(int id, int dbl)
         break;
     }
     case HK_TOGGLE:        toggle_setting(data); break;
+    case HK_PCHECK:
+        if (data >= 0 && data < cus.propCount && cus.props[data].type == CP_CHECKBOX)
+            prop_commit(&cus.props[data], jprop_bool(!json_bool(cus.props[data].value, 0)), 0);
+        break;
+    case HK_PDOWN:
+        if (data >= 0 && data < cus.propCount) prop_menu(data, id);
+        break;
+    case HK_PCOLOR:
+        if (data >= 0 && data < cus.propCount && cus.props[data].type == CP_COLOR) prop_pick_colour(data);
+        break;
+    case HK_PTEXT:
+        if (data >= 0 && data < cus.propCount && cus.props[data].type == CP_TEXT && u->textFocus != data) {
+            u->textFocus = data;
+            json_str_w(cus.props[data].value, cus.edit, SP_COUNTOF(cus.edit));
+            u->caretOn = 1;
+            SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+        }
+        break;
+    case HK_RESET_LOOK:
+        cus.adj = adjust_defaults();
+        look_commit(0);
+        break;
+    case HK_RESET_PROPS: {
+        WallpaperEntry *e = customise_entry();
+        if (e) {
+            wpapi_clear_properties(e->id);   /* the look stays; the page gets its default values back */
+            cus.forceReload = 1;
+            customise_refresh();
+            app_apply_customise();
+        }
+        break;
+    }
     case HK_THEME:
         g_app.cfg.s.theme = (ThemeMode)data;
         app_save_config();
@@ -892,7 +1548,8 @@ void pages_scroll_into_view(int id)
 int pages_key(UINT vk, int ctrl, int shift)
 {
     Ui *u = g_ui;
-    (void)ctrl; (void)shift;
+    (void)ctrl;
+    if (u->page == PAGE_CUSTOMIZE && customise_key(vk, shift)) return 1;
     if (HIT_KIND(u->focus) != HK_CARD || u->page != PAGE_LIBRARY) {
         if (vk == VK_DOWN || vk == VK_UP || vk == VK_NEXT || vk == VK_PRIOR) {
             float d = vk == VK_DOWN ? 60.0f : vk == VK_UP ? -60.0f : vk == VK_NEXT ? u->viewH * 0.9f : -u->viewH * 0.9f;

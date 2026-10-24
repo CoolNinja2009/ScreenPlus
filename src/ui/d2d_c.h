@@ -60,7 +60,9 @@ struct ID2D1BitmapBrush { const ID2D1BitmapBrushVtbl *lpVtbl; };
     void (STDMETHODCALLTYPE *FillRoundedRectangle)(T *, const D2D1_ROUNDED_RECT *, ID2D1Brush *);                    \
     void *DrawEllipse;                                                                                               \
     void (STDMETHODCALLTYPE *FillEllipse)(T *, const D2D1_ELLIPSE *, ID2D1Brush *);                                  \
-    void *DrawGeometry, *FillGeometry, *FillMesh, *FillOpacityMask, *DrawBitmap;                                     \
+    void *DrawGeometry, *FillGeometry, *FillMesh, *FillOpacityMask;                                                  \
+    void (STDMETHODCALLTYPE *DrawBitmap)(T *, ID2D1Bitmap *, const D2D1_RECT_F *, FLOAT,                             \
+                                         D2D1_BITMAP_INTERPOLATION_MODE, const D2D1_RECT_F *);                       \
     void (STDMETHODCALLTYPE *DrawText)(T *, const WCHAR *, UINT32, IDWriteTextFormat *, const D2D1_RECT_F *,         \
                                        ID2D1Brush *, D2D1_DRAW_TEXT_OPTIONS, DWRITE_MEASURING_MODE);                 \
     void *DrawTextLayout, *DrawGlyphRun;                                                                             \
@@ -104,25 +106,27 @@ struct ID2D1Factory { const ID2D1FactoryVtbl *lpVtbl; };
 static const IID SP_IID_ID2D1Factory = { 0x06152247, 0x6f50, 0x465a, { 0x92, 0x45, 0x11, 0x8b, 0xfd, 0x3b, 0x60, 0x07 } };
 
 #define ID2D1Factory_CreateHwndRenderTarget(T, a, b, c)       ((T)->lpVtbl->CreateHwndRenderTarget(T, a, b, c))
-#define ID2D1RenderTarget_CreateBitmap(T, a, b, c, d, e)        ((T)->lpVtbl->CreateBitmap(T, a, b, c, d, e))
-#define ID2D1RenderTarget_CreateBitmapBrush(T, a, b, c, d)      ((T)->lpVtbl->CreateBitmapBrush(T, a, b, c, d))
-#define ID2D1RenderTarget_CreateSolidColorBrush(T, a, b, c)     ((T)->lpVtbl->CreateSolidColorBrush(T, a, b, c))
-#define ID2D1RenderTarget_DrawLine(T, a, b, c, d, e)            ((T)->lpVtbl->DrawLine(T, a, b, c, d, e))
-#define ID2D1RenderTarget_FillRectangle(T, a, b)                ((T)->lpVtbl->FillRectangle(T, a, b))
-#define ID2D1RenderTarget_DrawRoundedRectangle(T, a, b, c, d)   ((T)->lpVtbl->DrawRoundedRectangle(T, a, b, c, d))
-#define ID2D1RenderTarget_FillRoundedRectangle(T, a, b)         ((T)->lpVtbl->FillRoundedRectangle(T, a, b))
-#define ID2D1RenderTarget_FillEllipse(T, a, b)                  ((T)->lpVtbl->FillEllipse(T, a, b))
-#define ID2D1RenderTarget_DrawText(T, a, b, c, d, e, f, g)      ((T)->lpVtbl->DrawText(T, a, b, c, d, e, f, g))
-#define ID2D1RenderTarget_SetTransform(T, a)                    ((T)->lpVtbl->SetTransform(T, a))
-#define ID2D1RenderTarget_SetTextAntialiasMode(T, a)            ((T)->lpVtbl->SetTextAntialiasMode(T, a))
-#define ID2D1RenderTarget_PushAxisAlignedClip(T, a, b)          ((T)->lpVtbl->PushAxisAlignedClip(T, a, b))
-#define ID2D1RenderTarget_PopAxisAlignedClip(T)                 ((T)->lpVtbl->PopAxisAlignedClip(T))
-#define ID2D1RenderTarget_Clear(T, a)                           ((T)->lpVtbl->Clear(T, a))
-#define ID2D1RenderTarget_BeginDraw(T)                          ((T)->lpVtbl->BeginDraw(T))
-#define ID2D1RenderTarget_EndDraw(T, a, b)                      ((T)->lpVtbl->EndDraw(T, a, b))
-#define ID2D1RenderTarget_SetDpi(T, a, b)                       ((T)->lpVtbl->SetDpi(T, a, b))
-#define ID2D1HwndRenderTarget_Resize(T, a)                      ((T)->lpVtbl->Resize(T, a))
-#define ID2D1SolidColorBrush_SetColor(T, a)                     ((T)->lpVtbl->SetColor(T, a))
-#define ID2D1BitmapBrush_SetTransform(T, a)                     ((T)->lpVtbl->SetTransform(T, a))
-#define ID2D1BitmapBrush_SetOpacity(T, a)                       ((T)->lpVtbl->SetOpacity(T, a))
-#define ID2D1BitmapBrush_SetBitmap(T, a)                        ((T)->lpVtbl->SetBitmap(T, a))
+#define ID2D1RenderTarget_CreateBitmap(T, a, b, c, d, e)      ((T)->lpVtbl->CreateBitmap(T, a, b, c, d, e))
+#define ID2D1RenderTarget_CreateBitmapBrush(T, a, b, c, d)    ((T)->lpVtbl->CreateBitmapBrush(T, a, b, c, d))
+#define ID2D1RenderTarget_CreateSolidColorBrush(T, a, b, c)   ((T)->lpVtbl->CreateSolidColorBrush(T, a, b, c))
+#define ID2D1RenderTarget_DrawLine(T, a, b, c, d, e)          ((T)->lpVtbl->DrawLine(T, a, b, c, d, e))
+#define ID2D1RenderTarget_FillRectangle(T, a, b)              ((T)->lpVtbl->FillRectangle(T, a, b))
+#define ID2D1RenderTarget_DrawRoundedRectangle(T, a, b, c, d) ((T)->lpVtbl->DrawRoundedRectangle(T, a, b, c, d))
+#define ID2D1RenderTarget_FillRoundedRectangle(T, a, b)       ((T)->lpVtbl->FillRoundedRectangle(T, a, b))
+#define ID2D1RenderTarget_FillEllipse(T, a, b)                ((T)->lpVtbl->FillEllipse(T, a, b))
+#define ID2D1RenderTarget_DrawBitmap(T, a, b, c, d, e)        ((T)->lpVtbl->DrawBitmap(T, a, b, c, d, e))
+#define ID2D1Bitmap_Release(T)                                ((T)->lpVtbl->Release(T))
+#define ID2D1RenderTarget_DrawText(T, a, b, c, d, e, f, g)    ((T)->lpVtbl->DrawText(T, a, b, c, d, e, f, g))
+#define ID2D1RenderTarget_SetTransform(T, a)                  ((T)->lpVtbl->SetTransform(T, a))
+#define ID2D1RenderTarget_SetTextAntialiasMode(T, a)          ((T)->lpVtbl->SetTextAntialiasMode(T, a))
+#define ID2D1RenderTarget_PushAxisAlignedClip(T, a, b)        ((T)->lpVtbl->PushAxisAlignedClip(T, a, b))
+#define ID2D1RenderTarget_PopAxisAlignedClip(T)               ((T)->lpVtbl->PopAxisAlignedClip(T))
+#define ID2D1RenderTarget_Clear(T, a)                         ((T)->lpVtbl->Clear(T, a))
+#define ID2D1RenderTarget_BeginDraw(T)                        ((T)->lpVtbl->BeginDraw(T))
+#define ID2D1RenderTarget_EndDraw(T, a, b)                    ((T)->lpVtbl->EndDraw(T, a, b))
+#define ID2D1RenderTarget_SetDpi(T, a, b)                     ((T)->lpVtbl->SetDpi(T, a, b))
+#define ID2D1HwndRenderTarget_Resize(T, a)                    ((T)->lpVtbl->Resize(T, a))
+#define ID2D1SolidColorBrush_SetColor(T, a)                   ((T)->lpVtbl->SetColor(T, a))
+#define ID2D1BitmapBrush_SetTransform(T, a)                   ((T)->lpVtbl->SetTransform(T, a))
+#define ID2D1BitmapBrush_SetOpacity(T, a)                     ((T)->lpVtbl->SetOpacity(T, a))
+#define ID2D1BitmapBrush_SetBitmap(T, a)                      ((T)->lpVtbl->SetBitmap(T, a))

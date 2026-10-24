@@ -18,6 +18,7 @@
 #include <math.h>
 #include <process.h>
 
+#include "../html/wallpaper_api.h"
 #include "video_vs.h"
 #include "video_ps_nv12.h"
 #include "video_ps_i420.h"
@@ -33,6 +34,9 @@ typedef struct CBParams {
     float uvClamp[4];
     float m0[4], m1[4], m2[4];
     float off[4];
+    float grade[4];    /* brightness offset, contrast gain, gamma exponent, saturation gain */
+    float hue[4];      /* x: hue rotation (radians) */
+    float tint[4];     /* xyz tint colour, w lift (blacks -> tint) */
 } CBParams;
 
 typedef struct PlaneSet {
@@ -753,6 +757,28 @@ out:
 
 /* ================================================================ presentation */
 
+/* Customise-panel grading -> shader constants. a == NULL or unused: neutral. */
+static void grade_fill(CBParams *cb, const WallpaperAdjust *a)
+{
+    if (!a || !adjust_active(a)) {
+        cb->grade[0] = 0.0f;
+        cb->grade[1] = cb->grade[2] = cb->grade[3] = 1.0f;
+        cb->hue[0] = 0.0f;
+        cb->tint[0] = cb->tint[1] = cb->tint[2] = cb->tint[3] = 0.0f;
+        return;
+    }
+    cb->grade[0] = a->brightness / 100.0f * 0.5f;
+    cb->grade[1] = 1.0f + a->contrast / 100.0f;
+    cb->grade[2] = a->gamma >= 0 ? 1.0f / (1.0f + a->gamma / 100.0f) : 1.0f + (float)(-a->gamma) / 100.0f;
+    cb->grade[3] = 1.0f + a->saturation / 100.0f;
+    cb->hue[0] = a->hue * 3.14159265f / 180.0f;
+    float v = a->tintBrightness / 100.0f;
+    cb->tint[0] = ((a->tint >> 16) & 255) / 255.0f * v;
+    cb->tint[1] = ((a->tint >> 8) & 255) / 255.0f * v;
+    cb->tint[2] = (a->tint & 255) / 255.0f * v;
+    cb->tint[3] = a->tintLift / 100.0f;
+}
+
 static void yuv_matrix(const AVFrame *f, CBParams *cb)
 {
     double kr, kb;
@@ -1034,6 +1060,7 @@ static void draw_output(VideoOutput *o, const PlaneSet *ps, const AVFrame *f)
     cb.uvClamp[1] = (float)(fy - 1.0 / ps->texH);
     if (ps->yuv) yuv_matrix(f, &cb);
     cb.off[3] = ps->slice;
+    grade_fill(&cb, &o->adj);
 
     D3D11_MAPPED_SUBRESOURCE m;
     if (SUCCEEDED(ID3D11DeviceContext_Map(g.ctx, (ID3D11Resource *)g.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
@@ -1308,6 +1335,20 @@ static BOOL vo_paint(Renderer *base, HDC dc, const RECT *rc)
     return TRUE;   /* content comes from the swap chain */
 }
 
+/* Customise panel changed: reload the colour grading for this wallpaper; the present
+ * thread picks the new constants up on the next frame it draws. */
+static void vo_apply(Renderer *base)
+{
+    VideoOutput *o = (VideoOutput *)base;
+    WallpaperAdjust a;
+    wpapi_load_adjust(o->wpId, &a);
+    EnterCriticalSection(&o->src->outLock);   /* the present thread reads adj under this lock */
+    o->adj = a;
+    LeaveCriticalSection(&o->src->outLock);
+    InterlockedExchange(&o->src->redraw, 1);  /* re-present the current frame, also while paused */
+    SetEvent(o->src->wake);
+}
+
 static void vo_describe(Renderer *base, wchar_t *buf, size_t cap)
 {
     VideoOutput *o = (VideoOutput *)base;
@@ -1353,7 +1394,7 @@ static void vo_destroy(Renderer *base)
     free(o);
 }
 
-static const RendererVtbl k_videoVtbl = { vo_set_state, vo_resize, vo_set_audio, vo_paint, vo_describe, vo_destroy, NULL, NULL, NULL, NULL };
+static const RendererVtbl k_videoVtbl = { vo_set_state, vo_resize, vo_set_audio, vo_paint, vo_describe, vo_destroy, NULL, NULL, NULL, NULL, vo_apply };
 
 static BOOL create_swapchain(VideoOutput *o, wchar_t *err, size_t cap)
 {
@@ -1402,6 +1443,8 @@ Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     o->base.type = WP_VIDEO;
     o->hwnd = ctx->hwnd;
     o->notify = ctx->notify;
+    str_copy(o->wpId, SP_COUNTOF(o->wpId), ctx->wp->id);
+    wpapi_load_adjust(o->wpId, &o->adj);
     o->w = SP_MAX(ctx->width, 1);
     o->h = SP_MAX(ctx->height, 1);
     o->state = RS_ACTIVE;
@@ -1481,7 +1524,55 @@ BOOL gfx_texture_from_bgra(const void *bits, int w, int h, struct ID3D11Texture2
     return TRUE;
 }
 
-HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h)
+/* Draws tex into the back buffer through the grading shader (caller holds g.lock + renderLock).
+ * FALSE when a view could not be created: the caller copies instead. */
+static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int w, int h, const WallpaperAdjust *adj)
+{
+    if (!g.psRGB || !g.vs || !g.cb) return FALSE;
+    ID3D11RenderTargetView *rtv = NULL;
+    ID3D11ShaderResourceView *srv = NULL;
+    D3D11_SHADER_RESOURCE_VIEW_DESC sd;
+    ZeroMemory(&sd, sizeof sd);
+    sd.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    sd.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2DARRAY;   /* ps_rgb samples a Texture2DArray (slice 0) */
+    sd.Texture2DArray.MipLevels = 1;
+    sd.Texture2DArray.ArraySize = 1;
+    if (FAILED(ID3D11Device_CreateRenderTargetView(g.dev, (ID3D11Resource *)bb, NULL, &rtv)) ||
+        FAILED(ID3D11Device_CreateShaderResourceView(g.dev, (ID3D11Resource *)tex, &sd, &srv))) {
+        SP_RELEASE(rtv);
+        return FALSE;
+    }
+    CBParams cb;
+    ZeroMemory(&cb, sizeof cb);
+    cb.uvRect[2] = cb.uvRect[3] = 1.0f;
+    cb.uvClamp[0] = cb.uvClamp[1] = 1.0f;
+    grade_fill(&cb, adj);
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (SUCCEEDED(ID3D11DeviceContext_Map(g.ctx, (ID3D11Resource *)g.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+        memcpy(m.pData, &cb, sizeof cb);
+        ID3D11DeviceContext_Unmap(g.ctx, (ID3D11Resource *)g.cb, 0);
+    }
+    D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
+    ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 1, &rtv, NULL);
+    ID3D11DeviceContext_RSSetViewports(g.ctx, 1, &vp);
+    ID3D11DeviceContext_IASetInputLayout(g.ctx, NULL);
+    ID3D11DeviceContext_IASetPrimitiveTopology(g.ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D11DeviceContext_VSSetShader(g.ctx, g.vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(g.ctx, g.psRGB, NULL, 0);
+    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 4, 1, &srv);
+    ID3D11DeviceContext_PSSetSamplers(g.ctx, 0, 1, &g.smp);
+    ID3D11DeviceContext_PSSetConstantBuffers(g.ctx, 0, 1, &g.cb);
+    ID3D11DeviceContext_Draw(g.ctx, 3, 0);
+    ID3D11ShaderResourceView *nullSrv = NULL;
+    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 4, 1, &nullSrv);
+    ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 0, NULL, NULL);   /* no lingering back-buffer reference */
+    SP_RELEASE(srv);
+    SP_RELEASE(rtv);
+    return TRUE;
+}
+
+HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h,
+                    const WallpaperAdjust *adj)
 {
     HRESULT hr = S_OK;
     AcquireSRWLockExclusive(&g.lock);
@@ -1515,7 +1606,9 @@ HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Textu
         ID3D11Texture2D *bb = NULL;
         hr = IDXGISwapChain1_GetBuffer(*swap, 0, &IID_ID3D11Texture2D, (void **)&bb);
         if (SUCCEEDED(hr)) {
-            ID3D11DeviceContext_CopyResource(g.ctx, (ID3D11Resource *)bb, (ID3D11Resource *)tex);
+            /* neutral grading keeps the free copy; a failed graded draw falls back to it too */
+            if (!(adj && adjust_active(adj) && draw_graded(bb, tex, w, h, adj)))
+                ID3D11DeviceContext_CopyResource(g.ctx, (ID3D11Resource *)bb, (ID3D11Resource *)tex);
             ID3D11Texture2D_Release(bb);
             hr = IDXGISwapChain1_Present(*swap, 0, 0);
             if (hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET) InterlockedExchange(&g.deviceLost, 1);

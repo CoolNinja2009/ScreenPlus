@@ -80,6 +80,14 @@ void app_save_config(void)
     ui_on_status();
 }
 
+/* Customise-panel changes live in <data>\props\<id>.json, not in config.ini — pushing
+ * them does not reload the config, the renderers simply re-read their files. */
+void app_apply_customise(void)
+{
+    supervisor_send(CMD_APPLY_CUSTOMISE, 0);
+    ui_on_status();
+}
+
 const wchar_t *app_wallpaper_for(const wchar_t *monitorIdOrNull)
 {
     if (monitorIdOrNull) return config_assignment(&g_app.cfg, monitorIdOrNull);

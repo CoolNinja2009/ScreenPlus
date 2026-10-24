@@ -27,6 +27,7 @@
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #define WALLPAPER_HOST L"wallpaper.screenplus.example"
@@ -156,6 +157,8 @@ struct HtmlRenderer {
     EventRegistrationToken    tNavStart, tNavDone, tFail, tNewWin, tPerm, tDownload;
     int                       hasTokens, hasDownloadToken;
     WallpaperEntry            wp;          /* copy: format, flags, id, path */
+    WallpaperAdjust           adj;         /* Customise panel colour grading (reloadable) */
+    JVal                     *sent;        /* property values the page has received (NULL: none yet) */
     int                       isUrl;
     double                    scale;       /* physical px per CSS px */
     int                       wantMask;    /* page probe: 1 audio, 2 system info, 4 current track */
@@ -180,6 +183,7 @@ static void html_release(HtmlRenderer *r)
         if (r->snapshot) DeleteObject(r->snapshot);
         SP_RELEASE(r->capture);
         SP_RELEASE(r->grab);
+        json_free(r->sent);
         free(r);
     }
 }
@@ -236,14 +240,57 @@ static void probe_apis(HtmlRenderer *r)
     cb_release(cb);
 }
 
+/* Hands the page the property values it does not have yet (all of them after a navigation). */
 static void apply_properties(HtmlRenderer *r)
 {
-    char *js = wpapi_properties_js(&r->wp);
+    int fresh = !r->sent;
+    char *js = wpapi_properties_js(&r->wp, &r->sent);
     if (js) {
-        LOGI(L"html: applying %ls properties", r->wp.format == WPF_LIVELY ? L"Lively" : L"Wallpaper Engine");
+        if (fresh) LOGI(L"html: applying %ls properties", r->wp.format == WPF_LIVELY ? L"Lively" : L"Wallpaper Engine");
         run_js_utf8(r, js);
         free(js);
     }
+}
+
+/* Customise panel colour grading for web wallpapers, the CSS twin of the native shader and in
+ * the same order: a full-viewport layer whose backdrop-filter grades everything under it
+ * (brightness, contrast, saturation, hue), then a layer on top that lifts the blacks towards
+ * the tint colour (mix-blend-mode: lighten at the tint strength). Both are click-through and
+ * appended to the root, so the page layout is untouched. Gamma has no CSS equivalent (the
+ * panel says so). Idempotent: neutral values remove the layers. */
+static void apply_adjustments(HtmlRenderer *r)
+{
+    wpapi_load_adjust(r->wp.id, &r->adj);
+    const WallpaperAdjust *a = &r->adj;
+    char f[200] = "";
+    int n = 0;
+    if (a->brightness) n += snprintf(f + n, sizeof f - n, "brightness(%.3f) ", 1.0 + a->brightness / 100.0 * 0.6);
+    if (a->contrast)   n += snprintf(f + n, sizeof f - n, "contrast(%.3f) ", 1.0 + a->contrast / 100.0);
+    if (a->saturation) n += snprintf(f + n, sizeof f - n, "saturate(%.3f) ", 1.0 + a->saturation / 100.0);
+    if (a->hue)        n += snprintf(f + n, sizeof f - n, "hue-rotate(%ddeg) ", a->hue);
+    StrBuf b = { 0 };
+    sb_puts(&b, "(function(){var d=document.documentElement;if(!d)return;"
+                "var g=document.getElementById('__sp_grade'),t=document.getElementById('__sp_tint');"
+                "function layer(id,z){var e=document.createElement('div');e.id=id;e.style.cssText='position:fixed;"
+                "left:0;top:0;width:100vw;height:100vh;margin:0;padding:0;border:0;pointer-events:none;z-index:'+z;"
+                "d.appendChild(e);return e;}");
+    if (f[0])
+        sb_printf(&b, "if(!g)g=layer('__sp_grade',2147483646);g.style.setProperty('backdrop-filter','%s');"
+                      "g.style.setProperty('-webkit-backdrop-filter','%s');", f, f);
+    else
+        sb_puts(&b, "if(g)g.remove();");
+    if (a->tintLift > 0) {
+        int tr = (int)(((a->tint >> 16) & 255) * a->tintBrightness / 100);
+        int tg = (int)(((a->tint >> 8) & 255) * a->tintBrightness / 100);
+        int tb = (int)((a->tint & 255) * a->tintBrightness / 100);
+        sb_printf(&b, "if(!t){t=layer('__sp_tint',2147483647);t.style.mixBlendMode='lighten';}"
+                      "t.style.background='rgb(%d,%d,%d)';t.style.opacity='%.3f';", tr, tg, tb, a->tintLift / 100.0);
+    } else {
+        sb_puts(&b, "if(t)t.remove();");
+    }
+    sb_puts(&b, "})();");
+    if (!b.failed) run_js_utf8(r, b.p);
+    sb_free(&b);
 }
 
 static void apply_audio(HtmlRenderer *r)
@@ -305,7 +352,7 @@ static HRESULT on_captured(HtmlRenderer *r, void *hrv, void *unused)
             wchar_t err[SP_ERR_LEN];
             if (GetObjectW(bmp, sizeof ds, &ds) == sizeof ds && ds.dsBm.bmBits &&
                 gfx_texture_from_bgra(ds.dsBm.bmBits, r->w, r->h, &tex, err, SP_COUNTOF(err)) &&
-                SUCCEEDED(gfx_present(r->hwnd, &r->snapSwap, tex, r->w, r->h))) {
+                SUCCEEDED(gfx_present(r->hwnd, &r->snapSwap, tex, r->w, r->h, NULL))) {
                 DeleteObject(bmp);
             } else {
                 if (r->snapshot) DeleteObject(r->snapshot);
@@ -403,7 +450,10 @@ static HRESULT on_nav_completed(HtmlRenderer *r, void *sender, void *argsv)
         apply_state(r);
     }
     /* (Re)applied after every successful navigation, e.g. when the page reloads itself. */
+    json_free(r->sent);
+    r->sent = NULL;
     apply_properties(r);
+    apply_adjustments(r);
     probe_apis(r);
     SetTimer(r->hwnd, TIMER_PROBE_1, 2500, NULL);   /* listeners registered after async init */
     SetTimer(r->hwnd, TIMER_PROBE_2, 8000, NULL);
@@ -742,6 +792,16 @@ static int hr_wants(Renderer *base)
     return m;
 }
 
+/* Customise panel changed: send the changed property values and the grading to the live page.
+ * Not limited to the active state: a hidden or suspended page runs the scripts when it resumes. */
+static void hr_apply(Renderer *base)
+{
+    HtmlRenderer *r = (HtmlRenderer *)base;
+    if (!r->wv || r->closed || !r->readyPosted) return;   /* the first navigation applies everything */
+    apply_properties(r);
+    apply_adjustments(r);
+}
+
 static void hr_input(Renderer *base, const RendererInput *in)
 {
     HtmlRenderer *r = (HtmlRenderer *)base;
@@ -819,7 +879,7 @@ static void hr_destroy(Renderer *base)
 }
 
 static const RendererVtbl k_htmlVtbl = { hr_set_state, hr_resize, hr_set_audio, hr_paint, hr_describe, hr_destroy,
-                                         hr_wants, hr_input, hr_feed, hr_on_timer };
+                                         hr_wants, hr_input, hr_feed, hr_on_timer, hr_apply };
 
 BOOL html_runtime_version(wchar_t *buf, size_t cap)
 {

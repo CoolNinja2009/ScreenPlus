@@ -4,16 +4,21 @@
 #include "thumbs.h"
 #include "dwrite_c.h"
 #include "d2d_c.h"
+#include "../renderer/html/wallpaper_api.h"
 
 #define UI_MAX_HITS 768
 
-enum { PAGE_LIBRARY = 0, PAGE_DISPLAYS = 1, PAGE_SETTINGS = 2, PAGE_COUNT = 3 };
+/* shared WM_TIMER ids between ui_core and the pages */
+enum UiTimer { TM_ANIM = 1, TM_CARET = 2, TM_STATS = 3, TM_THUMBS = 4 };
+
+enum { PAGE_LIBRARY = 0, PAGE_DISPLAYS = 1, PAGE_CUSTOMIZE = 2, PAGE_SETTINGS = 3, PAGE_COUNT = 4 };
 
 enum HitKind {
     HK_NONE = 0, HK_NAV, HK_IMPORT, HK_IMPORT_FOLDER, HK_SEARCH, HK_SEARCH_CLEAR, HK_FILTER, HK_CARD, HK_TARGET,
     HK_PLAYPAUSE, HK_AUDIO, HK_RESTART_CURRENT, HK_REVEAL, HK_TOGGLE, HK_THEME, HK_OPEN_LOGS, HK_OPEN_DATA,
     HK_RESTART_ENGINE, HK_NOTICE_CLOSE, HK_MONITOR, HK_USE_DEFAULT, HK_CHANGE, HK_GET_WEBVIEW, HK_LICENSES,
-    HK_SCROLLBAR
+    HK_SCROLLBAR, HK_SLIDER, HK_DISC, HK_PCHECK, HK_PSLIDER, HK_PDOWN, HK_PCOLOR, HK_PTEXT, HK_RESET_LOOK,
+    HK_RESET_PROPS
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -71,6 +76,7 @@ typedef struct Ui {
 
     Hit                    hits[UI_MAX_HITS];
     int                    hitCount;
+    D2D1_RECT_F            pressedRect;    /* geometry of the control being dragged */
     int                    hot, pressed, focus, focusVisible, tracking;
     float                  mx, my;
 
@@ -78,6 +84,7 @@ typedef struct Ui {
     int                    searchFocus, caretOn;
     int                    filter;         /* 0 all, 1 image, 2 video, 3 html, 4 recent */
     int                    target;         /* -1 all displays, else index into g_app.mons */
+    int                    textFocus;      /* index of the Customise text field being edited, -1 none */
     int                   *view;
     int                    viewCount, viewCap, cols;
     float                  gridY, rowH;    /* grid origin (content coordinates) and row pitch */
@@ -127,8 +134,12 @@ enum { BTN_SECONDARY = 0, BTN_PRIMARY = 1, BTN_GHOST = 2, BTN_DANGER = 3 };
 float        ui_button_width(const wchar_t *label, wchar_t icon);
 void         ui_button(int id, D2D1_RECT_F r, const wchar_t *label, wchar_t icon, int style);
 void         ui_chip(int id, D2D1_RECT_F r, const wchar_t *label, int active);
-void         ui_toggle(int id, float x, float y, int index, int on);
+void         ui_toggle(int id, float x, float y, int index, int on);        /* index < 0: no animation */
 void         ui_pill(D2D1_RECT_F r, const wchar_t *label, D2D1_COLOR_F bg, D2D1_COLOR_F fg);
+void         ui_slider(int id, D2D1_RECT_F r, float v);                     /* v 0..1; drag via pages_drag */
+void         ui_disc(int id, float cx, float cy, float radius, float hue, float sat);  /* tint colour wheel */
+D2D1_COLOR_F ui_hsv(float h, float s, float v, float a);                    /* h in degrees */
+void         ui_rgb_hsv(D2D1_COLOR_F c, float *hue, float *s, float *v);
 
 /* ui_pages.c */
 void pages_draw(void);
@@ -137,6 +148,10 @@ void pages_context(int id, int sx, int sy);
 int  pages_key(UINT vk, int ctrl, int shift);
 void pages_rebuild_view(void);
 void pages_scroll_into_view(int id);
+void pages_drag(int id, float x, float y, int commit);      /* sliders + colour wheel tracking */
+int  pages_text_char(wchar_t ch);                           /* 1 consumed: the Customise text field */
+int  pages_text_key(UINT vk, int ctrl, int shift);
+void pages_text_end(int commit);                            /* focus left the field (0: cancel) */
 
 /* glyphs (Segoe Fluent Icons / Segoe MDL2 Assets) */
 #define GL_LIBRARY  0xE8F1
@@ -161,3 +176,4 @@ void pages_scroll_into_view(int id);
 #define GL_OPEN     0xE8A7
 #define GL_DOC      0xE8A5
 #define GL_SPEED    0xEC4A
+#define GL_COLOR    0xE2B1     /* palette glyph for the Customise page */

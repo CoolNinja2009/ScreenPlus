@@ -16,7 +16,10 @@ static int ignored_class(const wchar_t *cls)
     static const wchar_t *k[] = { L"Progman", L"WorkerW", L"Shell_TrayWnd", L"Shell_SecondaryTrayWnd",
                                   L"NotifyIconOverflowWindow", L"Windows.UI.Core.CoreWindow",
                                   L"XamlExplorerHostIslandWindow", L"TopLevelWindowForOverflowXamlIsland",
-                                  L"ScreenPlus.Wallpaper", L"ScreenPlus.Engine", L"ScreenPlus.Shell" };
+                                  L"ScreenPlus.Wallpaper", L"ScreenPlus.Engine", L"ScreenPlus.Shell",
+                                  /* our own settings window is see-through (acrylic) and the Customise
+                                   * page previews live, so it never pauses the wallpaper */
+                                  L"ScreenPlus.Window" };
     for (size_t i = 0; i < SP_COUNTOF(k); i++)
         if (wcscmp(cls, k[i]) == 0) return 1;
     return 0;

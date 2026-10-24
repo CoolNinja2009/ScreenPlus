@@ -64,6 +64,8 @@ typedef struct VideoOutput {
     int                     readyPosted;
     int                     flipModel;
     int                     layered;
+    WallpaperAdjust         adj;             /* Customise panel colour grading (reloadable) */
+    wchar_t                 wpId[SP_ID_LEN]; /* wallpaper: for reloading adjustments live */
 } VideoOutput;
 
 struct VideoSource {

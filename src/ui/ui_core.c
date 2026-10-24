@@ -22,7 +22,7 @@
 #define MAX_THUMBS 160
 #define MAX_ANIMATED 24   /* animations kept resident; more than a screenful, bounded memory */
 
-enum { TM_ANIM = 1, TM_CARET = 2, TM_STATS = 3, TM_THUMBS = 4 };
+
 
 Ui *g_ui;
 static const wchar_t k_class[] = L"ScreenPlus.Window";
@@ -202,8 +202,11 @@ static void thumb_release(Thumb *t)
     t->nextAt = 0;
 }
 
+static void disc_release(void);
+
 static void discard_device_resources(Ui *u)
 {
+    disc_release();
     for (int i = 0; i < u->thumbCount; i++) {
         thumb_release(&u->thumbs[i]);
         u->thumbs[i].state = 0;
@@ -476,10 +479,12 @@ void ui_toggle(int id, float x, float y, int index, int on)
     Ui *u = g_ui;
     Theme *t = &u->t;
     float target = on ? 1.0f : 0.0f;
-    if (u->tog[index] < 0.0f) u->tog[index] = target;   /* first frame: no animation */
-    u->togTarget[index] = target;
-    if (fabsf(u->tog[index] - target) > 0.001f) ui_animate();
-    float p = u->tog[index];
+    if (index >= 0 && index < TOG_COUNT) {
+        if (u->tog[index] < 0.0f) u->tog[index] = target;   /* first frame: no animation */
+        u->togTarget[index] = target;
+        if (fabsf(u->tog[index] - target) > 0.001f) ui_animate();
+    }
+    float p = index >= 0 && index < TOG_COUNT ? u->tog[index] : target;
     D2D1_RECT_F track = rectf(x, y, 42.0f, 24.0f);
     D2D1_COLOR_F off = t->track, onc = t->accent;
     D2D1_COLOR_F c = { off.r + (onc.r - off.r) * p, off.g + (onc.g - off.g) * p, off.b + (onc.b - off.b) * p,
@@ -497,6 +502,128 @@ void ui_pill(D2D1_RECT_F r, const wchar_t *label, D2D1_COLOR_F bg, D2D1_COLOR_F 
 {
     ui_rrect(r, (r.bottom - r.top) * 0.5f, bg);
     ui_text(label, g_ui->fCenterS, r, fg);
+}
+
+/* ---------------------------------------------------------------- colour helpers */
+
+D2D1_COLOR_F ui_hsv(float h, float s, float v, float a)
+{
+    h = h - floorf(h / 360.0f) * 360.0f;
+    float c = v * s, x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f)), m = v - c;
+    float r, g, b;
+    if (h < 60)       { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else              { r = c; g = 0; b = x; }
+    return (D2D1_COLOR_F){ r + m, g + m, b + m, a };
+}
+
+void ui_rgb_hsv(D2D1_COLOR_F c, float *hue, float *s, float *v)
+{
+    float mx = c.r > c.g ? (c.r > c.b ? c.r : c.b) : (c.g > c.b ? c.g : c.b);
+    float mn = c.r < c.g ? (c.r < c.b ? c.r : c.b) : (c.g < c.b ? c.g : c.b);
+    float d = mx - mn;
+    float h = 0;
+    if (d > 0) {
+        if (mx == c.r) h = 60.0f * fmodf((c.g - c.b) / d, 6.0f);
+        else if (mx == c.g) h = 60.0f * ((c.b - c.r) / d + 2.0f);
+        else h = 60.0f * ((c.r - c.g) / d + 4.0f);
+    }
+    if (h < 0) h += 360.0f;
+    *hue = h;
+    *s = mx > 0 ? d / mx : 0.0f;
+    *v = mx;
+}
+
+/* ---------------------------------------------------------------- sliders + colour wheel */
+
+/* Track + filled portion + WinUI-style thumb. While pressed the value follows the pointer via
+ * pages_drag (pressed hit rect -> position), committed live and on release. */
+void ui_slider(int id, D2D1_RECT_F r, float v)
+{
+    Ui *u = g_ui;
+    Theme *t = &u->t;
+    v = SP_CLAMP(v, 0.0f, 1.0f);
+    int hot = ui_is_hot(id), down = u->pressed == id;
+    float cy = (r.top + r.bottom) * 0.5f, inset = 11.0f;
+    D2D1_RECT_F track = rectf(r.left + inset, cy - 2.0f, (r.right - r.left) - inset * 2.0f, 4.0f);
+    ui_rrect(track, 2.0f, t->track);
+    ui_rrect(rectf(track.left, cy - 2.0f, (track.right - track.left) * v, 4.0f), 2.0f, t->accent);
+    float kx = track.left + (track.right - track.left) * v;
+    ui_circle(kx, cy + 0.5f, 10.5f, col(0x000000, t->dark ? 0.40f : 0.14f));
+    ui_circle(kx, cy, 10.0f, t->dark ? col(0x454545, 1.0f) : col(0xFFFFFF, 1.0f));
+    ui_circle(kx, cy, down ? 4.5f : hot ? 6.5f : 5.5f, t->accent);
+    ui_hit(id, r, 1, 1);
+    ui_focus_ring(track, 4.0f, id);
+}
+
+static ID2D1Bitmap *g_disc;          /* hue/saturation wheel, rendered at device pixels */
+static int          g_discPx;        /* its edge length in pixels: rebuilt when the size or DPI changes */
+
+static void disc_release(void)
+{
+    if (g_disc) ID2D1Bitmap_Release(g_disc);
+    g_disc = NULL;
+    g_discPx = 0;
+}
+
+/* Hue around the circle (0 = red at 3 o'clock, clockwise like the picking maths), saturation
+ * from white at the centre to full colour at the rim. Premultiplied BGRA, anti-aliased rim,
+ * fully transparent outside. */
+static void disc_build(Ui *u, int px)
+{
+    disc_release();
+    BYTE *bits = (BYTE *)calloc((size_t)px * px, 4);
+    if (!bits) return;
+    float half = px * 0.5f;
+    for (int y = 0; y < px; y++) {
+        for (int x = 0; x < px; x++) {
+            float dx = (x + 0.5f - half) / half, dy = (y + 0.5f - half) / half;
+            float len = sqrtf(dx * dx + dy * dy);
+            float a = SP_CLAMP((1.0f - len) * half + 0.5f, 0.0f, 1.0f);   /* ~1 px soft edge */
+            if (a <= 0.0f) continue;
+            D2D1_COLOR_F c = ui_hsv(atan2f(dy, dx) * 180.0f / 3.14159265f, SP_MIN(len, 1.0f), 1.0f, 1.0f);
+            BYTE *p = bits + ((size_t)y * px + x) * 4;
+            p[0] = (BYTE)(c.b * a * 255.0f + 0.5f);
+            p[1] = (BYTE)(c.g * a * 255.0f + 0.5f);
+            p[2] = (BYTE)(c.r * a * 255.0f + 0.5f);
+            p[3] = (BYTE)(a * 255.0f + 0.5f);
+        }
+    }
+    D2D1_BITMAP_PROPERTIES pr;
+    ZeroMemory(&pr, sizeof pr);
+    pr.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    pr.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+    pr.dpiX = pr.dpiY = 96.0f * u->scale;
+    D2D1_SIZE_U size = { (UINT32)px, (UINT32)px };
+    ID2D1Bitmap *bmp = NULL;
+    if (SUCCEEDED(ID2D1RenderTarget_CreateBitmap(RT, size, bits, (UINT32)px * 4, &pr, &bmp))) {
+        g_disc = bmp;
+        g_discPx = px;
+    }
+    free(bits);
+}
+
+void ui_disc(int id, float cx, float cy, float radius, float hue, float sat)
+{
+    Ui *u = g_ui;
+    Theme *t = &u->t;
+    int px = (int)ceilf(radius * 2.0f * u->scale);
+    if (!g_disc || g_discPx != px) disc_build(u, px);
+    ui_circle(cx, cy, radius + 1.5f, t->border);                 /* hairline rim */
+    D2D1_RECT_F dr = rectf(cx - radius, cy - radius, radius * 2.0f, radius * 2.0f);
+    if (g_disc) ID2D1RenderTarget_DrawBitmap(RT, g_disc, &dr, u->alpha, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, NULL);
+    /* marker: hue angle + saturation distance from the centre, filled with the picked colour */
+    float a = hue * 3.14159265f / 180.0f, dist = SP_CLAMP(sat, 0.0f, 1.0f) * radius;
+    float mx = cx + cosf(a) * dist, my = cy + sinf(a) * dist;
+    float grow = ui_is_down(id) ? 1.5f : 0.0f;
+    ui_circle(mx, my + 0.5f, 9.0f + grow, col(0x000000, 0.30f));
+    ui_circle(mx, my, 8.0f + grow, col(0xFFFFFF, 1.0f));
+    ui_circle(mx, my, 5.5f + grow, ui_hsv(hue, sat, 1.0f, 1.0f));
+    ui_hit(id, dr, 1, 1);
+    ui_focus_ring(rectf(cx - radius - 2, cy - radius - 2, radius * 2 + 4, radius * 2 + 4), radius + 2, id);
 }
 
 /* ================================================================ thumbnails */
@@ -796,10 +923,11 @@ static void on_key(Ui *u, WPARAM vk)
         library_import_dialog(u->hwnd, shift);
         return;
     }
-    if (ctrl && vk >= '1' && vk <= '3') {
+    if (ctrl && vk >= '1' && vk <= '4') {
         pages_activate(HIT_ID(HK_NAV, (int)(vk - '1')), 0);
         return;
     }
+    if (u->textFocus >= 0 && pages_text_key((UINT)vk, ctrl, shift)) return;
     switch (vk) {
     case VK_TAB:
         move_focus(u, shift ? -1 : 1);
@@ -841,6 +969,7 @@ static void on_key(Ui *u, WPARAM vk)
 
 static void on_char(Ui *u, wchar_t ch)
 {
+    if (pages_text_char(ch)) return;   /* Customise text field */
     if (!u->searchFocus) return;
     size_t n = wcslen(u->search);
     if (ch == 8) {
@@ -925,9 +1054,14 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             u->tracking = 1;
         }
         int hot = hit_at(u, u->mx, u->my);
-        if (hot != u->hot) {
-            u->hot = hot;
+        if (hot != u->hot) {                            /* keep the drag target while the button is down */
+            u->hot = HIT_KIND(u->pressed) == HK_SLIDER || HIT_KIND(u->pressed) == HK_DISC ||
+                     HIT_KIND(u->pressed) == HK_PSLIDER ? u->pressed : hot;
             ui_invalidate();
+        }
+        if (u->pressed) {                               /* continuous controls: slider + colour wheel */
+            int k = HIT_KIND(u->pressed);
+            if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(u->pressed, u->mx, u->my, 0);
         }
         return 0;
     }
@@ -949,10 +1083,19 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_LBUTTONDOWN:
         SetCapture(h);
         u->pressed = u->hot;
-        u->focusVisible = 0;
+        u->pressedRect = rectf(0, 0, 0, 0);
         if (u->hot) {
             const Hit *hit = hit_find(u, u->hot);
-            if (hit && hit->focusable) u->focus = u->hot;
+            if (hit) {
+                u->pressedRect = hit->r;
+                if (hit->focusable) u->focus = u->hot;
+            }
+        }
+        if (u->textFocus >= 0 && !(HIT_KIND(u->hot) == HK_PTEXT && HIT_DATA(u->hot) == u->textFocus))
+            pages_text_end(1);   /* commit when the click lands elsewhere */
+        {
+            int k = HIT_KIND(u->pressed);   /* continuous controls jump to the click right away */
+            if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(u->pressed, u->mx, u->my, 0);
         }
         set_search_focus(u, HIT_KIND(u->hot) == HK_SEARCH);
         ui_invalidate();
@@ -961,7 +1104,11 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         int id = u->pressed;
         u->pressed = 0;
         ReleaseCapture();
-        if (id && id == u->hot && HIT_KIND(id) != HK_SEARCH) pages_activate(id, 0);
+        if (id) {
+            int k = HIT_KIND(id);
+            if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(id, u->mx, u->my, 1);
+            if (id == u->hot && k != HK_SEARCH) pages_activate(id, 0);
+        }
         ui_invalidate();
         return 0;
     }
@@ -1064,6 +1211,7 @@ BOOL ui_show(void)
     g_ui = u;
     u->showRequestedAt = time_ms();
     u->target = -1;
+    u->textFocus = -1;   /* no Customise text field is being edited */
     u->alpha = 1.0f;
     u->pageAnim = 1.0f;
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &SP_IID_ID2D1Factory, NULL, (void **)&u->d2d);
@@ -1143,6 +1291,7 @@ void ui_destroy(void)
     for (int i = 0; i < u->thumbCount; i++) thumb_release(&u->thumbs[i]);
     free(u->thumbs);
     free(u->view);
+    disc_release();
     SP_RELEASE(u->brush);
     SP_RELEASE(u->rt);
     release_text_formats(u);

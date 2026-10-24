@@ -57,6 +57,7 @@ extern AppState g_app;
 int  app_main(HINSTANCE inst, int argc, wchar_t **argv);
 
 void app_save_config(void);                                  /* atomic save + engine reload */
+void app_apply_customise(void);                              /* Customise panel: renderers re-read properties + grading */
 void app_apply_wallpaper(const wchar_t *wallpaperId, const wchar_t *monitorIdOrNull);
 const wchar_t *app_wallpaper_for(const wchar_t *monitorIdOrNull);
 void app_set_paused(BOOL paused);

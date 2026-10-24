@@ -3,6 +3,8 @@
 #include "../../common/json.h"
 #include "../../common/paths.h"
 #include "../../common/log.h"
+#include <shlwapi.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -100,82 +102,413 @@ static void write_value_from(StrBuf *b, const JVal *prop, const JVal *over, cons
     }
 }
 
-static char *lively_js(const WallpaperEntry *wp, const JVal *over)
+/* The package's property list: Lively (saved customisations first, then the package file)
+ * or Wallpaper Engine (project.json general.properties). *owner receives what to free. */
+static const JVal *package_properties(const WallpaperEntry *wp, wchar_t *folder, size_t fcap, JVal **owner)
 {
-    wchar_t folder[SP_MAX_PATH], p[SP_MAX_PATH];
-    path_dirname(folder, SP_COUNTOF(folder), wp->path);
-    JVal *props = lively_saved_properties(folder);
-    if (!props) {
-        path_join(p, SP_COUNTOF(p), folder, L"LivelyProperties.json");
-        props = json_parse_file(p);
+    wchar_t p[SP_MAX_PATH];
+    *owner = NULL;
+    path_dirname(folder, fcap, wp->path);
+    if (wp->format == WPF_LIVELY) {
+        JVal *props = lively_saved_properties(folder);
+        if (!props) {
+            path_join(p, SP_COUNTOF(p), folder, L"LivelyProperties.json");
+            props = json_parse_file(p);
+        }
+        *owner = props;
+        return props && props->t == J_OBJ ? props : NULL;
     }
-    if (!props || props->t != J_OBJ) {
-        json_free(props);
-        return NULL;
+    if (wp->format == WPF_WE) {
+        path_join(p, SP_COUNTOF(p), folder, L"project.json");
+        *owner = json_parse_file(p);
+        const JVal *props = json_geti(json_geti(*owner, "general"), "properties");
+        return props && props->t == J_OBJ ? props : NULL;
     }
-    StrBuf b = { 0 };
-    sb_puts(&b, "(function(){var f=window.livelyPropertyListener;if(typeof f!=='function')return;");
-    int count = 0;
-    for (int i = 0; i < props->n; i++) {
-        const JVal *prop = &props->kids[i];
-        const char *type = json_str(json_get(prop, "type"), "");
-        if (!type[0] || !_stricmp(type, "button") || !_stricmp(type, "label")) continue;
-        sb_puts(&b, "try{f(");
-        json_write_string(&b, props->keys[i]);
-        sb_puts(&b, ",");
-        write_value_from(&b, prop, json_get(over, props->keys[i]), type);
-        sb_puts(&b, ");}catch(e){}");
-        count++;
-    }
-    sb_puts(&b, "})();");
-    json_free(props);
-    if (b.failed || !count) {
-        sb_free(&b);
-        return NULL;
-    }
-    return b.p;
+    return NULL;
 }
 
-static char *we_js(const WallpaperEntry *wp, const JVal *over)
+/* A stored override. Files written by the first v1.3 build wrapped values as {"v": value};
+ * property values are always scalars, so such an object is unwrapped. */
+static const JVal *override_value(const JVal *over, const char *key)
 {
-    wchar_t folder[SP_MAX_PATH], p[SP_MAX_PATH];
-    path_dirname(folder, SP_COUNTOF(folder), wp->path);
-    path_join(p, SP_COUNTOF(p), folder, L"project.json");
-    JVal *proj = json_parse_file(p);
-    const JVal *props = json_geti(json_geti(proj, "general"), "properties");
-    StrBuf b = { 0 };
-    sb_puts(&b, "(function(){var o={");
-    int count = 0;
-    for (int i = 0; props && props->t == J_OBJ && i < props->n; i++) {
-        const JVal *prop = &props->kids[i];
-        const JVal *v = json_get(over, props->keys[i]);
-        if (!v) v = json_get(prop, "value");
-        if (!v) continue;
-        if (count++) sb_puts(&b, ",");
-        json_write_string(&b, props->keys[i]);
-        sb_puts(&b, ":{\"value\":");
-        json_write(&b, v);
-        sb_puts(&b, "}");
-    }
-    sb_puts(&b, "};var l=window.wallpaperPropertyListener;if(!l)return;"
-                "try{if(l.applyGeneralProperties)l.applyGeneralProperties({fps:60});}catch(e){}"
-                "try{if(l.applyUserProperties)l.applyUserProperties(o);}catch(e){}})();");
-    json_free(proj);
-    if (b.failed) {
-        sb_free(&b);
-        return NULL;
-    }
-    return b.p;
+    const JVal *v = json_get(over, key);
+    if (v && v->t == J_OBJ && v->n == 1 && v->keys[0] && !strcmp(v->keys[0], "v")) return &v->kids[0];
+    return v;
 }
 
-char *wpapi_properties_js(const WallpaperEntry *wp)
+/* {"name": value} with the value each property hands the page right now (Lively: the
+ * livelyPropertyListener argument; Wallpaper Engine: the raw property value). */
+static JVal *property_values(const WallpaperEntry *wp, const JVal *over)
 {
+    wchar_t folder[SP_MAX_PATH];
+    JVal *owner = NULL;
+    const JVal *props = package_properties(wp, folder, SP_COUNTOF(folder), &owner);
+    StrBuf b = { 0 };
+    sb_puts(&b, "{");
+    int count = 0;
+    for (int i = 0; props && i < props->n; i++) {
+        const JVal *prop = &props->kids[i];
+        const char *key = props->keys[i];
+        if (!key || !key[0]) continue;
+        const JVal *ov = override_value(over, key);
+        if (wp->format == WPF_LIVELY) {
+            const char *type = json_str(json_get(prop, "type"), "");
+            if (!type[0] || !_stricmp(type, "button") || !_stricmp(type, "label")) continue;
+            if (count++) sb_puts(&b, ",");
+            json_write_string(&b, key);
+            sb_puts(&b, ":");
+            write_value_from(&b, prop, ov, type);
+        } else {
+            const JVal *v = ov ? ov : json_get(prop, "value");
+            if (!v) continue;
+            if (count++) sb_puts(&b, ",");
+            json_write_string(&b, key);
+            sb_puts(&b, ":");
+            json_write(&b, v);
+        }
+    }
+    sb_puts(&b, "}");
+    JVal *vals = b.failed ? NULL : json_parse(b.p, b.len);
+    sb_free(&b);
+    json_free(owner);
+    return vals;
+}
+
+static int jval_same(const JVal *a, const JVal *b)
+{
+    if (!a || !b) return a == b;
+    StrBuf x = { 0 }, y = { 0 };
+    json_write(&x, a);
+    json_write(&y, b);
+    int same = !x.failed && !y.failed && x.len == y.len && (!x.len || !memcmp(x.p, y.p, x.len));
+    sb_free(&x);
+    sb_free(&y);
+    return same;
+}
+
+char *wpapi_properties_js(const WallpaperEntry *wp, JVal **sent)
+{
+    if (!wp || (wp->format != WPF_LIVELY && wp->format != WPF_WE)) return NULL;
     wchar_t op[SP_MAX_PATH];
     wpapi_overrides_path(wp->id, op, SP_COUNTOF(op));
     JVal *over = file_exists(op) ? json_parse_file(op) : NULL;
-    char *js = NULL;
-    if (wp->format == WPF_LIVELY) js = lively_js(wp, over);
-    else if (wp->format == WPF_WE) js = we_js(wp, over);
+    JVal *vals = property_values(wp, over);
     json_free(over);
-    return js;
+    if (!vals || vals->t != J_OBJ) {
+        json_free(vals);
+        return NULL;
+    }
+    const JVal *prev = sent ? *sent : NULL;
+    int lively = wp->format == WPF_LIVELY, count = 0;
+    StrBuf b = { 0 };
+    sb_puts(&b, lively ? "(function(){var f=window.livelyPropertyListener;if(typeof f!=='function')return;"
+                       : "(function(){var o={");
+    for (int i = 0; i < vals->n; i++) {
+        const char *key = vals->keys[i];
+        if (!key || (prev && jval_same(json_get(prev, key), &vals->kids[i]))) continue;   /* page has it */
+        if (lively) {
+            sb_puts(&b, "try{f(");
+            json_write_string(&b, key);
+            sb_puts(&b, ",");
+            json_write(&b, &vals->kids[i]);
+            sb_puts(&b, ");}catch(e){}");
+        } else {
+            if (count) sb_puts(&b, ",");
+            json_write_string(&b, key);
+            sb_puts(&b, ":{\"value\":");
+            json_write(&b, &vals->kids[i]);
+            sb_puts(&b, "}");
+        }
+        count++;
+    }
+    if (lively) {
+        sb_puts(&b, "})();");
+    } else {
+        sb_puts(&b, "};var l=window.wallpaperPropertyListener;if(!l)return;");
+        if (!prev) sb_puts(&b, "try{if(l.applyGeneralProperties)l.applyGeneralProperties({fps:60});}catch(e){}");
+        sb_puts(&b, "try{if(l.applyUserProperties)l.applyUserProperties(o);}catch(e){}})();");
+    }
+    int send = !b.failed && (count || (!prev && !lively));
+    if (sent) {
+        json_free(*sent);
+        *sent = vals;
+    } else {
+        json_free(vals);
+    }
+    if (!send) {
+        sb_free(&b);
+        return NULL;
+    }
+    return b.p;
+}
+
+/* ================================================================ customise panel */
+
+static const JVal k_jnull = { J_NULL };
+
+void wpapi_jval_copy(JVal **dst, const JVal *src)
+{
+    if (!src) src = &k_jnull;
+    StrBuf b = { 0 };
+    json_write(&b, src);
+    if (!b.failed) *dst = json_parse(b.p ? b.p : "", b.len);
+    else *dst = NULL;
+    sb_free(&b);
+}
+
+static CustomType prop_type(const JVal *prop, WallpaperFormat fmt)
+{
+    const char *t = json_str(json_get(prop, "type"), "");
+    if (!_stricmp(t, "slider")) return CP_SLIDER;
+    if (!_stricmp(t, "checkbox") || !_stricmp(t, "bool")) return CP_CHECKBOX;
+    if (!_stricmp(t, "dropdown") || !_stricmp(t, "scalarDropdown")) return CP_DROPDOWN;   /* value = item index */
+    if (!_stricmp(t, "combo")) return CP_COMBO;                                           /* WE: options[].value */
+    if (!_stricmp(t, "folderDropdown")) return CP_FILE;                                   /* value = file name */
+    if (!_stricmp(t, "color") || !_stricmp(t, "colorpicker")) return CP_COLOR;
+    if (!_stricmp(t, "textbox") || !_stricmp(t, "textinput")) return CP_TEXT;
+    if (!_stricmp(t, "label") || (fmt == WPF_WE && !_stricmp(t, "text"))) return CP_LABEL;
+    return (CustomType)0;                            /* button, file, directory: not editable here */
+}
+
+/* folderDropdown choices: files in <wallpaper>\<folder> matching the "*.jpg|*.png" filter,
+ * as a JSON array of file names (what Lively stores as the value). */
+static JVal *folder_items(const wchar_t *wpFolder, const JVal *prop)
+{
+    wchar_t sub[SP_MAX_PATH], dir[SP_MAX_PATH], spec[256], pattern[SP_MAX_PATH];
+    json_str_w(json_get(prop, "folder"), sub, SP_COUNTOF(sub));
+    for (wchar_t *c = sub; *c; c++) if (*c == L'/') *c = L'\\';
+    if (sub[0]) path_join(dir, SP_COUNTOF(dir), wpFolder, sub);
+    else str_copy(dir, SP_COUNTOF(dir), wpFolder);
+    json_str_w(json_get(prop, "filter"), spec, SP_COUNTOF(spec));
+    if (!spec[0]) str_copy(spec, SP_COUNTOF(spec), L"*.*");
+    for (wchar_t *c = spec; *c; c++) if (*c == L'|') *c = L';';       /* PathMatchSpec list syntax */
+    path_join(pattern, SP_COUNTOF(pattern), dir, L"*");
+    StrBuf b = { 0 };
+    sb_puts(&b, "[");
+    int n = 0;
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(pattern, &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_HIDDEN)) continue;
+            if (!PathMatchSpecW(fd.cFileName, spec)) continue;
+            char *name = utf8_from_wide(fd.cFileName, NULL);
+            if (!name) continue;
+            if (n++) sb_puts(&b, ",");
+            json_write_string(&b, name);
+            free(name);
+        } while (n < 256 && FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    sb_puts(&b, "]");
+    JVal *items = b.failed ? NULL : json_parse(b.p, b.len);
+    sb_free(&b);
+    return items;
+}
+
+/* Rewrites the overrides file with `key` set to the raw JSON in `valueJson` (NULL: remove
+ * the key). Other entries keep their order; the file is created when absent and deleted
+ * when nothing is left. Returns 1 on success. */
+static int save_override_file(const wchar_t *wallpaperId, const char *key, const char *valueJson)
+{
+    wchar_t p[SP_MAX_PATH];
+    wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
+    JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
+    StrBuf b = { 0 };
+    sb_puts(&b, "{");
+    int count = 0, replaced = 0;
+    if (over && over->t == J_OBJ) {
+        for (int i = 0; i < over->n; i++) {
+            if (!over->keys[i]) continue;
+            int match = !_stricmp(over->keys[i], key);
+            if (match && !valueJson) continue;
+            if (count++) sb_puts(&b, ",");
+            json_write_string(&b, over->keys[i]);
+            sb_puts(&b, ":");
+            if (match) {
+                sb_puts(&b, valueJson);
+                replaced = 1;
+            } else {
+                json_write(&b, &over->kids[i]);
+            }
+        }
+    }
+    if (!replaced && valueJson) {
+        if (count++) sb_puts(&b, ",");
+        json_write_string(&b, key);
+        sb_puts(&b, ":");
+        sb_puts(&b, valueJson);
+    }
+    sb_puts(&b, "}");
+    json_free(over);
+    if (b.failed) {
+        sb_free(&b);
+        return 0;
+    }
+    if (!count) {
+        sb_free(&b);
+        DeleteFileW(p);
+        return 1;
+    }
+    wchar_t dir[SP_MAX_PATH];
+    path_dirname(dir, SP_COUNTOF(dir), p);
+    dir_create_recursive(dir);
+    FILE *f = _wfopen(p, L"wb");
+    if (!f) {
+        sb_free(&b);
+        return 0;
+    }
+    size_t n = b.len;
+    int ok = fwrite(b.p, 1, n, f) == n;
+    ok = !fclose(f) && ok;
+    sb_free(&b);
+    return ok;
+}
+
+int wpapi_save_override(const WallpaperEntry *wp, const char *name, const JVal *value)
+{
+    if (!wp || !wp->id[0] || !wp->format || !value) return 0;
+    StrBuf b = { 0 };
+    json_write(&b, value);
+    int ok = !b.failed && b.p && save_override_file(wp->id, name, b.p);
+    sb_free(&b);
+    return ok;
+}
+
+void wpapi_clear_override(const wchar_t *wallpaperId)
+{
+    wchar_t p[SP_MAX_PATH];
+    wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
+    DeleteFileW(p);
+}
+
+void wpapi_clear_properties(const wchar_t *wallpaperId)
+{
+    wchar_t p[SP_MAX_PATH];
+    wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
+    JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
+    const JVal *a = json_geti(over, "_screenplus_adjust");
+    StrBuf b = { 0 };
+    if (a) json_write(&b, a);
+    DeleteFileW(p);
+    if (a && !b.failed && b.p) save_override_file(wallpaperId, "_screenplus_adjust", b.p);   /* keep the look */
+    sb_free(&b);
+    json_free(over);
+}
+
+BOOL wpapi_load_adjust(const wchar_t *wallpaperId, WallpaperAdjust *out)
+{
+    WallpaperAdjust d = adjust_defaults();
+    *out = d;
+    if (!wallpaperId || !wallpaperId[0]) return FALSE;
+    wchar_t p[SP_MAX_PATH];
+    wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
+    JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
+    const JVal *a = json_geti(over, "_screenplus_adjust");
+    if (!a) {
+        json_free(over);
+        return FALSE;
+    }
+    out->brightness = SP_CLAMP((int)json_num(json_get(a, "brightness"), 0), -100, 100);
+    out->contrast = SP_CLAMP((int)json_num(json_get(a, "contrast"), 0), -100, 100);
+    out->saturation = SP_CLAMP((int)json_num(json_get(a, "saturation"), 0), -100, 100);
+    out->hue = SP_CLAMP((int)json_num(json_get(a, "hue"), 0), -180, 180);
+    out->gamma = SP_CLAMP((int)json_num(json_get(a, "gamma"), 0), -100, 100);
+    out->tint = (uint32_t)json_num(json_get(a, "tint"), (double)d.tint) & 0xFFFFFF;
+    out->tintLift = SP_CLAMP((int)json_num(json_get(a, "tintLift"), 0), 0, 100);
+    out->tintBrightness = SP_CLAMP((int)json_num(json_get(a, "tintBrightness"), (double)d.tintBrightness), 0, 100);
+    out->used = adjust_active(out);
+    json_free(over);
+    return TRUE;
+}
+
+void wpapi_save_adjust(const wchar_t *wallpaperId, const WallpaperAdjust *a)
+{
+    if (!wallpaperId || !wallpaperId[0]) return;
+    WallpaperAdjust d = adjust_defaults();
+    if (!adjust_active(a) && a->tint == d.tint && a->tintBrightness == d.tintBrightness) {
+        save_override_file(wallpaperId, "_screenplus_adjust", NULL);   /* back to neutral: drop the key */
+        return;
+    }
+    char json[256];
+    snprintf(json, sizeof json,
+             "{\"used\":%d,\"brightness\":%d,\"contrast\":%d,\"saturation\":%d,\"hue\":%d,"
+             "\"gamma\":%d,\"tint\":%u,\"tintLift\":%d,\"tintBrightness\":%d}",
+             adjust_active(a), a->brightness, a->contrast, a->saturation, a->hue, a->gamma,
+             (unsigned)(a->tint & 0xFFFFFF), a->tintLift, a->tintBrightness);
+    save_override_file(wallpaperId, "_screenplus_adjust", json);
+}
+
+CustomProp *wpapi_props_list(const WallpaperEntry *wp, int *count)
+{
+    *count = 0;
+    if (!wp || !wp->format) return NULL;
+    wchar_t folder[SP_MAX_PATH];
+    JVal *owner = NULL;
+    const JVal *props = package_properties(wp, folder, SP_COUNTOF(folder), &owner);
+    if (!props || !props->n) {
+        json_free(owner);
+        return NULL;
+    }
+    wchar_t op[SP_MAX_PATH];
+    wpapi_overrides_path(wp->id, op, SP_COUNTOF(op));
+    JVal *over = file_exists(op) ? json_parse_file(op) : NULL;
+
+    CustomProp *list = (CustomProp *)calloc((size_t)props->n, sizeof(CustomProp));
+    if (!list) {
+        json_free(owner);
+        json_free(over);
+        return NULL;
+    }
+    int n = 0;
+    for (int i = 0; i < props->n && i < 128; i++) {
+        const JVal *prop = &props->kids[i];
+        const char *key = props->keys[i];
+        if (!key || !key[0] || !_stricmp(key, "_screenplus_adjust")) continue;
+        CustomType type = prop_type(prop, wp->format);
+        if (!type) continue;
+        CustomProp *cp = &list[n];
+        size_t keyLen = SP_MIN(strlen(key), sizeof cp->name - 1);   /* util.h str_copyn is wide-only */
+        memcpy(cp->name, key, keyLen);
+        cp->name[keyLen] = 0;
+        cp->type = type;
+        json_str_w(json_get(prop, "text"), cp->label, SP_COUNTOF(cp->label));
+        if (type == CP_LABEL && !cp->label[0]) json_str_w(json_get(prop, "value"), cp->label, SP_COUNTOF(cp->label));
+        if (!cp->label[0]) str_printf(cp->label, SP_COUNTOF(cp->label), L"%.60hs", key);
+        /* resolved value: Screen+ override > stored value (Lively-saved or package default) */
+        const JVal *overV = override_value(over, key);
+        wpapi_jval_copy(&cp->value, overV ? overV : json_get(prop, "value"));
+        cp->overridden = overV != NULL;
+        switch (type) {
+        case CP_DROPDOWN: wpapi_jval_copy(&cp->items, json_get(prop, "items")); break;
+        case CP_COMBO:    wpapi_jval_copy(&cp->items, json_get(prop, "options")); break;
+        case CP_FILE:     cp->items = folder_items(folder, prop); break;
+        case CP_SLIDER: {
+            cp->min = json_num(json_get(prop, "min"), 0.0);
+            cp->max = json_num(json_get(prop, "max"), 100.0);
+            double defStep = json_bool(json_get(prop, "fraction"), 0) ? pow(10.0, -json_num(json_get(prop, "precision"), 2.0))
+                                                                       : 1.0;
+            cp->step = SP_MAX(json_num(json_get(prop, "step"), defStep), 1e-6);
+            if (cp->max <= cp->min) cp->max = cp->min + 1.0;
+            break;
+        }
+        default: break;
+        }
+        n++;
+    }
+    json_free(over);
+    json_free(owner);
+    *count = n;
+    if (!n) free(list);
+    return n ? list : NULL;
+}
+
+void wpapi_props_free(CustomProp *list, int count)
+{
+    if (!list) return;
+    for (int i = 0; i < count; i++) {
+        json_free(list[i].value);
+        json_free(list[i].items);
+    }
+    free(list);
 }
