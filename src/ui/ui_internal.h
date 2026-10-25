@@ -18,7 +18,7 @@ enum HitKind {
     HK_PLAYPAUSE, HK_AUDIO, HK_RESTART_CURRENT, HK_REVEAL, HK_TOGGLE, HK_THEME, HK_OPEN_LOGS, HK_OPEN_DATA,
     HK_RESTART_ENGINE, HK_NOTICE_CLOSE, HK_MONITOR, HK_USE_DEFAULT, HK_CHANGE, HK_GET_WEBVIEW, HK_LICENSES,
     HK_SCROLLBAR, HK_SLIDER, HK_DISC, HK_PCHECK, HK_PSLIDER, HK_PDOWN, HK_PCOLOR, HK_PTEXT, HK_RESET_LOOK,
-    HK_RESET_PROPS
+    HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -84,7 +84,7 @@ typedef struct Ui {
     int                    searchFocus, caretOn;
     int                    filter;         /* 0 all, 1 image, 2 video, 3 html, 4 recent */
     int                    target;         /* -1 all displays, else index into g_app.mons */
-    int                    textFocus;      /* index of the Customise text field being edited, -1 none */
+    int                    textFocus;      /* hit id of the Customise field being typed into, 0 none */
     int                   *view;
     int                    viewCount, viewCap, cols;
     float                  gridY, rowH;    /* grid origin (content coordinates) and row pitch */

@@ -612,6 +612,16 @@ JVal *wpapi_color_value(uint32_t rgb, int style)
     return wpapi_str_value(text);
 }
 
+int wpapi_parse_rgb(const wchar_t *s, uint32_t *rgb)
+{
+    if (!s) return 0;
+    if (s[0] == L'#') s++;
+    else if (s[0] == L'0' && (s[1] == L'x' || s[1] == L'X')) s += 2;
+    if (wcslen(s) != 6 || wcsspn(s, L"0123456789abcdefABCDEF") != 6) return 0;
+    *rgb = (uint32_t)wcstoul(s, NULL, 16) & 0xFFFFFF;
+    return 1;
+}
+
 void wpapi_props_free(CustomProp *list, int count)
 {
     if (!list) return;

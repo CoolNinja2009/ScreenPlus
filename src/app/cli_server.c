@@ -188,18 +188,6 @@ static int parse_on_off(const wchar_t *v, int current, int *out)
     return 1;
 }
 
-static int parse_rgb(const wchar_t *v, uint32_t *out)
-{
-    if (!v) return 0;
-    if (v[0] == L'#') v++;
-    else if (v[0] == L'0' && (v[1] == L'x' || v[1] == L'X')) v += 2;
-    wchar_t *end = NULL;
-    unsigned long rgb = wcstoul(v, &end, 16);
-    if (!end || *end || wcslen(v) != 6) return 0;
-    *out = (uint32_t)rgb & 0xFFFFFF;
-    return 1;
-}
-
 static void customise_changed(void)
 {
     app_apply_customise();
@@ -578,7 +566,7 @@ static void cmd_look(Reply *r, const Req *q)
         }
         if (k == LK_TINT) {
             uint32_t rgb;
-            if (!parse_rgb(val, &rgb)) {
+            if (!wpapi_parse_rgb(val, &rgb)) {
                 fail(r, L"tint wants a colour like #3366FF, not \"%ls\".", val);
                 return;
             }
@@ -762,7 +750,7 @@ static JVal *parse_prop_value(Reply *r, const CustomProp *cp, const wchar_t *v)
     case CP_COLOR: {
         uint32_t rgb;
         int style;
-        if (!parse_rgb(v, &rgb)) {
+        if (!wpapi_parse_rgb(v, &rgb)) {
             fail(r, L"%ls wants a colour like #3366FF.", cp->label);
             return NULL;
         }

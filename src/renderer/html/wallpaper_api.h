@@ -87,3 +87,4 @@ JVal *wpapi_choice_value(const CustomProp *cp, int i);                     /* va
 /* Colour properties: style 0 "#RRGGBB", 1 "0xRRGGBB", 2 Wallpaper Engine "r g b" floats. */
 uint32_t wpapi_color_get(const CustomProp *cp, int *style);
 JVal    *wpapi_color_value(uint32_t rgb, int style);
+int      wpapi_parse_rgb(const wchar_t *s, uint32_t *rgb);                 /* typed "#RRGGBB", "0xRRGGBB" or "RRGGBB" */

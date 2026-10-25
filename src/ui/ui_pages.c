@@ -10,7 +10,9 @@
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
+#include <windowsx.h>
 #include <commdlg.h>
+#include <colordlg.h>
 
 #define SIDEBAR_W 232.0f
 #define PAD       32.0f
@@ -749,7 +751,8 @@ static struct {
     WallpaperAdjust adj;               /* working copy: edits land here and are saved on commit */
     CustomProp     *props;
     int             propCount;
-    wchar_t         edit[SP_MAX_PATH]; /* text property being edited (u->textFocus) */
+    wchar_t         edit[SP_MAX_PATH]; /* text of the field being typed into (u->textFocus) */
+    int             editAll;           /* that text is still selected: the next key replaces it */
     int             forceReload;       /* re-resolve property values (after a reset) */
     double          lastSend;          /* time_ms of the last commit */
 } cus;
@@ -774,13 +777,13 @@ static void customise_refresh(void)
         cus.props = NULL;
         cus.propCount = 0;
         cus.wpId[0] = 0;
-        u->textFocus = -1;
+        u->textFocus = 0;
         return;
     }
     if (str_ieq(cus.wpId, e->id) && !cus.forceReload) return;
     str_copy(cus.wpId, SP_COUNTOF(cus.wpId), e->id);
     cus.forceReload = 0;
-    u->textFocus = -1;
+    u->textFocus = 0;
     wpapi_load_adjust(e->id, &cus.adj);
     wpapi_props_free(cus.props, cus.propCount);
     cus.props = wpapi_props_list(e, &cus.propCount);
@@ -894,6 +897,25 @@ static void prop_menu(int idx, int id)
 
 /* ---- colour properties: "#RRGGBB" / "0xRRGGBB" (Lively) or "r g b" floats 0..1 (Wallpaper Engine) */
 
+/* The system dialog keeps the luminance when a colour is picked from its spectrum, so from black (or
+ * white) every pick stays black: lift it to the middle just before such a click lands. */
+static UINT_PTR CALLBACK colour_dialog_hook(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
+{
+    (void)wp;
+    if (msg == WM_INITDIALOG) return TRUE;   /* default focus */
+    if (msg == WM_LBUTTONDOWN) {
+        HWND spectrum = GetDlgItem(dlg, COLOR_RAINBOW);
+        POINT p = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };
+        RECT r;
+        BOOL ok = FALSE;
+        UINT lum = GetDlgItemInt(dlg, COLOR_LUM, &ok, FALSE);
+        ClientToScreen(dlg, &p);
+        if (spectrum && GetWindowRect(spectrum, &r) && PtInRect(&r, p) && ok && (lum == 0 || lum >= 240))
+            SetDlgItemInt(dlg, COLOR_LUM, 120, FALSE);
+    }
+    return 0;
+}
+
 static void prop_pick_colour(int idx)
 {
     CustomProp *cp = &cus.props[idx];
@@ -904,10 +926,18 @@ static void prop_pick_colour(int idx)
     cc.hwndOwner = g_ui->hwnd;
     cc.lpCustColors = custom;
     cc.rgbResult = RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
-    cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ENABLEHOOK;
+    cc.lpfnHook = colour_dialog_hook;
     if (!ChooseColorW(&cc)) return;
     COLORREF r = cc.rgbResult;
     prop_commit(cp, wpapi_color_value(((uint32_t)GetRValue(r) << 16) | ((uint32_t)GetGValue(r) << 8) | GetBValue(r), style), 0);
+}
+
+/* A slider property's value clamped to its range and snapped to its step. */
+static double prop_snap(const CustomProp *cp, double v)
+{
+    double step = cp->step > 0 ? cp->step : 1.0;
+    return SP_CLAMP(cp->min + floor((v - cp->min) / step + 0.5) * step, cp->min, cp->max);
 }
 
 /* ---- dragging (sliders, colour wheel): called on press, move and release */
@@ -939,8 +969,7 @@ void pages_drag(int id, float x, float y, int commit)
     if (kind == HK_PSLIDER && data >= 0 && data < cus.propCount) {
         CustomProp *cp = &cus.props[data];
         double step = cp->step > 0 ? cp->step : 1.0;
-        double v = cp->min + (cp->max - cp->min) * slider_norm_from_x(r, x);
-        v = SP_CLAMP(cp->min + floor((v - cp->min) / step + 0.5) * step, cp->min, cp->max);
+        double v = prop_snap(cp, cp->min + (cp->max - cp->min) * slider_norm_from_x(r, x));
         if (fabs(v - json_num(cp->value, cp->min)) < step * 1e-3 && !commit) return;
         prop_commit(cp, wpapi_num_value(v, step), !commit);
     }
@@ -968,12 +997,94 @@ static int customise_key(UINT vk, int shift)
     return 1;
 }
 
-/* ---- text properties */
+/* ---- typing: text properties, and a precise number for a slider or colour (click its value) */
+
+static int edit_is_hex(int id)
+{
+    int kind = HIT_KIND(id), data = HIT_DATA(id);
+    return (kind == HK_LOOKVAL && data == SL_COUNT) ||
+           (kind == HK_PVAL && data >= 0 && data < cus.propCount && cus.props[data].type == CP_COLOR);
+}
+
+static int edit_accepts(wchar_t ch)
+{
+    int id = g_ui->textFocus;
+    if (HIT_KIND(id) == HK_PTEXT) return ch >= 32;
+    return ch && wcschr(edit_is_hex(id) ? L"0123456789abcdefABCDEF#" : L"0123456789+-.", ch);
+}
+
+/* What a value field holds when typing starts: the bare number, or the colour as #RRGGBB. */
+static int value_edit_text(int id, wchar_t *out, size_t cap)
+{
+    int kind = HIT_KIND(id), data = HIT_DATA(id), style;
+    if (kind == HK_LOOKVAL) {
+        int *f = look_field(data);
+        if (data == SL_COUNT) str_printf(out, cap, L"#%06X", tint_effective());
+        else if (f) str_printf(out, cap, L"%d", *f);
+        return data == SL_COUNT || f;
+    }
+    if (kind != HK_PVAL || data < 0 || data >= cus.propCount) return 0;
+    CustomProp *cp = &cus.props[data];
+    if (cp->type == CP_COLOR) str_printf(out, cap, L"#%06X", wpapi_color_get(cp, &style));
+    else str_printf(out, cap, L"%.6g", json_num(cp->value, cp->min));
+    return cp->type == CP_COLOR || cp->type == CP_SLIDER;
+}
+
+static void edit_begin(int id, int selectAll)
+{
+    Ui *u = g_ui;
+    u->textFocus = id;
+    cus.editAll = selectAll;
+    u->caretOn = 1;
+    SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+}
+
+static int parse_number(const wchar_t *s, double *v)
+{
+    wchar_t *end = NULL;
+    *v = wcstod(s, &end);
+    return end && end != s && !*end;
+}
+
+/* Applies what was typed; anything that isn't a number (or colour) leaves the value as it was. */
+static void edit_commit(int id)
+{
+    int kind = HIT_KIND(id), data = HIT_DATA(id), style;
+    uint32_t rgb;
+    double v;
+    if (kind == HK_LOOKVAL && data == SL_COUNT) {   /* tint: the colour's hue/saturation + its brightness */
+        if (!wpapi_parse_rgb(cus.edit, &rgb)) return;
+        float h, s, val;
+        ui_rgb_hsv(col(rgb, 1.0f), &h, &s, &val);
+        cus.adj.tint = rgb_of(ui_hsv(h, s, 1.0f, 1.0f));
+        cus.adj.tintBrightness = (int)lroundf(val * 100.0f);
+        if (!cus.adj.tintLift) cus.adj.tintLift = 30;
+        look_commit(0);
+    } else if (kind == HK_LOOKVAL) {
+        int *f = look_field(data);
+        if (!f || !parse_number(cus.edit, &v)) return;
+        *f = (int)lround(SP_CLAMP(v, (double)k_look[data].min, (double)k_look[data].max));
+        look_commit(0);
+    } else if (data >= 0 && data < cus.propCount) {
+        CustomProp *cp = &cus.props[data];
+        if (kind == HK_PTEXT)
+            prop_commit(cp, wpapi_str_value(cus.edit), 0);
+        else if (kind == HK_PVAL && cp->type == CP_COLOR && wpapi_parse_rgb(cus.edit, &rgb)) {
+            wpapi_color_get(cp, &style);
+            prop_commit(cp, wpapi_color_value(rgb, style), 0);
+        } else if (kind == HK_PVAL && cp->type == CP_SLIDER && parse_number(cus.edit, &v))
+            prop_commit(cp, wpapi_num_value(prop_snap(cp, v), cp->step > 0 ? cp->step : 1.0), 0);
+    }
+}
 
 int pages_text_char(wchar_t ch)
 {
     Ui *u = g_ui;
-    if (u->textFocus < 0 || u->textFocus >= cus.propCount) return 0;
+    if (!u->textFocus) return 0;
+    int text = HIT_KIND(u->textFocus) == HK_PTEXT;
+    size_t cap = text ? SP_COUNTOF(cus.edit) : edit_is_hex(u->textFocus) ? 8 : 16;
+    if (!text && ch == L',') ch = L'.';   /* decimal comma */
+    if (cus.editAll && (ch == 8 || ch == 127 || ch == 22 || edit_accepts(ch))) cus.edit[0] = 0;
     size_t n = wcslen(cus.edit);
     if (ch == 8) {
         if (n) cus.edit[n - 1] = 0;
@@ -991,12 +1102,21 @@ int pages_text_char(wchar_t ch)
             }
             CloseClipboard();
         }
-    } else if (ch >= 32 && n + 1 < SP_COUNTOF(cus.edit)) {
+        if (!text) {                     /* a number or colour keeps only what it accepts */
+            size_t j = 0;
+            for (size_t i = 0; cus.edit[i] && j + 1 < cap; i++) {
+                wchar_t c = cus.edit[i] == L',' ? L'.' : cus.edit[i];
+                if (edit_accepts(c)) cus.edit[j++] = c;
+            }
+            cus.edit[j] = 0;
+        }
+    } else if (edit_accepts(ch) && n + 1 < cap) {
         cus.edit[n] = ch;
         cus.edit[n + 1] = 0;
     } else {
         return 1;
     }
+    cus.editAll = 0;
     ui_invalidate();
     return 1;
 }
@@ -1005,7 +1125,7 @@ int pages_text_key(UINT vk, int ctrl, int shift)
 {
     Ui *u = g_ui;
     (void)ctrl; (void)shift;
-    if (u->textFocus < 0) return 0;
+    if (!u->textFocus) return 0;
     if (vk == VK_ESCAPE) pages_text_end(0);
     else if (vk == VK_RETURN) pages_text_end(1);
     return 1;                            /* characters arrive via WM_CHAR; consume the rest */
@@ -1014,10 +1134,9 @@ int pages_text_key(UINT vk, int ctrl, int shift)
 void pages_text_end(int commit)
 {
     Ui *u = g_ui;
-    int i = u->textFocus;
-    u->textFocus = -1;
-    if (i < 0 || i >= cus.propCount) return;
-    if (commit) prop_commit(&cus.props[i], wpapi_str_value(cus.edit), 0);
+    int id = u->textFocus;
+    u->textFocus = 0;
+    if (commit && id) edit_commit(id);
     ui_invalidate();
 }
 
@@ -1035,6 +1154,28 @@ static void row_separator(Ui *u, float x, float y, float w)
     ui_line(x + 18, y, x + w - 18, y, 1.0f, u->t.separator);
 }
 
+/* A value beside its control (slider number, hex colour); click it to type a precise one.
+ * Anchored at x: its right edge, or its left edge when `left`; centred in [y, y + h]. */
+static void value_field(Ui *u, int id, const wchar_t *text, float x, int left, float y, float h, D2D1_COLOR_F c)
+{
+    Theme *t = &u->t;
+    int editing = u->textFocus == id;
+    const wchar_t *s = editing ? cus.edit : text;
+    float tw = ui_text_width(s, u->fBody), w = SP_MAX(tw, ui_text_width(text, u->fBody));
+    float tx = left ? x : x - tw;
+    D2D1_RECT_F f = rectf((left ? x : x - w) - 6.0f, y + h * 0.5f - 14.0f, w + 12.0f, 28.0f);
+    if (editing) {
+        ui_rrect(f, 6, t->field);
+        ui_rrect_stroke(f, 6, 1.5f, t->accent);
+        if (cus.editAll && s[0]) ui_rrect(rectf(tx - 2.0f, f.top + 5.0f, tw + 4.0f, 18.0f), 3, col_a(t->accent, 0.35f));
+        else if (u->caretOn) ui_line(tx + tw + 1.0f, f.top + 6.0f, tx + tw + 1.0f, f.bottom - 6.0f, 1.2f, t->accent);
+    } else if (ui_is_hot(id)) {
+        ui_rrect(f, 6, t->panelHover);
+    }
+    ui_text(s, u->fBody, rectf(tx - 1.0f, y, tw + 2.0f, h), editing ? t->text : c);
+    ui_hit(id, f, 0, 2);
+}
+
 /* label | slider | value, vertically centred in one row */
 static void look_slider(Ui *u, float x, float y, float w, float labelW, int def, int enabled)
 {
@@ -1042,16 +1183,16 @@ static void look_slider(Ui *u, float x, float y, float w, float labelW, int def,
     int *f = look_field(def);
     int val = f ? *f : 0;
     ui_text(k_look[def].label, u->fBody, rectf(x, y, labelW, LOOK_ROW), enabled ? t->text : t->text3);
-    wchar_t v[32];
-    if (enabled) look_value_text(def, val, v, SP_COUNTOF(v));
-    else str_copy(v, SP_COUNTOF(v), L"n/a");
-    text_right(v, u->fBody, x + w, y, LOOK_ROW, enabled ? t->text2 : t->text3);
     D2D1_RECT_F sr = rectf(x + labelW, y + (LOOK_ROW - 24.0f) * 0.5f, w - labelW - 56.0f, 24.0f);
     if (enabled) {
         ui_slider(HIT_ID(HK_SLIDER, def), sr, (float)(val - k_look[def].min) / (float)(k_look[def].max - k_look[def].min));
+        wchar_t v[32];
+        look_value_text(def, val, v, SP_COUNTOF(v));
+        value_field(u, HIT_ID(HK_LOOKVAL, def), v, x + w, 0, y, LOOK_ROW, t->text2);
     } else {
         float cy = (sr.top + sr.bottom) * 0.5f;
         ui_rrect(rectf(sr.left + 11.0f, cy - 2.0f, (sr.right - sr.left) - 22.0f, 4.0f), 2.0f, col_a(t->track, 0.5f));
+        text_right(L"n/a", u->fBody, x + w, y, LOOK_ROW, t->text3);
     }
 }
 
@@ -1091,7 +1232,7 @@ static float draw_look_section(Ui *u, float x, float y, float w, const Wallpaper
     ui_rrect_stroke(sw, 7, 1, t->border);
     wchar_t hex[16];
     str_printf(hex, SP_COUNTOF(hex), L"#%06X", eff);
-    ui_text(hex, u->fBody, rectf(colX + 36, sw.top, 120, 26), t->text2);
+    value_field(u, HIT_ID(HK_LOOKVAL, SL_COUNT), hex, colX + 40, 1, sw.top, 26, t->text2);
     ry += tintH;
     row_separator(u, x, ry, w);
 
@@ -1132,11 +1273,11 @@ static void draw_prop_row(Ui *u, float x, float y, float w, CustomProp *cp, int 
         ui_toggle(HIT_ID(HK_PCHECK, idx), right - 42, cy - 12, -1, json_bool(cp->value, 0));
         break;
     case CP_SLIDER: {
-        wchar_t v[40];
-        str_printf(v, SP_COUNTOF(v), L"%.6g", json_num(cp->value, cp->min));
-        text_right(v, u->fBody, right, y, PROP_ROW, t->text2);
         float norm = (float)((json_num(cp->value, cp->min) - cp->min) / SP_MAX(cp->max - cp->min, 1e-9));
         ui_slider(HIT_ID(HK_PSLIDER, idx), rectf(right - ctrlW - 52, cy - 12, ctrlW, 24), SP_CLAMP(norm, 0.0f, 1.0f));
+        wchar_t v[40];
+        str_printf(v, SP_COUNTOF(v), L"%.6g", json_num(cp->value, cp->min));
+        value_field(u, HIT_ID(HK_PVAL, idx), v, right, 0, y, PROP_ROW, t->text2);
         break;
     }
     case CP_DROPDOWN:
@@ -1155,13 +1296,13 @@ static void draw_prop_row(Ui *u, float x, float y, float w, CustomProp *cp, int 
         ui_rrect_stroke(sw, 8, ui_is_hot(id) ? 2.0f : 1.0f, ui_is_hot(id) ? t->accent : t->border);
         wchar_t hex[16];
         str_printf(hex, SP_COUNTOF(hex), L"#%06X", rgb);
-        text_right(hex, u->fBody, sw.left - 12, y, PROP_ROW, t->text2);
+        value_field(u, HIT_ID(HK_PVAL, idx), hex, sw.left - 12, 0, y, PROP_ROW, t->text2);
         ui_hit(id, sw, 1, 1);
         ui_focus_ring(sw, 8, id);
         break;
     }
     case CP_TEXT: {
-        int id = HIT_ID(HK_PTEXT, idx), focused = u->textFocus == idx;
+        int id = HIT_ID(HK_PTEXT, idx), focused = u->textFocus == id;
         D2D1_RECT_F f = rectf(right - ctrlW, cy - 17, ctrlW, 34);
         ui_rrect(f, 8, t->field);
         ui_rrect_stroke(f, 8, focused ? 1.5f : 1.0f, focused ? t->accent : t->border);
@@ -1351,12 +1492,14 @@ void pages_activate(int id, int dbl)
         if (data >= 0 && data < cus.propCount && cus.props[data].type == CP_COLOR) prop_pick_colour(data);
         break;
     case HK_PTEXT:
-        if (data >= 0 && data < cus.propCount && cus.props[data].type == CP_TEXT && u->textFocus != data) {
-            u->textFocus = data;
+        if (data >= 0 && data < cus.propCount && cus.props[data].type == CP_TEXT && u->textFocus != id) {
             json_str_w(cus.props[data].value, cus.edit, SP_COUNTOF(cus.edit));
-            u->caretOn = 1;
-            SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+            edit_begin(id, 0);
         }
+        break;
+    case HK_LOOKVAL:
+    case HK_PVAL:
+        if (u->textFocus != id && value_edit_text(id, cus.edit, SP_COUNTOF(cus.edit))) edit_begin(id, 1);
         break;
     case HK_RESET_LOOK:
         cus.adj = adjust_defaults();

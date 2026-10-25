@@ -927,7 +927,7 @@ static void on_key(Ui *u, WPARAM vk)
         pages_activate(HIT_ID(HK_NAV, (int)(vk - '1')), 0);
         return;
     }
-    if (u->textFocus >= 0 && pages_text_key((UINT)vk, ctrl, shift)) return;
+    if (u->textFocus && pages_text_key((UINT)vk, ctrl, shift)) return;
     switch (vk) {
     case VK_TAB:
         move_focus(u, shift ? -1 : 1);
@@ -1091,7 +1091,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 if (hit->focusable) u->focus = u->hot;
             }
         }
-        if (u->textFocus >= 0 && !(HIT_KIND(u->hot) == HK_PTEXT && HIT_DATA(u->hot) == u->textFocus))
+        if (u->textFocus && u->hot != u->textFocus)
             pages_text_end(1);   /* commit when the click lands elsewhere */
         {
             int k = HIT_KIND(u->pressed);   /* continuous controls jump to the click right away */
@@ -1211,7 +1211,7 @@ BOOL ui_show(void)
     g_ui = u;
     u->showRequestedAt = time_ms();
     u->target = -1;
-    u->textFocus = -1;   /* no Customise text field is being edited */
+    u->textFocus = 0;    /* no Customise field is being typed into */
     u->alpha = 1.0f;
     u->pageAnim = 1.0f;
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &SP_IID_ID2D1Factory, NULL, (void **)&u->d2d);

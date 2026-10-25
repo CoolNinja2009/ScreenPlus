@@ -288,3 +288,21 @@ in C, so long PATH values are safe (no NSIS string limit).
   redirected; piped input is read as UTF-8 and a leading BOM is skipped.
 - Property value helpers moved from the Customise page into `wallpaper_api.c`
   (`wpapi_choice_*`, `wpapi_color_*`, `wpapi_*_value`) so the window and the CLI share them.
+
+---
+
+## Customise: colour dialog and typed values
+
+- Colour properties: the system colour dialog keeps the luminance when a colour is picked
+  from its spectrum, so a colour that started black stayed black whatever was clicked (the
+  saved override was `#000000`). A dialog hook (`colour_dialog_hook`) lifts Lum from 0/240
+  to 120 just before a spectrum click lands. Checked offscreen against comdlg32 with the
+  same click: `#000000` before, `#1EE718` after.
+- The numbers beside the controls are now fields: click a slider's value (look, tint and
+  author sliders) or a hex colour (tint, colour properties) and type. Enter or a click
+  elsewhere applies, Esc cancels; the text starts selected, so typing replaces it. Values
+  are clamped to the control's range and author sliders snap to their step; text that
+  isn't a number leaves the value alone. A decimal comma reads as a point. A typed tint
+  hex sets the wheel colour and the tint brightness.
+- `Ui.textFocus` is now the hit id of the field being typed into (0 none), shared by text
+  properties and the value fields. The CLI's `parse_rgb` became `wpapi_parse_rgb`.
