@@ -340,7 +340,7 @@ static RenderState desired_state(const Slot *s, int *keepFrame)
 
 static void apply_states(void)
 {
-    int anyRunning = 0;
+    int anyRunning = 0, activated = 0;
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &E.slots[i];
         if (!s->used || !s->r) continue;
@@ -350,6 +350,7 @@ static void apply_states(void)
             if (s->state != RS_RECOVERING || st != s->state)
                 LOGD(L"display %d: %ls -> %ls", s->mon.index, render_state_name(s->state), render_state_name(st));
             s->r->vt->set_state(s->r, st, keep);
+            activated |= st == RS_ACTIVE && s->state != RS_ACTIVE;
             s->state = st;
             s->keepFrame = keep;
             status_dirty();
@@ -359,6 +360,10 @@ static void apply_states(void)
     /* The low-rate safety re-check only runs while something can render. */
     if (anyRunning) SetTimer(E.ctl, T_SAFETY, SAFETY_MS, NULL);
     else KillTimer(E.ctl, T_SAFETY);
+    /* The data tick only feeds ACTIVE displays and stops itself when none wants audio, system or
+     * track data. A display that just became active (first frame after start, uncovered, resumed)
+     * may want it while another display's wallpaper doesn't: look again. */
+    if (activated) SetTimer(E.ctl, T_WALLPAPER_DATA, 1, NULL);
 }
 
 static void update_occlusion(void)
