@@ -215,7 +215,7 @@ Every push to `main` that changes the app is built by [GitHub Actions](.github/w
 - [x] Animated library with recorded previews for web wallpapers
 - [x] Installer with default, clean and in-place update
 - [x] Wallpapers from links: YouTube streaming, downloads and live pages
-- [ ] Customise panel for wallpaper properties
+- [x] Customise panel: wallpaper properties and colour grading
 - [ ] Span one wallpaper across all monitors
 - [ ] Pause rules for individual apps
 - [ ] Screensaver mode
