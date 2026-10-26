@@ -27,8 +27,8 @@ repository; open only the files a change touches. README.md is the user-facing d
   `config.ini` itself and reloads on command.
 - **Preview helper**: `ScreenPlus.exe --capture-preview <id>` (`src/app/preview_capture.c`) records HTML
   previews into `cache\previews`.
-- **Depth helper**: `ScreenPlus.exe --depth <image> <dir> [--cpu] [--png]` (`src/app/depth_infer.c`) runs the depth
-  model on one picture and exits (0 ok, 2 unreadable picture, 3 ONNX Runtime missing, 4 inference failed).
+- **Depth helper**: `ScreenPlus.exe --depth <image> <dir> [--cpu | --bench | --crashed] [--png]` (`src/app/depth_infer.c`)
+  runs the depth model on one picture and exits (0 ok, 2 unreadable picture, 3 ONNX Runtime missing, 4 inference failed).
 - **Child processes**: WebView2 browser processes, yt-dlp (+ qjs) for link wallpapers, `tar.exe` once to unpack ONNX Runtime.
 - **IPC** (`src/common/ipc.h`) is WM_COPYDATA:
   - `IPC_ENGINE_HELLO` / `IPC_ENGINE_STATUS`: engine → shell.
@@ -46,7 +46,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/startup.c`, `supervisor.c` | HKCU Run entry; engine process lifecycle |
-| `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools), IPC for the rest |
+| `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, vcredist), IPC for the rest |
 | `src/engine/` | `engine.c` (slots, state machine), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c` |
 | `src/desktop/desktop_host.c` | Hosting behind the icons: Progman (24H2+), WorkerW, or fallback |
 | `src/renderer/renderer.h` | Renderer vtable (set_state, resize, set_audio, paint, describe, destroy, wants, input, feed, on_timer, apply); all calls on the engine window thread |
@@ -57,7 +57,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/ui/ui_pages.c` | Library, Displays, Customise and Settings pages; `pages_activate`, `pages_context`, `pages_tooltip` |
 | `src/ui/thumbs.c`, `d2d_c.h`, `dwrite_c.h` | Thumbnail worker thread; hand-written C COM declarations |
 | `src/settings/config.c` | `config.ini` (UTF-8 INI, atomic write + `.bak`), `WallpaperEntry`, `Settings` |
-| `src/common/` | `util` (bounded `str_*`, paths, UTF-8, StrBuf), `log`, `paths` (data dirs), `json` (small DOM), `ipc.h`, `webfetch` (WinHTTP + pinned tool install; the CLI uses it too), `ytdlp` (run/resolve yt-dlp, stream address cache) |
+| `src/common/` | `util` (bounded `str_*`, paths, UTF-8, StrBuf), `log`, `paths` (data dirs), `json` (small DOM), `ipc.h`, `webfetch` (WinHTTP + pinned tool install + the Visual C++ runtime check/installer; the CLI uses it too), `ytdlp` (run/resolve yt-dlp, stream address cache) |
 | `installer/screenplus.nsi` | Per-user NSIS installer: install type page and an optional-features page (link tools) |
 | `resources/` | Icon, `.rc`, manifest (comctl32 v6, PerMonitorV2) |
 
@@ -129,9 +129,18 @@ Renderer details:
   `onnxruntime.dll`) and the onnx-community Depth Anything V2 Small FP32 model. CMake downloads the same package
   for its C API headers only (`ORT_VERSION`/`ORT_SHA256`): keep both in step. DirectML is the system's copy.
 - Nothing downloads unless the user pressed Make wallpaper cooler or switched on `interactive_images`.
-- The child tries DirectML (`HighPerformance` GPU), then the CPU; the parent retries once on the CPU if it dies.
+- GPU or CPU: DirectML recompiles the model at every process start (~0.9-2.5 s), a fast CPU needs ~1 s, so the first
+  run times both on the real picture and `depth\backend.json` keeps the quicker (re-tested when the ONNX Runtime
+  version or the adapters change: fingerprint; delete the file or pass `--bench` to test again). A recorded GPU that
+  fails falls back to the CPU and is re-recorded. If the child dies, the parent runs it again with `--crashed`: CPU,
+  and the CPU is recorded. `--cpu` records nothing.
   Model: input `pixel_values` [1,3,H,W] (H, W multiples of 14, short side 518, long side at most 1036), output
   `predicted_depth`; shapes are fixed with free-dimension overrides. Depth map = min-max normalised, dilated, blurred.
+- ONNX Runtime is built with the MSVC 14.44 toolset, so it needs the Visual C++ runtime at 14.44 or newer
+  (`dumpbin /headers onnxruntime.dll`, linker version). `vcruntime_ok/fetch/run` in `webfetch.c` (pinned Microsoft
+  installer, run elevated) back `screenplus vcredist`; `installer/screenplus.nsi` checks the registry
+  (`NeedVcRuntime`), offers it on the Optional Features page and runs `ScreenPlus.com vcredist install`. When ONNX
+  Runtime is bumped, keep `VCRUN_MIN_MINOR`, `NeedVcRuntime` and the pinned redistributable in step.
 - The page is the existing HTML renderer's: Lively properties (`LivelyProperties.json`) give Customise its depth
   strength / auto move controls and the engine forwards the mouse. It draws only while something moves.
 - Test the child with `SCREENPLUS_DATA_DIR=<scratch>` holding `depth\model.onnx` + `depth\ort\onnxruntime.dll`:

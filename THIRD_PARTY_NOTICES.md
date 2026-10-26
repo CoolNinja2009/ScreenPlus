@@ -50,6 +50,13 @@ Corporation, MIT License) and the unquantized FP32 ONNX export of Depth Anything
 Apache License 2.0). Only the ONNX Runtime C API headers are used at build time. DirectML is the copy that is
 part of Windows.
 
+## Microsoft Visual C++ Redistributable (x64) 14.44 (optional, downloaded on request)
+
+ONNX Runtime needs it. When it is missing or older than 14.44, setup (or `screenplus vcredist install`) downloads
+Microsoft's own installer from <https://aka.ms/vs/17/release/vc_redist.x64.exe> (the pinned build, SHA-256
+`cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`, signed by Microsoft Corporation) and runs it
+after Windows' administrator prompt. It is never bundled; its own license terms apply.
+
 ## Windows SDK / system components
 
 Direct3D 11, DXGI, Direct2D, DirectWrite, WIC, WASAPI, DWM and the Segoe fonts are part of

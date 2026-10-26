@@ -18,6 +18,7 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/webfetch.h"
+#include "../common/json.h"
 #include "../../resources/resource.h"
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,8 @@ typedef struct DepthJob {
     int     autoStart;              /* started by the setting rather than a button: quiet when it works */
     int     ok;
     wchar_t error[300];
+    FILETIME started;               /* when the depth run began */
+    wchar_t bench[120];             /* what the CPU-or-GPU test found, when this run did it */
 } DepthJob;
 
 static SRWLOCK    g_lock = SRWLOCK_INIT;
@@ -312,14 +315,44 @@ static BOOL write_page(DepthJob *j)
 
 /* ---------------------------------------------------------------- the job */
 
-static BOOL infer(DepthJob *j, int cpu, int png, DWORD *code)
+/* mode: DEPTH_AUTO (the child picks the faster of GPU and CPU, testing both the first time) or DEPTH_CRASHED. */
+static BOOL infer(DepthJob *j, int mode, int png, DWORD *code)
 {
     wchar_t cmd[2200];
-    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --depth \"%ls\" \"%ls\"%ls%ls", paths_exe(), j->source, j->dir, cpu ? L" --cpu" : L"",
-               png ? L" --png" : L"");
+    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --depth \"%ls\" \"%ls\"%ls%ls", paths_exe(), j->source, j->dir,
+               mode == DEPTH_CRASHED ? L" --crashed" : L"", png ? L" --png" : L"");
     BOOL ok = run_hidden(j, cmd, INFER_MS, code) && *code == 0;
-    if (!ok && !cancelled(j)) LOGW(L"depth: the %ls run ended with code 0x%lx", cpu ? L"CPU" : L"GPU", *code);
+    if (!ok && !cancelled(j)) LOGW(L"depth: the depth process ended with code 0x%lx", *code);
     return ok;
+}
+
+/* Why it failed, in words: a Visual C++ runtime that is missing or too old is the usual reason ONNX Runtime
+ * can't start or dies. */
+static const wchar_t *failure_text(DWORD code)
+{
+    if (code == 2) return L"This picture could not be read.";
+    if (!vcruntime_ok(NULL, 0))
+        return L"The depth AI needs the Microsoft Visual C++ runtime 14.44 or newer. Install it with: screenplus vcredist install "
+               L"(or from aka.ms/vs/17/release/vc_redist.x64.exe), then try again.";
+    return code == 3 ? L"ONNX Runtime could not start. depth.log in the logs folder says why."
+                     : L"The depth could not be calculated. depth.log in the logs folder says why.";
+}
+
+/* After the first run: what the test of GPU against CPU found (the child records it in backend.json). */
+static void bench_note(DepthJob *j)
+{
+    wchar_t p[SP_MAX_PATH];
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    in_depth(p, SP_COUNTOF(p), L"backend.json");
+    if (!GetFileAttributesExW(p, GetFileExInfoStandard, &a) || CompareFileTime(&a.ftLastWriteTime, &j->started) < 0) return;   /* an older run's */
+    JVal *b = json_parse_file(p);
+    double g = json_num(json_get(b, "gpu_ms"), 0.0), c = json_num(json_get(b, "cpu_ms"), 0.0);
+    if (g > 0.0 && c > 0.0)
+        str_printf(j->bench, SP_COUNTOF(j->bench), L" It tried both: GPU %.1f s, CPU %.1f s, so the %ls does this from now on.", g / 1000.0,
+                   c / 1000.0, strcmp(json_str(json_get(b, "backend"), ""), "gpu") == 0 ? L"GPU" : L"CPU");
+    else if (c > 0.0)
+        str_copy(j->bench, SP_COUNTOF(j->bench), L" The GPU couldn't run the model, so the CPU does this.");
+    json_free(b);
 }
 
 static void run(DepthJob *j)
@@ -340,14 +373,15 @@ static void run(DepthJob *j)
         double t0 = time_ms();
         int png = web_ext(path_ext(j->source)) == NULL;
         DWORD code = 0;
-        BOOL ok = infer(j, 0, png, &code) ||
-                  (!cancelled(j) && code != 2 && code != 3 && infer(j, 1, png, &code));    /* a crash on the GPU: once more on the CPU */
+        GetSystemTimeAsFileTime(&j->started);
+        BOOL ok = infer(j, DEPTH_AUTO, png, &code);
+        if (!ok && !cancelled(j) && code != 2 && code != 3 && code != 4)    /* the process died, the GPU path most likely: */
+            ok = infer(j, DEPTH_CRASHED, png, &code);                        /* once more on the CPU, which then stays the choice */
         if (!ok) {
-            fail(j, code == 3 ? L"ONNX Runtime could not start. Install the Microsoft Visual C++ Redistributable (x64), then try again."
-                              : code == 2 ? L"This picture could not be read."
-                                          : L"The depth could not be calculated. depth.log in the logs folder says why.");
+            fail(j, failure_text(code));
             return;
         }
+        bench_note(j);
         LOGI(L"depth: analysed '%ls' in %.1f s", path_filename(j->source), (time_ms() - t0) / 1000.0);
     }
     set_status(-1, L"Building the interactive wallpaper…");
@@ -445,7 +479,8 @@ static BOOL convert(DepthJob *j, wchar_t *text, size_t cap)
     e->type = WP_HTML;
     e->format = WPF_LIVELY;
     e->flags = (e->flags | WPFLAG_DEPTH) & ~WPFLAG_NOCOOL;
-    str_printf(text, cap, L"'%ls' is interactive now: move the mouse over the desktop. Depth strength and auto move are in Customise.", e->name);
+    str_printf(text, cap, L"'%ls' is interactive now: move the mouse over the desktop. Depth strength and auto move are in Customise.%ls", e->name,
+               j->bench);
     app_save_config();
     ui_on_config_changed();
     ui_on_customise_changed();
@@ -463,7 +498,7 @@ void depth_on_event(WPARAM wp, LPARAM lp)
     CloseHandle(g_thread);
     g_thread = NULL;
     g_job = NULL;
-    wchar_t text[SP_COUNTOF(g_state.text)] = L"";
+    wchar_t text[400] = L"";
     int ok = j->ok && (!j->id[0] || convert(j, text, SP_COUNTOF(text)));
     int stopped = !ok && WaitForSingleObject(j->cancel, 0) == WAIT_OBJECT_0;
     if (ok && !j->id[0]) str_copy(text, SP_COUNTOF(text), L"The depth files are ready. Image wallpapers you apply now follow the mouse.");

@@ -4,7 +4,7 @@
  * the .com first (PATHEXT order) while shortcuts and the startup entry name the .exe, the same
  * arrangement as devenv.com/devenv.exe. Commands run inside the running app: each one is sent as
  * IPC_CLI_REQUEST and the app's IPC_CLI_REPLY is printed (src/app/cli_server.c). A few work
- * without the app: help, version, start, logs, paths, path, tools. No arguments: an interactive prompt.
+ * without the app: help, version, start, logs, paths, path, tools, vcredist. No arguments: an interactive prompt.
  *
  * Exit codes: 0 ok, 1 the command failed, 2 bad usage, 3 Screen+ is not running. */
 #include "../common/common.h"
@@ -307,6 +307,7 @@ static const wchar_t k_help[] =
     L"  paths                                  where Screen+ keeps its data, config and logs\n"
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"
     L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
+    L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
     L"  ping | version | help [command]\n"
     L"\n"
     L"Options\n"
@@ -456,6 +457,45 @@ static int cmd_tools(const wchar_t *sub)
     }
     err(L"Usage: screenplus tools [status | install | remove]\n");
     return EXIT_USAGE;
+}
+
+/* ---- vcredist: the Microsoft Visual C++ runtime ONNX Runtime needs (setup offers it when it is missing) */
+
+static int cmd_vcredist(const wchar_t *sub)
+{
+    wchar_t found[40], e[320], tmp[SP_MAX_PATH];
+    BOOL ok = vcruntime_ok(found, SP_COUNTOF(found));
+    if (!sub || !sub[0] || str_ieq(sub, L"status")) {
+        if (ok) out(L"Microsoft Visual C++ runtime %ls: new enough for Make wallpaper cooler.\n", found);
+        else if (found[0]) out(L"Microsoft Visual C++ runtime %ls is older than the 14.44 that Make wallpaper cooler needs (screenplus vcredist install).\n", found);
+        else out(L"The Microsoft Visual C++ runtime (x64) is not installed (screenplus vcredist install).\n");
+        return ok ? EXIT_OK : EXIT_FAILED;
+    }
+    if (!str_ieq(sub, L"install")) {
+        err(L"Usage: screenplus vcredist [status | install]\n");
+        return EXIT_USAGE;
+    }
+    if (ok) {
+        out(L"Already installed (%ls): nothing to do.\n", found);
+        return EXIT_OK;
+    }
+    int last = -1;
+    GetTempPathW(SP_COUNTOF(tmp), tmp);
+    str_cat(tmp, SP_COUNTOF(tmp), L"ScreenPlus-VC_redist.x64.exe");
+    out(L"Downloading the Microsoft Visual C++ Redistributable (x64; official, SHA-256 verified)...\n");
+    if (!vcruntime_fetch(tmp, tools_progress, &last, e, SP_COUNTOF(e))) {
+        err(L"%ls%ls%ls\n", c_red(), e, c_off());
+        return EXIT_FAILED;
+    }
+    out(L"Installing it: Windows asks for administrator permission...\n");
+    BOOL done = vcruntime_run(tmp, e, SP_COUNTOF(e));
+    DeleteFileW(tmp);
+    if (!done) {
+        err(L"%ls%ls%ls\n", c_red(), e, c_off());
+        return EXIT_FAILED;
+    }
+    out(L"Installed.\n");
+    return EXIT_OK;
 }
 
 /* ---- logs */
@@ -720,6 +760,7 @@ static int run_command(int argc, wchar_t **in)
     if (str_ieq(c, L"paths")) return cmd_paths();
     if (str_ieq(c, L"path")) return cmd_path(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"tools")) return cmd_tools(n > 1 ? argv[1] : NULL);
+    if (str_ieq(c, L"vcredist")) return cmd_vcredist(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"watch") || (watch && str_ieq(c, L"status"))) {
         argv[0] = L"status";
         return cmd_watch(1, argv);

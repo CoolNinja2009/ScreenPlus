@@ -144,4 +144,5 @@ void depth_forget(const WallpaperEntry *e);            /* the entry was removed:
 void depth_sweep(void);                                /* startup: delete generated pages no entry uses */
 void depth_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_DEPTH */
 void depth_shutdown(void);
-int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int cpuOnly, int wantPng);   /* ScreenPlus.exe --depth */
+enum { DEPTH_AUTO = 0, DEPTH_CPU = 1, DEPTH_BENCH = 2, DEPTH_CRASHED = 3 };   /* which processor: see depth_infer.c */
+int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng);     /* ScreenPlus.exe --depth */

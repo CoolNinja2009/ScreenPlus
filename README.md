@@ -34,7 +34,7 @@
 | 🖥️ **Multi-monitor** | One wallpaper everywhere, or a different one on each display. |
 | 🔋 **Gets out of the way** | Pauses for fullscreen games and videos, covered or locked screens and battery power. A renderer that crashes restarts on its own. |
 | 🖱️ **Interactive** | Web wallpapers can react to the mouse on the desktop. The keyboard is never shared. |
-| 🧊 **Make wallpaper cooler** | Turns any picture into a 3D wallpaper that follows your mouse: the Depth Anything V2 AI model finds the depth on your GPU (DirectML) or CPU. A one-time download of about 110 MB, and only when you ask for it. |
+| 🧊 **Make wallpaper cooler** | Turns any picture into a 3D wallpaper that follows your mouse: the Depth Anything V2 AI model finds the depth on whichever of your GPU (DirectML) and CPU is quicker. A one-time download of about 110 MB, and only when you ask for it. |
 | 📦 **Friendly installer** | Per-user, no administrator rights. Default or clean install, updates in place, and a real uninstaller. |
 
 ## Screenshots
@@ -66,6 +66,7 @@
    - **Default** includes the Aurora sample and imports your Lively Wallpaper library.
    - **Clean** starts with an empty library.
 4. Keep **Video import from web links** ticked (the default) to get the link button. Setup then downloads yt-dlp and the QuickJS-NG JavaScript runtime it needs for YouTube: about 20 MB, official releases, checked against pinned SHA-256 hashes. Untick it to install only the app; you can turn it on later in **Settings**.
+   If your PC lacks the Microsoft Visual C++ runtime that **Make wallpaper cooler** needs, the same page offers to install it (about 25 MB from Microsoft, checked against a pinned hash; Windows asks for administrator permission once). A silent install skips it unless you pass `/VCRUN`.
 5. Open Screen+ from the Start menu or the notification area and choose a wallpaper.
 
 Running the installer again updates an existing installation in place and keeps your library. Every release also has a portable `.zip`, which includes yt-dlp and QuickJS-NG.
@@ -119,10 +120,10 @@ Native-app, Unity, Godot and Wallpaper Engine *scene* projects need their origin
 <br>
 
 - An image wallpaper has a **Make wallpaper cooler** button in **Customise**. The first press downloads ONNX Runtime and the Depth Anything V2 Small model (about 110 MB, checked against pinned SHA-256 hashes and kept in `%LOCALAPPDATA%\ScreenPlus\depth\`). Nothing is downloaded, or bundled, before you ask.
-- The model runs in its own process on your GPU through DirectML (the fastest adapter) and falls back to the CPU. It takes a few seconds per picture.
+- The model runs in its own process and takes a few seconds per picture. The first time, it times your GPU (through DirectML, the fastest adapter) against your CPU on your own picture and keeps the quicker one: the result is `depth\backend.json`, and deleting it tests again (it also tests again when your graphics adapters change). A GPU that stops working falls back to the CPU.
 - The picture becomes a web wallpaper: near things slide over far ones as you move the mouse over the desktop. **Depth strength**, **Auto move** and its speed are under *Wallpaper properties*; **Use plain image** switches back. The page only draws while something moves.
 - **Settings › HTML wallpapers › Make image wallpapers interactive** does this to every image you apply (switching it on starts the download). Mouse movement needs *Allow desktop mouse interaction*; Auto move does not.
-- Needs the Microsoft Visual C++ Redistributable (x64), which most PCs already have.
+- Needs the Microsoft Visual C++ Redistributable (x64) 14.44 or newer, which most PCs already have. Setup offers to install it when it is missing (about 25 MB from Microsoft; Windows asks for administrator permission once). Without setup, run `screenplus vcredist install`.
 </details>
 
 <details>
@@ -159,6 +160,7 @@ screenplus apply <name|number|id|path> [--display N]
 screenplus import <path>... [--apply]   |   remove <wallpaper>   |   displays
 screenplus import <link> [--download | --page]         stream or save a video from a web link, or add the page
 screenplus tools [install | remove]                    yt-dlp + QuickJS-NG for web links
+screenplus vcredist [install]                          the Visual C++ runtime that Make wallpaper cooler needs
 screenplus pause | resume | toggle | next | restart | audio [on|off]
 screenplus look [set <key> <value> ... | reset]        brightness contrast saturation hue gamma tint ...
 screenplus props [set <name> <value> | reset]          the wallpaper's own Lively / WE settings
@@ -177,7 +179,7 @@ ScreenPlus.exe [--tray | --show | --pause | --resume | --toggle-pause | --next |
 The executable's own switches also reach the running Screen+; `--next` switches to the next wallpaper.
 
 ```text
-ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/D=<folder>]   silent install (/D must come last)
+ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/VCRUN] [/D=<folder>]   silent install (/D must come last)
 uninstall.exe /S                                                      silent uninstall
 ```
 </details>
@@ -193,7 +195,7 @@ uninstall.exe /S                                                      silent uni
 | `%LOCALAPPDATA%\ScreenPlus\cache\previews\` | Recorded web previews, safe to delete |
 | `%LOCALAPPDATA%\ScreenPlus\downloads\` | Wallpapers saved from links, deleted with their library entry |
 | `%LOCALAPPDATA%\ScreenPlus\tools\` | yt-dlp and QuickJS-NG (`screenplus tools remove` deletes them) |
-| `%LOCALAPPDATA%\ScreenPlus\depth\` | ONNX Runtime, the depth model and one folder per depth wallpaper (deleted with its entry) |
+| `%LOCALAPPDATA%\ScreenPlus\depth\` | ONNX Runtime, the depth model, `backend.json` (GPU or CPU, whichever tested quicker) and one folder per depth wallpaper (deleted with its entry) |
 | `SCREENPLUS_DATA_DIR` | Use another data folder, e.g. for a portable setup |
 | `SCREENPLUS_HWDEC=zerocopy` or `off` | Video decoding mode. Default: GPU decode plus one GPU-side copy per frame |
 

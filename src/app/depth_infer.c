@@ -1,9 +1,16 @@
-/* Depth estimation child process: ScreenPlus.exe --depth <image> <dir> [--cpu] [--png]
+/* Depth estimation child process: ScreenPlus.exe --depth <image> <dir> [--cpu | --bench | --crashed] [--png]
  * Runs Depth Anything V2 Small (unquantized FP32 ONNX) through ONNX Runtime on one picture and writes
  * <dir>\depth.png, an 8-bit map at the model's own resolution where 255 is nearest (the wallpaper page
- * samples it with linear filtering). The GPU is used through DirectML (the best adapter), the CPU when
- * there is none or DirectML fails. --png also saves the picture as <dir>\image.png, for formats a web page
- * can't show. Exit code 0: done; 2: picture unreadable; 3: ONNX Runtime missing; 4: inference failed.
+ * samples it with linear filtering). --png also saves the picture as <dir>\image.png, for formats a web
+ * page can't show. Exit code 0: done; 2: picture unreadable; 3: ONNX Runtime missing; 4: inference failed.
+ *
+ * Which processor: the GPU (DirectML, the highest-performance adapter) is not always the quicker way to get
+ * one picture done: DirectML compiles the whole model at every start (about 2 s) where a fast CPU needs about
+ * 1 s in all. So the first run times both on the real picture and keeps the faster one in
+ * <data>\depth\backend.json; later runs use it, and fall back to the CPU if a recorded GPU stops working. The
+ * test is redone when ONNX Runtime or the graphics adapters change, or with --bench. --cpu runs on the CPU and
+ * records nothing; --crashed is the parent's retry after this process died (almost surely the GPU path): it runs
+ * on the CPU and records the CPU as the choice.
  *
  * It is its own process so that a GPU driver fault cannot take the tray app down, and so that the
  * model's memory goes back to Windows when it exits. Pre/post-processing follows the Python reference
@@ -14,9 +21,13 @@
 #include "../common/util.h"
 #include "../common/log.h"
 #include "../common/paths.h"
+#include "../common/json.h"
+#include "../common/webfetch.h"
 #include <onnxruntime_c_api.h>
 #include <wincodec.h>
+#include <dxgi.h>
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -26,6 +37,7 @@
 #define BLUR_PX     2       /* these are the same amounts at the model's resolution */
 
 static const OrtApi *g_o;
+static const char   *g_ortVersion = "";
 
 #define ORT(call) do { OrtStatus *st_ = (call); if (st_) { status_failed(st_, __LINE__); goto done; } } while (0)
 
@@ -240,8 +252,9 @@ static BOOL append_dml(OrtSessionOptions *so, HMODULE dll)
     return FALSE;
 }
 
-/* One inference: w*h floats of depth (larger = nearer) into out. gpu: DirectML, else the CPU threads. */
-static BOOL run_model(HMODULE dll, int gpu, const wchar_t *model, float *chw, int w, int h, float *out)
+/* One inference: w*h floats of depth (larger = nearer) into out. gpu: DirectML, else the CPU threads.
+ * ms (optional) receives what one job costs on this backend: session creation plus the run. */
+static BOOL run_model(HMODULE dll, int gpu, const wchar_t *model, float *chw, int w, int h, float *out, double *ms)
 {
     OrtEnv *env = NULL;
     OrtSessionOptions *so = NULL;
@@ -270,6 +283,7 @@ static BOOL run_model(HMODULE dll, int gpu, const wchar_t *model, float *chw, in
     ORT(g_o->CreateTensorWithDataAsOrtValue(mi, chw, (size_t)w * h * 3 * sizeof(float), shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in));
     const char *inName[] = { "pixel_values" }, *outName[] = { "predicted_depth" };
     ORT(g_o->Run(sess, NULL, inName, (const OrtValue *const *)&in, 1, outName, 1, &res));
+    if (ms) *ms = time_ms() - t0;
     float *data = NULL;
     int64_t dims[4] = { 0 };
     size_t nd = 0;
@@ -301,12 +315,16 @@ static HMODULE load_runtime(void)
     path_join(p, SP_COUNTOF(p), paths_root(), L"depth\\ort\\onnxruntime.dll");
     HMODULE m = LoadLibraryExW(p, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!m) {
-        LOGE(L"depth: could not load %ls (error %lu); the Microsoft Visual C++ Redistributable (x64) may be missing", p, GetLastError());
+        wchar_t vc[40];
+        BOOL vcOk = vcruntime_ok(vc, SP_COUNTOF(vc));
+        LOGE(L"depth: could not load %ls (error %lu); Microsoft Visual C++ runtime: %ls%ls", p, GetLastError(), vc[0] ? vc : L"not installed",
+             vcOk ? L"" : L" (14.44 or newer is needed: screenplus vcredist install)");
         return NULL;
     }
     typedef const OrtApiBase *(ORT_API_CALL *GetBase)(void);
     GetBase base = (GetBase)GetProcAddress(m, "OrtGetApiBase");
     g_o = base ? base()->GetApi(ORT_API_VERSION) : NULL;
+    if (g_o) g_ortVersion = base()->GetVersionString();
     if (!g_o) {
         LOGE(L"depth: %ls does not provide ONNX Runtime API %d", p, ORT_API_VERSION);
         FreeLibrary(m);
@@ -315,9 +333,120 @@ static HMODULE load_runtime(void)
     return m;
 }
 
+/* ---------------------------------------------------------------- GPU or CPU */
+
+typedef struct Backend {
+    int    gpu;             /* the faster one: 1 DirectML, 0 CPU */
+    double gpuMs, cpuMs;    /* what the test measured for one job (0: that backend failed or was not tried) */
+    char   ort[16];         /* the record is only valid for this ONNX Runtime ... */
+    char   fp[17];          /* ... and these graphics adapters */
+} Backend;
+
+/* FNV-1a of the ONNX Runtime version and every hardware adapter (their hashes added, so the order of the
+ * adapters doesn't matter): a new GPU or a new runtime means the test is worth doing again. */
+static void adapter_fingerprint(char out[17])
+{
+    uint64_t sum = 0;
+    IDXGIFactory1 *fac = NULL;
+#define MIX(h, p, n) do { for (size_t i_ = 0; i_ < (n); i_++) (h) = ((h) ^ ((const uint8_t *)(p))[i_]) * 1099511628211ULL; } while (0)
+    uint64_t base = 1469598103934665603ULL;
+    MIX(base, g_ortVersion, strlen(g_ortVersion));
+    if (SUCCEEDED(CreateDXGIFactory1(&IID_IDXGIFactory1, (void **)&fac))) {
+        IDXGIAdapter1 *ad = NULL;
+        for (UINT i = 0; SUCCEEDED(IDXGIFactory1_EnumAdapters1(fac, i, &ad)); i++) {
+            DXGI_ADAPTER_DESC1 d;
+            if (SUCCEEDED(IDXGIAdapter1_GetDesc1(ad, &d)) && !(d.Flags & DXGI_ADAPTER_FLAG_SOFTWARE)) {
+                uint64_t h = 1469598103934665603ULL;
+                MIX(h, &d.VendorId, sizeof d.VendorId);
+                MIX(h, &d.DeviceId, sizeof d.DeviceId);
+                MIX(h, &d.SubSysId, sizeof d.SubSysId);
+                MIX(h, &d.Revision, sizeof d.Revision);
+                MIX(h, d.Description, wcslen(d.Description) * sizeof(wchar_t));
+                sum += h;
+            }
+            SP_RELEASE(ad);
+        }
+        SP_RELEASE(fac);
+    }
+#undef MIX
+    snprintf(out, 17, "%016llx", (unsigned long long)(base ^ sum));
+}
+
+static void backend_path(wchar_t *out, size_t cap)
+{
+    path_join(out, cap, paths_root(), L"depth\\backend.json");
+}
+
+/* The record, if there is one made by this ONNX Runtime on these adapters. */
+static BOOL read_backend(Backend *b, const char *fp)
+{
+    wchar_t p[SP_MAX_PATH];
+    backend_path(p, SP_COUNTOF(p));
+    JVal *j = json_parse_file(p);
+    BOOL ok = FALSE;
+    if (j) {
+        ZeroMemory(b, sizeof *b);
+        b->gpu = strcmp(json_str(json_get(j, "backend"), "cpu"), "gpu") == 0;
+        b->gpuMs = json_num(json_get(j, "gpu_ms"), 0.0);
+        b->cpuMs = json_num(json_get(j, "cpu_ms"), 0.0);
+        strncpy_s(b->ort, sizeof b->ort, json_str(json_get(j, "ort"), ""), _TRUNCATE);
+        strncpy_s(b->fp, sizeof b->fp, json_str(json_get(j, "fingerprint"), ""), _TRUNCATE);
+        ok = strcmp(b->ort, g_ortVersion) == 0 && strcmp(b->fp, fp) == 0;
+        json_free(j);
+    }
+    return ok;
+}
+
+static void write_backend(const Backend *b)
+{
+    char text[320];
+    wchar_t p[SP_MAX_PATH];
+    int n = snprintf(text, sizeof text, "{\"backend\":\"%s\",\"gpu_ms\":%.0f,\"cpu_ms\":%.0f,\"ort\":\"%s\",\"fingerprint\":\"%s\"}\n",
+                     b->gpu ? "gpu" : "cpu", b->gpuMs, b->cpuMs, b->ort, b->fp);
+    backend_path(p, SP_COUNTOF(p));
+    HANDLE f = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    DWORD w = 0;
+    if (f == INVALID_HANDLE_VALUE) return;
+    WriteFile(f, text, (DWORD)n, &w, NULL);
+    CloseHandle(f);
+}
+
+/* Reads the model once so that neither backend pays for a cold disk in the test. */
+static void warm_file(const wchar_t *path)
+{
+    static char buf[1 << 20];
+    DWORD n = 0;
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+    if (f == INVALID_HANDLE_VALUE) return;
+    while (ReadFile(f, buf, sizeof buf, &n, NULL) && n) { }
+    CloseHandle(f);
+}
+
+/* Times one job on the GPU and on the CPU (this very picture), records the faster and leaves its depth in out. */
+static BOOL benchmark(HMODULE dll, const wchar_t *model, float *chw, int w, int h, float *out, Backend *rec)
+{
+    size_t n = (size_t)w * h;
+    float *cpuOut = (float *)malloc(n * sizeof(float));
+    if (!cpuOut) return FALSE;
+    warm_file(model);
+    rec->gpuMs = rec->cpuMs = 0.0;
+    BOOL okGpu = run_model(dll, 1, model, chw, w, h, out, &rec->gpuMs);
+    BOOL okCpu = run_model(dll, 0, model, chw, w, h, cpuOut, &rec->cpuMs);
+    if (!okGpu) rec->gpuMs = 0.0;
+    if (!okCpu) rec->cpuMs = 0.0;
+    rec->gpu = okGpu && (!okCpu || rec->gpuMs <= rec->cpuMs);    /* only a quicker CPU wins: a tie keeps the work off the CPU */
+    if (!rec->gpu && okCpu) memcpy(out, cpuOut, n * sizeof(float));
+    free(cpuOut);
+    if (okGpu || okCpu) write_backend(rec);
+    LOGI(L"depth: test of both: GPU %ls, CPU %ls -> the %ls is used from now on", okGpu ? L"worked" : L"failed", okCpu ? L"worked" : L"failed",
+         rec->gpu ? L"GPU" : L"CPU");
+    LOGI(L"depth: one job costs %.0f ms on the GPU and %.0f ms on the CPU", rec->gpuMs, rec->cpuMs);
+    return okGpu || okCpu;
+}
+
 /* ---------------------------------------------------------------- entry point */
 
-int depth_infer_main(const wchar_t *image, const wchar_t *dir, int cpuOnly, int wantPng)
+int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng)
 {
     IWICImagingFactory *f = NULL;
     IWICBitmapSource *src = NULL;
@@ -330,7 +459,8 @@ int depth_infer_main(const wchar_t *image, const wchar_t *dir, int cpuOnly, int 
     double t0 = time_ms();
     log_init(L"depth");
     HRESULT hrCo = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    LOGI(L"depth: %ls -> %ls (%ls)", image, dir, cpuOnly ? L"CPU only" : L"GPU first, CPU as fallback");
+    LOGI(L"depth: %ls -> %ls (%ls)", image, dir,
+         mode == DEPTH_CPU ? L"CPU only" : mode == DEPTH_CRASHED ? L"CPU, after a crash" : mode == DEPTH_BENCH ? L"test both" : L"fastest of GPU and CPU");
 
     path_join(model, SP_COUNTOF(model), paths_root(), L"depth\\model.onnx");
     path_join(tmp, SP_COUNTOF(tmp), dir, L"depth.tmp");
@@ -350,7 +480,41 @@ int depth_infer_main(const wchar_t *image, const wchar_t *dir, int cpuOnly, int 
     rc = 3;
     if (!(dll = load_runtime())) goto done;
     rc = 4;
-    if (!((!cpuOnly && run_model(dll, 1, model, chw, w, h, depth)) || run_model(dll, 0, model, chw, w, h, depth))) goto done;
+    {
+        Backend rec;
+        char fp[17] = "";
+        BOOL ok = FALSE, known = FALSE;
+        ZeroMemory(&rec, sizeof rec);
+        if (mode != DEPTH_CPU) {                             /* --cpu is the safe path: it asks the graphics stack nothing */
+            adapter_fingerprint(fp);
+            known = mode == DEPTH_AUTO && read_backend(&rec, fp);
+        }
+        if (!known) {
+            ZeroMemory(&rec, sizeof rec);
+            strncpy_s(rec.ort, sizeof rec.ort, g_ortVersion, _TRUNCATE);
+            strncpy_s(rec.fp, sizeof rec.fp, fp, _TRUNCATE);
+        }
+        if (mode == DEPTH_CPU) {
+            ok = run_model(dll, 0, model, chw, w, h, depth, NULL);
+        } else if (mode == DEPTH_CRASHED) {                 /* the GPU path killed the process: the CPU is the choice now */
+            ok = run_model(dll, 0, model, chw, w, h, depth, &rec.cpuMs);
+            if (ok) write_backend(&rec);
+        } else if (known && !rec.gpu) {                      /* the test found the CPU quicker */
+            ok = run_model(dll, 0, model, chw, w, h, depth, NULL);
+        } else if (known) {                                  /* ... the GPU quicker; if it has stopped working, remember that */
+            ok = run_model(dll, 1, model, chw, w, h, depth, NULL);
+            if (!ok) {
+                LOGW(L"depth: the GPU stopped working; using the CPU from now on");
+                rec.gpu = 0;
+                rec.gpuMs = 0.0;
+                ok = run_model(dll, 0, model, chw, w, h, depth, &rec.cpuMs);
+                if (ok) write_backend(&rec);
+            }
+        } else {
+            ok = benchmark(dll, model, chw, w, h, depth, &rec);
+        }
+        if (!ok) goto done;
+    }
 
     float lo = depth[0], hi = depth[0];
     size_t n = (size_t)w * h;

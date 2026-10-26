@@ -2,6 +2,7 @@
 #include "util.h"
 #include "paths.h"
 #include <winhttp.h>
+#include <shellapi.h>
 #include <bcrypt.h>
 #include <stdlib.h>
 #include <string.h>
@@ -279,6 +280,32 @@ BOOL urltools_present(void)
     return TRUE;
 }
 
+/* Downloads t into dest (through dest.download); nothing is kept that isn't the pinned file. */
+static BOOL fetch_pinned(const UrlTool *t, const wchar_t *dest, FetchProgress cb, void *ctx, wchar_t *err, size_t errCap)
+{
+    wchar_t part[SP_MAX_PATH], why[200];
+    char hex[65] = "";
+    str_printf(part, SP_COUNTOF(part), L"%ls.download", dest);
+    HttpGet *g = http_open(t->url, 0, why, SP_COUNTOF(why));
+    BOOL ok = g && http_status(g) == 200;
+    if (g && !ok) str_printf(why, SP_COUNTOF(why), L"the server answered HTTP %d", http_status(g));
+    if (ok) ok = http_save(g, part, t->size, cb, ctx, hex, why, SP_COUNTOF(why));
+    http_close(g);
+    if (ok && strcmp(hex, t->sha256) != 0) {   /* never keep (or run) a binary that isn't the pinned one */
+        str_copy(why, SP_COUNTOF(why), L"the file did not match its published SHA-256 checksum");
+        ok = FALSE;
+    }
+    if (ok && !MoveFileExW(part, dest, MOVEFILE_REPLACE_EXISTING)) {
+        str_printf(why, SP_COUNTOF(why), L"it could not be saved (error %lu)", GetLastError());
+        ok = FALSE;
+    }
+    if (!ok) {
+        DeleteFileW(part);
+        str_printf(err, errCap, L"Could not download %ls: %ls", t->name, why);
+    }
+    return ok;
+}
+
 typedef struct InstallProgress {
     FetchProgress cb;
     void         *ctx;
@@ -294,7 +321,7 @@ static int install_progress(void *c, int64_t done, int64_t total)
 
 BOOL urltools_install(FetchProgress cb, void *ctx, wchar_t *err, size_t errCap)
 {
-    wchar_t dir[SP_MAX_PATH], path[SP_MAX_PATH], part[SP_MAX_PATH], why[200];
+    wchar_t dir[SP_MAX_PATH], path[SP_MAX_PATH];
     int need[TOOL_COUNT];
     InstallProgress p = { cb, ctx, 0, 0 };
     for (int i = 0; i < TOOL_COUNT; i++) {
@@ -311,26 +338,7 @@ BOOL urltools_install(FetchProgress cb, void *ctx, wchar_t *err, size_t errCap)
         if (!need[i]) continue;
         const UrlTool *t = &k_urlTools[i];
         path_join(path, SP_COUNTOF(path), dir, t->file);
-        str_printf(part, SP_COUNTOF(part), L"%ls.download", path);
-        char hex[65] = "";
-        HttpGet *g = http_open(t->url, 0, why, SP_COUNTOF(why));
-        BOOL ok = g && http_status(g) == 200;
-        if (g && !ok) str_printf(why, SP_COUNTOF(why), L"the server answered HTTP %d", http_status(g));
-        if (ok) ok = http_save(g, part, t->size, install_progress, &p, hex, why, SP_COUNTOF(why));
-        http_close(g);
-        if (ok && strcmp(hex, t->sha256) != 0) {   /* never keep (or run) a binary that isn't the pinned one */
-            str_copy(why, SP_COUNTOF(why), L"the file did not match its published SHA-256 checksum");
-            ok = FALSE;
-        }
-        if (ok && !MoveFileExW(part, path, MOVEFILE_REPLACE_EXISTING)) {
-            str_printf(why, SP_COUNTOF(why), L"it could not be saved (error %lu)", GetLastError());
-            ok = FALSE;
-        }
-        if (!ok) {
-            DeleteFileW(part);
-            str_printf(err, errCap, L"Could not download %ls: %ls", t->name, why);
-            return FALSE;
-        }
+        if (!fetch_pinned(t, path, install_progress, &p, err, errCap)) return FALSE;
         p.base += t->size;
     }
     return TRUE;
@@ -347,4 +355,63 @@ void urltools_remove(void)
         DeleteFileW(p);
     }
     RemoveDirectoryW(dir);
+}
+
+/* ---------------------------------------------------------------- Visual C++ runtime */
+
+#define VCRUN_KEY       L"SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64"
+#define VCRUN_MIN_MINOR 44     /* ONNX Runtime 1.24.4 is built with the 14.44 toolset; keep installer/screenplus.nsi in step */
+
+/* Microsoft's own installer, the build https://aka.ms/vs/17/release/vc_redist.x64.exe pointed to on 2026-10-26
+ * (14.44.35211, signed by Microsoft; the address carries the SHA-256). Newer runtimes run 14.44 programs too. */
+static const UrlTool k_vcRedist = {
+    L"VC_redist.x64.exe", L"Microsoft Visual C++ Redistributable 14.44",
+    L"https://download.visualstudio.microsoft.com/download/pr/990c720a-46ce-4dc7-87b9-c2eb615d34b9/"
+    L"CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe",
+    "cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b", 25635768 };
+
+BOOL vcruntime_ok(wchar_t *found, size_t cap)
+{
+    HKEY k;
+    DWORD v[4] = { 0 }, size;                     /* Installed, Major, Minor, Bld */
+    static const wchar_t *names[4] = { L"Installed", L"Major", L"Minor", L"Bld" };
+    if (found && cap) found[0] = 0;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, VCRUN_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &k) != ERROR_SUCCESS) return FALSE;
+    for (int i = 0; i < 4; i++) {
+        size = sizeof v[i];
+        if (RegQueryValueExW(k, names[i], NULL, NULL, (BYTE *)&v[i], &size) != ERROR_SUCCESS) v[i] = 0;
+    }
+    RegCloseKey(k);
+    if (v[0] != 1) return FALSE;
+    if (found && cap) str_printf(found, cap, L"%lu.%lu.%lu", v[1], v[2], v[3]);
+    return v[1] > 14 || (v[1] == 14 && v[2] >= VCRUN_MIN_MINOR);
+}
+
+BOOL vcruntime_fetch(const wchar_t *dest, FetchProgress cb, void *ctx, wchar_t *err, size_t errCap)
+{
+    return fetch_pinned(&k_vcRedist, dest, cb, ctx, err, errCap);
+}
+
+BOOL vcruntime_run(const wchar_t *installer, wchar_t *err, size_t errCap)
+{
+    SHELLEXECUTEINFOW sei;
+    ZeroMemory(&sei, sizeof sei);
+    sei.cbSize = sizeof sei;
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+    sei.lpVerb = L"runas";                        /* it needs administrator rights: Windows asks first */
+    sei.lpFile = installer;
+    sei.lpParameters = L"/install /passive /norestart";
+    sei.nShow = SW_SHOWNORMAL;
+    if (!ShellExecuteExW(&sei) || !sei.hProcess) {
+        if (GetLastError() == ERROR_CANCELLED) str_copy(err, errCap, L"Windows' administrator prompt was declined");
+        else str_printf(err, errCap, L"The installer could not be started (error %lu)", GetLastError());
+        return FALSE;
+    }
+    DWORD code = 1;
+    WaitForSingleObject(sei.hProcess, 15 * 60 * 1000);
+    GetExitCodeProcess(sei.hProcess, &code);
+    CloseHandle(sei.hProcess);
+    if (code == 0 || code == 3010 || code == 1638) return TRUE;   /* installed; installed, restart advised; a newer one is there */
+    str_printf(err, errCap, L"The Visual C++ installer stopped with code %lu", code);
+    return FALSE;
 }

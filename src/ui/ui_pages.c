@@ -1528,7 +1528,7 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     else if (st.busy) note = L"Another wallpaper is being made cooler. Try again when it has finished.";
     else if (cool) note = g_app.cfg.s.htmlMouse ? L"This picture moves with your mouse. Depth strength and Auto move are under Wallpaper properties below."
                                                 : L"Mouse interaction is off in Settings, so only Auto move animates it. Depth strength and Auto move are below.";
-    else if (depth_ready()) note = L"Adds real depth to this picture so it follows your mouse. The AI model runs on your GPU, or your CPU if it has none.";
+    else if (depth_ready()) note = L"Adds real depth to this picture so it follows your mouse. The AI model runs on whichever is quicker here, your GPU or your CPU.";
     else note = L"Adds real depth to this picture so it follows your mouse. Needs the Depth Anything V2 AI model, downloaded once (about 110 MB).";
     ui_text(note, u->fWrap, rectf(x + 18, y + 46, w - 36, 44), failed ? t->danger : t->text2);
     return y + h + 26.0f;

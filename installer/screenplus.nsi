@@ -4,7 +4,7 @@
 ;   makensis /DVERSION=1.2.3 /DSTAGE=<folder with ScreenPlus.exe> /DOUTFILE=<setup.exe> installer\screenplus.nsi
 ; STAGE is the build output: ScreenPlus.exe, ScreenPlus.com (terminal), the FFmpeg DLLs, licenses\ and samples\.
 ;
-; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/D=<install folder>]   (/D must be last)
+; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/VCRUN] [/D=<install folder>]   (/D must be last)
 ; An existing installation is found automatically and updated in place, keeping the library.
 ; Installation types (applied by Screen+ on its next launch via HKCU\Software\ScreenPlus\SetupMode):
 ;   default - Aurora sample + automatic import of Lively Wallpaper's library
@@ -14,6 +14,10 @@
 ; `ScreenPlus.com tools install`, which downloads the pinned yt-dlp + QuickJS-NG releases (~20 MB, SHA-256
 ; verified) into %LOCALAPPDATA%\ScreenPlus\tools, so this installer stays small. Off: the app hides its
 ; link button (HKCU\Software\ScreenPlus\UrlImport = 0) and downloaded tools are removed.
+; Prerequisite of "Make wallpaper cooler" (ONNX Runtime): the Microsoft Visual C++ 2015-2022 runtime (x64) 14.44 or
+; newer. When it is missing or older, the Optional Features page offers it (ticked); setup then runs
+; `ScreenPlus.com vcredist install`, which downloads Microsoft's installer (SHA-256 verified) and runs it; Windows
+; asks for administrator permission. A silent install skips it (no prompt in unattended installs) unless /VCRUN.
 
 Unicode true
 ManifestDPIAware true
@@ -75,6 +79,8 @@ Var InstMode        ; "keep" (update in place) | "default" | "clean"
 Var OptStartup      ; 1 = start with Windows
 Var OptDesktop      ; 1 = desktop shortcut
 Var OptUrl          ; 1 = video import from web links (downloads yt-dlp + QuickJS-NG)
+Var VcNeeded        ; 1 = the Visual C++ runtime that Make wallpaper cooler needs is missing or too old
+Var OptVc           ; 1 = install it now
 Var Existing        ; folder of an installed Screen+, "" when none was found
 Var ExistingVer
 Var WelcomeText
@@ -84,6 +90,7 @@ Var hClean
 Var hStartup
 Var hDesktop
 Var hUrl
+Var hVc
 
 ; ------------------------------------------------------------------ pages
 !define MUI_WELCOMEPAGE_TEXT "$WelcomeText"
@@ -170,6 +177,25 @@ Function FindExisting
   ${EndIf}
 FunctionEnd
 
+; $VcNeeded = 1 unless the Visual C++ 2015-2022 runtime (x64) 14.44 or newer is installed: ONNX Runtime ("Make
+; wallpaper cooler") is built with that toolset. Keep in step with VCRUN_MIN_MINOR in src/common/webfetch.c.
+Function NeedVcRuntime
+  StrCpy $VcNeeded 1
+  SetRegView 64
+  ReadRegDWORD $0 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Installed"
+  ReadRegDWORD $1 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Major"
+  ReadRegDWORD $2 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Minor"
+  SetRegView 32
+  ${If} $0 = 1
+    ${If} $1 > 14
+      StrCpy $VcNeeded 0
+    ${ElseIf} $1 = 14
+    ${AndIf} $2 >= 44
+      StrCpy $VcNeeded 0
+    ${EndIf}
+  ${EndIf}
+FunctionEnd
+
 Function .onInit
   ${IfNot} ${RunningX64}
   ${OrIfNot} ${AtLeastWin10}
@@ -183,6 +209,11 @@ Function .onInit
   ReadINIStr $0 "$LOCALAPPDATA\ScreenPlus\config.ini" "settings" "url_import"
   ${If} $0 == "0"                                     ; turned off in an earlier installation
     StrCpy $OptUrl 0
+  ${EndIf}
+  Call NeedVcRuntime
+  StrCpy $OptVc $VcNeeded
+  ${If} ${Silent}
+    StrCpy $OptVc 0                                   ; no administrator prompt in an unattended install (/VCRUN asks for it)
   ${EndIf}
   StrCpy $WelcomeText "Setup will guide you through the installation of ${APP_NAME} ${VERSION}, a lightweight live wallpaper engine for Windows.$\r$\n$\r$\n${APP_NAME} is installed for your account only, so administrator rights are not needed.$\r$\n$\r$\nClick Next to continue."
 
@@ -226,6 +257,11 @@ Function .onInit
   ${GetOptions} $R0 "/NOURL" $R1
   ${IfNot} ${Errors}
     StrCpy $OptUrl 0
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $R0 "/VCRUN" $R1
+  ${IfNot} ${Errors}
+    StrCpy $OptVc $VcNeeded
   ${EndIf}
 FunctionEnd
 
@@ -327,11 +363,23 @@ Function OptionsPage
   ${If} $OptUrl == 1
     ${NSD_Check} $hUrl
   ${EndIf}
+  ${If} $VcNeeded == 1                                ; only asked when this PC lacks the runtime
+    ${NSD_CreateCheckbox} 0 66u 100% 12u "Install the &Microsoft Visual C++ runtime (needed by Make wallpaper cooler)"
+    Pop $hVc
+    ${NSD_CreateLabel} 13u 80u -13u 46u "The depth AI of Make wallpaper cooler needs the Microsoft Visual C++ Redistributable 14.44 or newer, which this PC doesn't have. Setup downloads it from Microsoft (about 25 MB, SHA-256 verified) and runs its installer; Windows asks for administrator permission. Everything else works without it."
+    Pop $0
+    ${If} $OptVc == 1
+      ${NSD_Check} $hVc
+    ${EndIf}
+  ${EndIf}
   nsDialogs::Show
 FunctionEnd
 
 Function OptionsLeave
   ${NSD_GetState} $hUrl $OptUrl
+  ${If} $VcNeeded == 1
+    ${NSD_GetState} $hVc $OptVc
+  ${EndIf}
 FunctionEnd
 
 ; ------------------------------------------------------------------ install
@@ -422,6 +470,18 @@ Section "-UrlImport"
     Pop $0
   ${EndIf}
   WriteRegDWORD HKCU "${APP_KEY}" "UrlImport" $OptUrl   ; read once by the app: shows or hides its link button
+SectionEnd
+
+; Optional prerequisite of Make wallpaper cooler: Microsoft's Visual C++ runtime, downloaded here (not embedded).
+Section "-VcRuntime"
+  ${If} $OptVc == 1
+    DetailPrint "Installing the Microsoft Visual C++ runtime (official download, SHA-256 verified; Windows asks for administrator permission)..."
+    nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" vcredist install'
+    Pop $0
+    ${If} $0 != 0
+      DetailPrint "Not installed now. Make wallpaper cooler says what is missing when you use it; or run: screenplus vcredist install"
+    ${EndIf}
+  ${EndIf}
 SectionEnd
 
 ; ------------------------------------------------------------------ uninstall
