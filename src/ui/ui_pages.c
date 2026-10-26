@@ -322,6 +322,8 @@ static float draw_filters(Ui *u, float x, float y, float w)
     return y + 30;
 }
 
+static void draw_card_name(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F nr);
+
 static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, float thumbH, int current)
 {
     Theme *t = &u->t;
@@ -345,7 +347,6 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
         ui_icon(GL_CHECK, u->fIconS, rectf(th.right - 30, th.top + 6, 24, 24), t->onAccent);
         ui_rrect_stroke(r, 14, 2, t->accent);
     }
-    ui_text(e->name, u->fBodyB, rectf(r.left + 12, th.bottom + 8, r.right - r.left - 24, 20), t->text);
     wchar_t meta[96], ext[16];
     str_copy(ext, SP_COUNTOF(ext), path_ext(e->path)[0] ? path_ext(e->path) + 1 : L"file");
     CharUpperW(ext);
@@ -359,6 +360,10 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
     ui_text(meta, u->fSmall, rectf(r.left + 12, th.bottom + 28, r.right - r.left - 24, 16), t->text3);
     ui_hit(id, r, 1, 1);
     ui_focus_ring(r, 14, id);
+
+    /* the name is its own hit, registered after the card's so it wins: double-click renames */
+    draw_card_name(u, vi, e, rectf(r.left + 12, th.bottom + 8, r.right - r.left - 24, 20));
+    ui_hit(HIT_ID(HK_NAME, vi), rectf(r.left + 10, th.bottom + 6, r.right - r.left - 20, 24), 0, 2);
 }
 
 static float draw_grid(Ui *u, float x, float y, float w)
@@ -782,6 +787,26 @@ static struct {
     double          lastSend;          /* time_ms of the last commit */
 } cus;
 
+/* The card's name line: plain text, or the rename editor while typing (double-click starts one). */
+static void draw_card_name(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F nr)
+{
+    int renaming = u->textFocus == HIT_ID(HK_NAME, vi);
+    const wchar_t *label = renaming ? cus.edit : e->name;
+    if (renaming) {
+        float twl = ui_text_width(label, u->fBodyB);
+        ui_push_clip(nr);
+        if (cus.editAll && label[0]) ui_rrect(rectf(nr.left - 2, nr.top, twl + 4, nr.bottom - nr.top), 3, col_a(u->t.accent, 0.35f));
+        ui_text(label, u->fBodyB, nr, u->t.text);
+        ui_pop_clip();
+        if (!cus.editAll && u->caretOn) {
+            float cx = nr.left + SP_MIN(twl, nr.right - nr.left) + 1.0f;
+            ui_line(cx, nr.top + 2, cx, nr.bottom - 2, 1.2f, u->t.accent);
+        }
+    } else {
+        ui_text(label, u->fBodyB, nr, u->t.text);
+    }
+}
+
 /* Look or properties changed outside the page (CLI): re-read them on the next paint. */
 void pages_customise_reload(void)
 {
@@ -1034,7 +1059,7 @@ static int edit_is_hex(int id)
 static int edit_accepts(wchar_t ch)
 {
     int id = g_ui->textFocus;
-    if (HIT_KIND(id) == HK_PTEXT || HIT_KIND(id) == HK_URL_TEXT) return ch >= 32;
+    if (HIT_KIND(id) == HK_PTEXT || HIT_KIND(id) == HK_URL_TEXT || HIT_KIND(id) == HK_NAME) return ch >= 32;
     return ch && wcschr(edit_is_hex(id) ? L"0123456789abcdefABCDEF#" : L"0123456789+-.", ch);
 }
 
@@ -1080,6 +1105,18 @@ static void edit_commit(int id)
     if (kind == HK_URL_TEXT) {
         str_copy(urlp.url, SP_COUNTOF(urlp.url), cus.edit);
         str_trim(urlp.url);
+    } else if (kind == HK_NAME) {                        /* the typed text becomes the card's name */
+        WallpaperEntry *e = data >= 0 && data < g_ui->viewCount ? &g_app.cfg.items[g_ui->view[data]] : NULL;
+        if (e) {
+            wchar_t nm[SP_NAME_LEN];
+            str_copy(nm, SP_COUNTOF(nm), cus.edit);
+            str_trim(nm);
+            str_sanitize_line(nm);
+            if (nm[0] && !str_ieq(nm, e->name)) {
+                str_copy(e->name, SP_COUNTOF(e->name), nm);
+                app_save_config();
+            }
+        }
     } else if (kind == HK_LOOKVAL && data == SL_COUNT) {   /* tint: the colour's hue/saturation + its brightness */
         if (!wpapi_parse_rgb(cus.edit, &rgb)) return;
         float h, s, val;
@@ -1109,7 +1146,8 @@ int pages_text_char(wchar_t ch)
 {
     Ui *u = g_ui;
     if (!u->textFocus) return 0;
-    int text = HIT_KIND(u->textFocus) == HK_PTEXT || HIT_KIND(u->textFocus) == HK_URL_TEXT;
+    int text = HIT_KIND(u->textFocus) == HK_PTEXT || HIT_KIND(u->textFocus) == HK_URL_TEXT ||
+               HIT_KIND(u->textFocus) == HK_NAME;
     size_t cap = text ? SP_COUNTOF(cus.edit) : edit_is_hex(u->textFocus) ? 8 : 16;
     if (!text && ch == L',') ch = L'.';   /* decimal comma */
     if (cus.editAll && (ch == 8 || ch == 127 || ch == 22 || edit_accepts(ch))) cus.edit[0] = 0;
@@ -1622,7 +1660,6 @@ void pages_activate(int id, int dbl)
 {
     Ui *u = g_ui;
     int kind = HIT_KIND(id), data = HIT_DATA(id);
-    (void)dbl;
     switch (kind) {
     case HK_NAV:
         if (u->page != data) {
@@ -1663,6 +1700,16 @@ void pages_activate(int id, int dbl)
             const WallpaperEntry *e = &g_app.cfg.items[u->view[data]];
             if (e->missing) app_notice(NOTICE_WARN, L"'%ls' can't be shown because the file is missing.", e->name);
             else app_apply_wallpaper(e->id, target_id());
+        }
+        break;
+    case HK_NAME:
+        if (u->textFocus == id) {          /* clicked again while typing: keep the caret blinking */
+            u->caretOn = 1;
+            SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+        } else if (dbl && data >= 0 && data < u->viewCount) {
+            str_copy(cus.edit, SP_COUNTOF(cus.edit), g_app.cfg.items[u->view[data]].name);
+            edit_begin(id, 1);
+            ui_invalidate();
         }
         break;
     case HK_TARGET:
@@ -1761,7 +1808,7 @@ void pages_activate(int id, int dbl)
 void pages_context(int id, int sx, int sy)
 {
     Ui *u = g_ui;
-    if (HIT_KIND(id) != HK_CARD) return;
+    if (HIT_KIND(id) != HK_CARD && HIT_KIND(id) != HK_NAME) return;
     int vi = HIT_DATA(id);
     if (vi < 0 || vi >= u->viewCount) return;
     WallpaperEntry e = g_app.cfg.items[u->view[vi]];   /* copy: the library may change */

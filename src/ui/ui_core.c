@@ -1152,7 +1152,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_LBUTTONDBLCLK:
-        if (u->hot && HIT_KIND(u->hot) == HK_CARD) pages_activate(u->hot, 1);
+        if (u->hot && (HIT_KIND(u->hot) == HK_CARD || HIT_KIND(u->hot) == HK_NAME)) pages_activate(u->hot, 1);
         return 0;
     case WM_RBUTTONUP:
         if (u->hot) {

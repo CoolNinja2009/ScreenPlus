@@ -19,7 +19,8 @@ enum HitKind {
     HK_RESTART_ENGINE, HK_NOTICE_CLOSE, HK_MONITOR, HK_USE_DEFAULT, HK_CHANGE, HK_GET_WEBVIEW, HK_LICENSES,
     HK_SCROLLBAR, HK_SLIDER, HK_DISC, HK_PCHECK, HK_PSLIDER, HK_PDOWN, HK_PCOLOR, HK_PTEXT, HK_RESET_LOOK,
     HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL, HK_URL, HK_URL_TEXT, HK_URL_MODE, HK_URL_GO, HK_URL_CLOSE,
-    HK_COOL     /* Customise "Make wallpaper cooler": data 0 make it, 1 back to the plain image, 2 cancel */
+    HK_NAME,    /* library card name; HK_COOL: data 0 make it, 1 back to the plain image, 2 cancel */
+    HK_COOL
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
