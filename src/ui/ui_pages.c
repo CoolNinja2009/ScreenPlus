@@ -349,7 +349,12 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
     wchar_t meta[96], ext[16];
     str_copy(ext, SP_COUNTOF(ext), path_ext(e->path)[0] ? path_ext(e->path) + 1 : L"file");
     CharUpperW(ext);
-    if (e->type == WP_HTML) str_printf(meta, SP_COUNTOF(meta), L"HTML · %ls", path_filename(e->path));
+    if (wallpaper_is_url(e->path)) {               /* a live page or a stream: where it comes from */
+        const wchar_t *host = wcsstr(e->path, L"://") + 3;
+        if (str_istarts(host, L"www.")) host += 4;
+        str_printf(meta, SP_COUNTOF(meta), L"%ls · %.*ls", e->type == WP_VIDEO ? L"Stream" : L"HTML",
+                   (int)SP_MIN(wcscspn(host, L"/?#:"), 60), host);
+    } else if (e->type == WP_HTML) str_printf(meta, SP_COUNTOF(meta), L"HTML · %ls", path_filename(e->path));
     else str_printf(meta, SP_COUNTOF(meta), L"%ls · %ls", wallpaper_type_name(e->type), ext);
     ui_text(meta, u->fSmall, rectf(r.left + 12, th.bottom + 28, r.right - r.left - 24, 16), t->text3);
     ui_hit(id, r, 1, 1);
@@ -1259,7 +1264,7 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
     }
     static const wchar_t *modes[] = { L"Automatic", L"Download", L"Web page" };
     static const wchar_t *hints[] = {
-        L"Long videos stream in small parts (nothing saved); short ones are saved once. Other pages show live.",
+        L"Long videos stream in small parts; short ones are saved. Other pages show live.",
         L"Saves the video or image so it plays offline; long videos take a lot of disk space.",
         L"Shows the page itself as a live web wallpaper; it needs an internet connection.",
     };
@@ -1714,14 +1719,18 @@ void pages_context(int id, int sx, int sy)
         str_printf(l, SP_COUNTOF(l), L"Apply to display %d (%.40ls)", g_app.mons[i].index, g_app.mons[i].name);
         AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 100 + (UINT)i, l);
     }
+    /* what removing does: a link has no file, a download goes with its entry, anything else stays */
+    int link = wallpaper_is_url(e.path), download = url_import_is_download(e.path);
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, L"Show in File Explorer");
+    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, link ? L"Open link in browser" : L"Show in File Explorer");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(m, MF_STRING, 3, L"Remove from library (keeps the file)");
+    AppendMenuW(m, MF_STRING, 3, link ? L"Remove from library" : download ? L"Remove from library and delete the download"
+                                                                          : L"Remove from library (keeps the file)");
     UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
     DestroyMenu(m);
     if (cmd == 1) app_apply_wallpaper(e.id, NULL);
     else if (cmd >= 100 && cmd < 116) app_apply_wallpaper(e.id, g_app.mons[cmd - 100].id);
+    else if (cmd == 2 && link) shell_open(e.path);
     else if (cmd == 2) shell_reveal(e.path);
     else if (cmd == 3) library_remove(e.id);
     ui_invalidate();

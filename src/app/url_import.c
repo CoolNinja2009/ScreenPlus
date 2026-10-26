@@ -115,6 +115,11 @@ static BOOL in_folder(const wchar_t *path, const wchar_t *dir)
     return n && path && _wcsnicmp(path, dir, n) == 0 && path[n] == L'\\' && !wcschr(path + n + 1, L'\\');
 }
 
+BOOL url_import_is_download(const wchar_t *path)
+{
+    return in_folder(path, paths_downloads());
+}
+
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb)
 {
     wchar_t f[SP_MAX_PATH], streams[SP_MAX_PATH];

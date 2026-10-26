@@ -522,6 +522,9 @@ void library_remove(const wchar_t *id)
     if (url_import_forget(path, thumb)) {
         LOGI(L"library: removed '%ls' and deleted its download", name);
         app_notice(NOTICE_INFO, L"Removed '%ls' and its downloaded file.", name);
+    } else if (wallpaper_is_url(path)) {                       /* a web page or stream: no file */
+        LOGI(L"library: removed '%ls'", name);
+        app_notice(NOTICE_INFO, L"Removed '%ls' from the library.", name);
     } else {
         LOGI(L"library: removed '%ls' (file left untouched)", name);
         app_notice(NOTICE_INFO, L"Removed '%ls' from the library. The original file was not deleted.", name);

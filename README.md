@@ -5,7 +5,7 @@
 
 # Screen+
 
-**Live wallpapers for Windows: video, GIF, image and web.<br>Native, light on resources, and compatible with Lively Wallpaper.**
+**Live wallpapers for Windows: video, GIF, image, web and YouTube links.<br>Native, light on resources, and compatible with Lively Wallpaper.**
 
 [![Latest release](https://img.shields.io/github/v/release/CoolNinja2009/ScreenPlus?style=flat-square&color=0a84ff&label=release)](https://github.com/CoolNinja2009/ScreenPlus/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/CoolNinja2009/ScreenPlus/total?style=flat-square&color=0a84ff)](https://github.com/CoolNinja2009/ScreenPlus/releases)
@@ -27,6 +27,7 @@
 |  |  |
 | --- | --- |
 | 🎞️ **Every kind of wallpaper** | Videos (MP4, MKV, WebM, MOV, …), animated GIFs, images (JPG, PNG, WebP, HEIC, AVIF, …) and interactive web pages built with HTML, CSS and JavaScript. |
+| 🔗 **Wallpapers from links** | Paste a YouTube link, or one from another video site, into the link button. Long videos stream in small parts like mpv or Lively, short ones are saved once, and other pages run live. Uses [yt-dlp](https://github.com/yt-dlp/yt-dlp), an optional 20 MB download. |
 | ⚡ **GPU video decoding** | H.264, HEVC (including 10-bit), VP9, AV1, MPEG-2 and VC-1 decode on the GPU through D3D11VA, with automatic software fallback. |
 | 🧩 **Lively Wallpaper compatible** | Your Lively library is picked up automatically, with saved properties, audio visualisers, system information and now playing (title, artist, album art). Wallpaper Engine web and video projects work too. |
 | ✨ **A library that moves** | Thumbnails play each wallpaper's preview. Web wallpapers that ship none are recorded into a GIF, the same way Lively does it. |
@@ -63,9 +64,10 @@
 3. Pick an installation type:
    - **Default** includes the Aurora sample and imports your Lively Wallpaper library.
    - **Clean** starts with an empty library.
-4. Open Screen+ from the Start menu or the notification area and choose a wallpaper.
+4. Keep **Video import from web links** ticked (the default) to get the link button. Setup then downloads yt-dlp and the QuickJS-NG JavaScript runtime it needs for YouTube: about 20 MB, official releases, checked against pinned SHA-256 hashes. Untick it to install only the app; you can turn it on later in **Settings**.
+5. Open Screen+ from the Start menu or the notification area and choose a wallpaper.
 
-Running the installer again updates an existing installation in place and keeps your library. Every release also has a portable `.zip`.
+Running the installer again updates an existing installation in place and keeps your library. Every release also has a portable `.zip`, which includes yt-dlp and QuickJS-NG.
 
 > [!NOTE]
 > The installer is not code-signed yet, so Windows SmartScreen may warn the first time. Choose **More info → Run anyway**.
@@ -83,11 +85,21 @@ Running the installer again updates an existing installation in place and keeps 
 - Lively `LivelyInfo.json` and Wallpaper Engine `project.json` packages are recognised.
 - Lively Wallpaper's library is imported automatically at start-up. Turn this off under **Settings › HTML wallpapers**.
 
+**From a link.** The link button next to **Import** takes a web address:
+
+<img src="docs/media/link-import.png" width="760" alt="Importing a YouTube link with the link button">
+
+- **Automatic**: long videos, like the hours-long loops on YouTube, stream. Small parts are fetched into a RAM cache of at most 32 MB while the wallpaper plays, and nothing is saved. Short videos (up to 10 minutes and 300 MB) and images are downloaded once, which costs less than streaming the same clip on every loop. A page without a video becomes a live web wallpaper.
+- **Download** saves any video so it plays offline. **Web page** always shows the page itself.
+- Videos come at no more than your display's resolution, preferring formats your GPU decodes. Streaming stops whenever the wallpaper is paused or covered. A stream needs an internet connection and picks up again after a dropped one.
+- Only public content can be imported: Screen+ never signs in or sends cookies. Removing a link wallpaper removes its entry; a downloaded copy is deleted with it.
+
 | Type | Formats |
 | --- | --- |
 | Video | MP4, M4V, MOV, MKV, WebM, AVI, WMV, MPG/MPEG, TS/M2TS, animated GIF |
 | Image | JPG, PNG, BMP, GIF, TIFF, WebP, HEIC/HEIF, AVIF, JXR (HEIC and AVIF need the Windows codec extensions) |
 | Web | HTML folders, Lively web, audio and URL wallpapers, Wallpaper Engine web projects |
+| Link | YouTube and other [sites yt-dlp supports](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), direct video and image links, live web pages |
 
 Native-app, Unity, Godot and Wallpaper Engine *scene* projects need their original engine and are reported as unsupported.
 </details>
@@ -133,6 +145,8 @@ screenplus status [--watch]               what runs on each display (--watch: li
 screenplus list [image|video|html|text]   the library, * = on screen
 screenplus apply <name|number|id|path> [--display N]
 screenplus import <path>... [--apply]   |   remove <wallpaper>   |   displays
+screenplus import <link> [--download | --page]         stream or save a video from a web link, or add the page
+screenplus tools [install | remove]                    yt-dlp + QuickJS-NG for web links
 screenplus pause | resume | toggle | next | restart | audio [on|off]
 screenplus look [set <key> <value> ... | reset]        brightness contrast saturation hue gamma tint ...
 screenplus props [set <name> <value> | reset]          the wallpaper's own Lively / WE settings
@@ -151,7 +165,7 @@ ScreenPlus.exe [--tray | --show | --pause | --resume | --toggle-pause | --next |
 The executable's own switches also reach the running Screen+; `--next` switches to the next wallpaper.
 
 ```text
-ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/D=<folder>]     silent install (/D must come last)
+ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/D=<folder>]   silent install (/D must come last)
 uninstall.exe /S                                                      silent uninstall
 ```
 </details>
@@ -165,6 +179,8 @@ uninstall.exe /S                                                      silent uni
 | `%LOCALAPPDATA%\ScreenPlus\config.ini` | Settings and library, plain text (previous version kept as `config.bak`) |
 | `%LOCALAPPDATA%\ScreenPlus\logs\` | Logs and crash dumps. Attach them to bug reports |
 | `%LOCALAPPDATA%\ScreenPlus\cache\previews\` | Recorded web previews, safe to delete |
+| `%LOCALAPPDATA%\ScreenPlus\downloads\` | Wallpapers saved from links, deleted with their library entry |
+| `%LOCALAPPDATA%\ScreenPlus\tools\` | yt-dlp and QuickJS-NG (`screenplus tools remove` deletes them) |
 | `SCREENPLUS_DATA_DIR` | Use another data folder, e.g. for a portable setup |
 | `SCREENPLUS_HWDEC=zerocopy` or `off` | Video decoding mode. Default: GPU decode plus one GPU-side copy per frame |
 
@@ -198,6 +214,7 @@ Every push to `main` that changes the app is built by [GitHub Actions](.github/w
 - [x] Lively library import, properties, audio visualisers and now playing
 - [x] Animated library with recorded previews for web wallpapers
 - [x] Installer with default, clean and in-place update
+- [x] Wallpapers from links: YouTube streaming, downloads and live pages
 - [ ] Customise panel for wallpaper properties
 - [ ] Span one wallpaper across all monitors
 - [ ] Pause rules for individual apps
@@ -210,6 +227,7 @@ Screen+ is released under the [MIT License](LICENSE).
 
 - [FFmpeg](https://ffmpeg.org): LGPL-2.1-or-later, dynamically linked. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 - [Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) SDK: BSD-3-Clause.
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) and [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (MIT): optional, unmodified official builds run as separate programs.
 - The installer is built with [NSIS](https://nsis.sourceforge.io).
 - Wallpapers in the screenshots, apart from Aurora, come from [Lively Wallpaper](https://github.com/rocksdanister/lively)'s built-in library and belong to their authors.
 

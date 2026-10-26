@@ -119,3 +119,4 @@ void url_import_sweep(void);                           /* startup: delete downlo
 /* An entry was removed: deletes what Screen+ made for it (its download, a stream's cached address and
  * preview). TRUE when a downloaded wallpaper file was deleted. */
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb);
+BOOL url_import_is_download(const wchar_t *path);      /* a file Screen+ downloaded (removed with its entry) */
