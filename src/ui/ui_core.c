@@ -875,6 +875,38 @@ static const Hit *hit_find(Ui *u, int id)
     return NULL;
 }
 
+/* Every field that supports typing goes through the text engine (textedit.c). */
+static int is_text_kind(int kind)
+{
+    return kind == HK_SEARCH || kind == HK_URL_TEXT || kind == HK_NAME ||
+           kind == HK_PTEXT || kind == HK_PVAL || kind == HK_LOOKVAL;
+}
+
+/* Click streak on the same spot: 1 caret, 2 word, 3+ the whole text. */
+static int text_clicks(Ui *u, int id, float x, float y)
+{
+    static int lastId = 0, streak = 1;
+    static DWORD lastAt = 0;
+    static float lastX = 0.0f, lastY = 0.0f;
+    DWORD now = GetTickCount();
+    float lim = 4.0f * u->scale;
+    if (id == lastId && now - lastAt < GetDoubleClickTime() && fabsf(x - lastX) <= lim && fabsf(y - lastY) <= lim)
+        streak += id == lastId ? 1 : 0;
+    else streak = 1;
+    lastId = id;
+    lastAt = now;
+    lastX = x;
+    lastY = y;
+    return streak;
+}
+
+static void text_press(Ui *u, int id, float x, float y)
+{
+    pages_activate(id, 0);              /* opens (or keeps open) the field */
+    te_click(text_clicks(u, id, x, y), x);
+    ui_invalidate();
+}
+
 static void move_focus(Ui *u, int dir)
 {
     int n = u->hitCount, cur = -1;
@@ -885,6 +917,8 @@ static void move_focus(Ui *u, int dir)
         if (u->hits[i].focusable) {
             u->focus = u->hits[i].id;
             u->focusVisible = 1;
+            if (HIT_KIND(u->focus) == HK_SEARCH) pages_search_open();
+            else if (u->textFocus && HIT_KIND(u->textFocus) == HK_SEARCH) pages_text_end(1);
             u->searchFocus = HIT_KIND(u->focus) == HK_SEARCH;
             pages_scroll_into_view(u->focus);
             ui_invalidate();
@@ -895,20 +929,13 @@ static void move_focus(Ui *u, int dir)
 
 static void set_search_focus(Ui *u, int on)
 {
-    u->searchFocus = on;
     if (on) {
-        u->caretOn = 1;
-        SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
-    } else {
-        KillTimer(u->hwnd, TM_CARET);
+        pages_search_open();
+        return;
     }
-    ui_invalidate();
-}
-
-static void search_changed(Ui *u)
-{
-    u->scrollTarget[PAGE_LIBRARY] = u->scroll[PAGE_LIBRARY] = 0.0f;
-    pages_rebuild_view();
+    u->searchFocus = 0;
+    if (u->textFocus && HIT_KIND(u->textFocus) == HK_SEARCH) pages_text_end(0);
+    else KillTimer(u->hwnd, TM_CARET);
     ui_invalidate();
 }
 
@@ -935,12 +962,7 @@ static void on_key(Ui *u, WPARAM vk)
         move_focus(u, shift ? -1 : 1);
         return;
     case VK_ESCAPE:
-        if (u->searchFocus && u->search[0]) {
-            u->search[0] = 0;
-            search_changed(u);
-        } else if (u->searchFocus) {
-            set_search_focus(u, 0);
-        }
+        if (u->searchFocus) set_search_focus(u, 0);   /* the engine cleared the text; an empty box closes */
         return;
     case VK_RETURN:
     case VK_SPACE:
@@ -971,33 +993,7 @@ static void on_key(Ui *u, WPARAM vk)
 
 static void on_char(Ui *u, wchar_t ch)
 {
-    if (pages_text_char(ch)) return;   /* Customise text field */
-    if (!u->searchFocus) return;
-    size_t n = wcslen(u->search);
-    if (ch == 8) {
-        if (n) u->search[n - 1] = 0;
-    } else if (ch == 127) {             /* Ctrl+Backspace: delete the last word */
-        while (n && u->search[n - 1] == L' ') u->search[--n] = 0;
-        while (n && u->search[n - 1] != L' ') u->search[--n] = 0;
-    } else if (ch == 22) {              /* Ctrl+V */
-        if (OpenClipboard(u->hwnd)) {
-            HANDLE h = GetClipboardData(CF_UNICODETEXT);
-            const wchar_t *p = h ? (const wchar_t *)GlobalLock(h) : NULL;
-            if (p) {
-                str_cat(u->search, SP_COUNTOF(u->search), p);
-                str_sanitize_line(u->search);
-                GlobalUnlock(h);
-            }
-            CloseClipboard();
-        }
-    } else if (ch >= 32 && n + 1 < SP_COUNTOF(u->search)) {
-        u->search[n] = ch;
-        u->search[n + 1] = 0;
-    } else {
-        return;
-    }
-    u->caretOn = 1;
-    search_changed(u);
+    pages_text_char(ch);
 }
 
 /* One tooltip, moved onto whichever icon-only button is hovered (texts: pages_tooltip). */
@@ -1101,6 +1097,8 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             int k = HIT_KIND(u->pressed);
             if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(u->pressed, u->mx, u->my, 0);
         }
+        u->hot = is_text_kind(HIT_KIND(u->pressed)) && u->textFocus == u->pressed ? u->hot : hot;
+        if (u->pressed == u->textFocus && te_active()) te_drag(u->mx);   /* drag selection in a text field */
         return 0;
     }
     case WM_MOUSELEAVE:
@@ -1137,6 +1135,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(u->pressed, u->mx, u->my, 0);
         }
         set_search_focus(u, HIT_KIND(u->hot) == HK_SEARCH);
+        if (is_text_kind(HIT_KIND(u->hot))) text_press(u, u->hot, u->mx, u->my);   /* caret to the click */
         ui_invalidate();
         return 0;
     case WM_LBUTTONUP: {
@@ -1146,13 +1145,17 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (id) {
             int k = HIT_KIND(id);
             if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(id, u->mx, u->my, 1);
-            if (id == u->hot && k != HK_SEARCH) pages_activate(id, 0);
+            if (id == u->hot && k != HK_SEARCH && !is_text_kind(k)) pages_activate(id, 0);
         }
         ui_invalidate();
         return 0;
     }
     case WM_LBUTTONDBLCLK:
-        if (u->hot && (HIT_KIND(u->hot) == HK_CARD || HIT_KIND(u->hot) == HK_NAME)) pages_activate(u->hot, 1);
+        if (u->hot) {
+            int k = HIT_KIND(u->hot);
+            if (k == HK_CARD) pages_activate(u->hot, 1);
+            else if (is_text_kind(k)) text_press(u, u->hot, u->mx, u->my);   /* 2nd click: word selection */
+        }
         return 0;
     case WM_RBUTTONUP:
         if (u->hot) {

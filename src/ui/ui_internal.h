@@ -1,6 +1,7 @@
 #pragma once
 #include "../app/app.h"
 #include "ui.h"
+#include "textedit.h"
 #include "thumbs.h"
 #include "dwrite_c.h"
 #include "d2d_c.h"
@@ -154,6 +155,7 @@ void pages_rebuild_view(void);
 void pages_scroll_into_view(int id);
 void pages_drag(int id, float x, float y, int commit);      /* sliders + colour wheel tracking */
 void pages_customise_reload(void);                         /* Customise values changed elsewhere */
+void pages_search_open(void);                              /* focus + caret in the search box */
 int  pages_text_char(wchar_t ch);                           /* 1 consumed: the Customise text field */
 int  pages_text_key(UINT vk, int ctrl, int shift);
 void pages_text_end(int commit);                            /* focus left the field (0: cancel) */

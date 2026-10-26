@@ -107,7 +107,7 @@ set(SOURCES
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
     src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c
     src/tray/tray.c
-    src/ui/ui_core.c src/ui/ui_pages.c src/ui/thumbs.c
+    src/ui/ui_core.c src/ui/ui_pages.c src/ui/textedit.c src/ui/thumbs.c
     resources/screenplus.rc
 )
 add_executable(ScreenPlus WIN32 ${SOURCES} ${SHADER_HEADERS})

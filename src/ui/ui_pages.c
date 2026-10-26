@@ -201,16 +201,18 @@ static float draw_url_panel(Ui *u, float x, float y, float w);
 static void draw_search(Ui *u, D2D1_RECT_F r)
 {
     Theme *t = &u->t;
-    int id = HIT_ID(HK_SEARCH, 0);
+    int id = HIT_ID(HK_SEARCH, 0), editing = u->textFocus == id;
     ui_rrect(r, 9, t->field);
-    ui_rrect_stroke(r, 9, u->searchFocus ? 1.5f : 1.0f, u->searchFocus ? t->accent : t->border);
+    ui_rrect_stroke(r, 9, editing ? 1.5f : 1.0f, editing ? t->accent : t->border);
     ui_icon(GL_SEARCH, u->fIconS, rectf(r.left + 8, r.top, 22, r.bottom - r.top), t->text3);
     float tx = r.left + 34, tw = r.right - r.left - 34 - (u->search[0] ? 32 : 10);
-    if (u->search[0]) ui_text(u->search, u->fBody, rectf(tx, r.top, tw, r.bottom - r.top), t->text);
-    else ui_text(L"Search wallpapers", u->fBody, rectf(tx, r.top, tw, r.bottom - r.top), t->text3);
-    if (u->searchFocus && u->caretOn && GetForegroundWindow() == u->hwnd) {
-        float cx = tx + SP_MIN(ui_text_width(u->search, u->fBody), tw) + 1.0f;
-        ui_line(cx, r.top + 9, cx, r.bottom - 9, 1.2f, t->accent);
+    if (!u->search[0] && !editing) ui_text(L"Search wallpapers", u->fBody, rectf(tx, r.top, tw, r.bottom - r.top), t->text3);
+    else if (editing) {
+        D2D1_RECT_F tr = rectf(tx, r.top + 7, tw, r.bottom - r.top - 14);
+        te_set_layout(u->fBody, tr);
+        te_draw(tr, t->text, col_a(t->accent, 0.35f), t->accent, u->caretOn && GetForegroundWindow() == u->hwnd);
+    } else {
+        ui_text(u->search, u->fBody, rectf(tx, r.top, tw, r.bottom - r.top), t->text);
     }
     ui_hit(id, r, 1, 2);
     if (u->search[0]) ui_button(HIT_ID(HK_SEARCH_CLEAR, 0), rectf(r.right - 30, r.top + 4, 26, r.bottom - r.top - 8), NULL, GL_CLOSE, BTN_GHOST);
@@ -782,7 +784,6 @@ static struct {
     CustomProp     *props;
     int             propCount;
     wchar_t         edit[SP_MAX_PATH]; /* text of the field being typed into (u->textFocus) */
-    int             editAll;           /* that text is still selected: the next key replaces it */
     int             forceReload;       /* re-resolve property values (after a reset) */
     double          lastSend;          /* time_ms of the last commit */
 } cus;
@@ -790,20 +791,11 @@ static struct {
 /* The card's name line: plain text, or the rename editor while typing (double-click starts one). */
 static void draw_card_name(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F nr)
 {
-    int renaming = u->textFocus == HIT_ID(HK_NAME, vi);
-    const wchar_t *label = renaming ? cus.edit : e->name;
-    if (renaming) {
-        float twl = ui_text_width(label, u->fBodyB);
-        ui_push_clip(nr);
-        if (cus.editAll && label[0]) ui_rrect(rectf(nr.left - 2, nr.top, twl + 4, nr.bottom - nr.top), 3, col_a(u->t.accent, 0.35f));
-        ui_text(label, u->fBodyB, nr, u->t.text);
-        ui_pop_clip();
-        if (!cus.editAll && u->caretOn) {
-            float cx = nr.left + SP_MIN(twl, nr.right - nr.left) + 1.0f;
-            ui_line(cx, nr.top + 2, cx, nr.bottom - 2, 1.2f, u->t.accent);
-        }
+    if (u->textFocus == HIT_ID(HK_NAME, vi)) {
+        te_set_layout(u->fBodyB, nr);
+        te_draw(nr, u->t.text, col_a(u->t.accent, 0.35f), u->t.accent, u->caretOn);
     } else {
-        ui_text(label, u->fBodyB, nr, u->t.text);
+        ui_text(e->name, u->fBodyB, nr, u->t.text);
     }
 }
 
@@ -828,12 +820,14 @@ static void customise_refresh(void)
         cus.propCount = 0;
         cus.wpId[0] = 0;
         u->textFocus = 0;
+        te_close();
         return;
     }
     if (str_ieq(cus.wpId, e->id) && !cus.forceReload) return;
     str_copy(cus.wpId, SP_COUNTOF(cus.wpId), e->id);
-    cus.forceReload = 0;
+    if (u->textFocus) pages_text_end(0);   /* the edited field belonged to the previous wallpaper */
     u->textFocus = 0;
+    cus.forceReload = 0;
     wpapi_load_adjust(e->id, &cus.adj);
     wpapi_props_free(cus.props, cus.propCount);
     cus.props = wpapi_props_list(e, &cus.propCount);
@@ -1056,11 +1050,13 @@ static int edit_is_hex(int id)
            (kind == HK_PVAL && data >= 0 && data < cus.propCount && cus.props[data].type == CP_COLOR);
 }
 
-static int edit_accepts(wchar_t ch)
+/* The engine's filter; it may also rewrite the character (decimal comma becomes a dot). */
+static int te_field_accepts(wchar_t *ch)
 {
     int id = g_ui->textFocus;
-    if (HIT_KIND(id) == HK_PTEXT || HIT_KIND(id) == HK_URL_TEXT || HIT_KIND(id) == HK_NAME) return ch >= 32;
-    return ch && wcschr(edit_is_hex(id) ? L"0123456789abcdefABCDEF#" : L"0123456789+-.", ch);
+    if (HIT_KIND(id) == HK_PTEXT || HIT_KIND(id) == HK_URL_TEXT || HIT_KIND(id) == HK_NAME) return *ch >= 32;
+    if (*ch == L',' && !edit_is_hex(id)) *ch = L'.';
+    return *ch && wcschr(edit_is_hex(id) ? L"0123456789abcdefABCDEF#" : L"0123456789+-.", *ch);
 }
 
 /* What a value field holds when typing starts: the bare number, or the colour as #RRGGBB. */
@@ -1083,10 +1079,17 @@ static int value_edit_text(int id, wchar_t *out, size_t cap)
 static void edit_begin(int id, int selectAll)
 {
     Ui *u = g_ui;
+    if (u->textFocus == id) {           /* clicked again while typing: keep the caret blinking */
+        u->caretOn = 1;
+        SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+        return;
+    }
+    if (u->textFocus) pages_text_end(1);
     u->textFocus = id;
-    cus.editAll = selectAll;
+    u->searchFocus = 0;
     u->caretOn = 1;
     SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+    te_open(cus.edit, SP_COUNTOF(cus.edit), (int)wcslen(cus.edit), selectAll, te_field_accepts, NULL);
 }
 
 static int parse_number(const wchar_t *s, double *v)
@@ -1146,61 +1149,46 @@ int pages_text_char(wchar_t ch)
 {
     Ui *u = g_ui;
     if (!u->textFocus) return 0;
-    int text = HIT_KIND(u->textFocus) == HK_PTEXT || HIT_KIND(u->textFocus) == HK_URL_TEXT ||
-               HIT_KIND(u->textFocus) == HK_NAME;
-    size_t cap = text ? SP_COUNTOF(cus.edit) : edit_is_hex(u->textFocus) ? 8 : 16;
-    if (!text && ch == L',') ch = L'.';   /* decimal comma */
-    if (cus.editAll && (ch == 8 || ch == 127 || ch == 22 || edit_accepts(ch))) cus.edit[0] = 0;
-    size_t n = wcslen(cus.edit);
-    if (ch == 8) {
-        if (n) cus.edit[n - 1] = 0;
-    } else if (ch == 127) {              /* Ctrl+Backspace: delete the last word */
-        while (n && cus.edit[n - 1] == L' ') cus.edit[--n] = 0;
-        while (n && cus.edit[n - 1] != L' ') cus.edit[--n] = 0;
-    } else if (ch == 22) {               /* Ctrl+V */
-        if (OpenClipboard(u->hwnd)) {
-            HANDLE h = GetClipboardData(CF_UNICODETEXT);
-            const wchar_t *p = h ? (const wchar_t *)GlobalLock(h) : NULL;
-            if (p) {
-                str_cat(cus.edit, SP_COUNTOF(cus.edit), p);
-                str_sanitize_line(cus.edit);
-                GlobalUnlock(h);
-            }
-            CloseClipboard();
-        }
-        if (!text) {                     /* a number or colour keeps only what it accepts */
-            size_t j = 0;
-            for (size_t i = 0; cus.edit[i] && j + 1 < cap; i++) {
-                wchar_t c = cus.edit[i] == L',' ? L'.' : cus.edit[i];
-                if (edit_accepts(c)) cus.edit[j++] = c;
-            }
-            cus.edit[j] = 0;
-        }
-    } else if (edit_accepts(ch) && n + 1 < cap) {
-        cus.edit[n] = ch;
-        cus.edit[n + 1] = 0;
-    } else {
+    if (te_char(ch)) {
+        u->caretOn = 1;                 /* typing shows a solid caret until the blink timer flips it */
         return 1;
     }
-    cus.editAll = 0;
-    ui_invalidate();
-    return 1;
+    return 0;
 }
 
 static void url_go(void);
 
+static void search_notify(void);
+
 int pages_text_key(UINT vk, int ctrl, int shift)
 {
     Ui *u = g_ui;
-    (void)ctrl; (void)shift;
     if (!u->textFocus) return 0;
-    int url = HIT_KIND(u->textFocus) == HK_URL_TEXT;
+    int kind = HIT_KIND(u->textFocus);
+    int url = kind == HK_URL_TEXT, search = kind == HK_SEARCH;
+    if (te_key(vk, ctrl, shift)) return 1;
     if (vk == VK_ESCAPE) {
-        pages_text_end(url);             /* the link field keeps what was typed and closes */
+        if (te_has_sel()) {              /* the first Escape just drops the selection */
+            te_clear_sel();
+            return 1;
+        }
+        if (search) {
+            if (u->search[0]) {
+                u->search[0] = 0;
+                search_notify();          /* empty it but keep the focus */
+                return 1;
+            }
+            return 0;                    /* nothing to clear: the shell closes the search */
+        }
+        pages_text_end(url);             /* the link field keeps what was typed and closes; the rename cancels */
         if (url) urlp.open = 0;
     } else if (vk == VK_RETURN) {
+        if (search) return 1;
         pages_text_end(1);
         if (url) url_go();
+    } else if (vk == VK_TAB) {
+        pages_text_end(1);               /* commit, then the shell moves focus */
+        return 0;
     }
     return 1;                            /* characters arrive via WM_CHAR; consume the rest */
 }
@@ -1209,8 +1197,37 @@ void pages_text_end(int commit)
 {
     Ui *u = g_ui;
     int id = u->textFocus;
+    int search = id && HIT_KIND(id) == HK_SEARCH;
     u->textFocus = 0;
+    te_close();
+    if (search) {
+        u->searchFocus = 0;
+        KillTimer(u->hwnd, TM_CARET);
+    }
     if (commit && id) edit_commit(id);
+    ui_invalidate();
+}
+
+/* The search box shares the engine: its buffer is u->search, its change triggers a library rebuild. */
+static void search_notify(void)
+{
+    Ui *u = g_ui;
+    u->scrollTarget[PAGE_LIBRARY] = u->scroll[PAGE_LIBRARY] = 0.0f;
+    pages_rebuild_view();
+}
+
+void pages_search_open(void)
+{
+    Ui *u = g_ui;
+    int id = HIT_ID(HK_SEARCH, 0);
+    if (u->textFocus != id) {
+        if (u->textFocus) pages_text_end(1);
+        u->searchFocus = 1;
+        u->textFocus = id;
+        u->caretOn = 1;
+        SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+        te_open(u->search, SP_COUNTOF(u->search), (int)wcslen(u->search), 0, NULL, search_notify);
+    }
     ui_invalidate();
 }
 
@@ -1281,14 +1298,12 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
     float tx = f.left + 12, avail = f.right - f.left - 24;
     if (!s[0] && !editing) {
         ui_text(L"Paste a link to a video, an image or a web page", u->fBody, rectf(tx, f.top, avail, 36), t->text3);
+    } else if (editing) {
+        D2D1_RECT_F tr = rectf(tx, f.top + 7, avail, 36 - 14);
+        te_set_layout(u->fBody, tr);
+        te_draw(tr, st.busy ? t->text2 : t->text, col_a(t->accent, 0.35f), t->accent, u->caretOn);
     } else {
-        float tw = ui_text_width(s, u->fBody), shift = editing ? SP_MAX(0.0f, tw - avail) : 0.0f;   /* end in view */
-        ui_push_clip(rectf(tx - 2, f.top, avail + 4, 36));
-        if (editing && cus.editAll && s[0]) ui_rrect(rectf(tx - 2, f.top + 8, SP_MIN(tw, avail) + 4, 20), 3, col_a(t->accent, 0.35f));
-        ui_text(s, u->fBody, rectf(tx - shift, f.top, editing ? tw + 4 : avail, 36), st.busy ? t->text2 : t->text);
-        ui_pop_clip();
-        if (editing && !cus.editAll && u->caretOn)
-            ui_line(tx + tw - shift + 1, f.top + 9, tx + tw - shift + 1, f.bottom - 9, 1.2f, t->accent);
+        ui_text(s, u->fBody, rectf(tx, f.top, avail, 36), t->text);
     }
     if (!st.busy) {
         ui_hit(id, f, 1, 2);
@@ -1341,19 +1356,18 @@ static void value_field(Ui *u, int id, const wchar_t *text, float x, int left, f
 {
     Theme *t = &u->t;
     int editing = u->textFocus == id;
-    const wchar_t *s = editing ? cus.edit : text;
-    float tw = ui_text_width(s, u->fBody), w = SP_MAX(tw, ui_text_width(text, u->fBody));
-    float tx = left ? x : x - tw;
+    float tw = ui_text_width(editing ? cus.edit : text, u->fBody), w = SP_MAX(tw, ui_text_width(text, u->fBody));
     D2D1_RECT_F f = rectf((left ? x : x - w) - 6.0f, y + h * 0.5f - 14.0f, w + 12.0f, 28.0f);
     if (editing) {
         ui_rrect(f, 6, t->field);
         ui_rrect_stroke(f, 6, 1.5f, t->accent);
-        if (cus.editAll && s[0]) ui_rrect(rectf(tx - 2.0f, f.top + 5.0f, tw + 4.0f, 18.0f), 3, col_a(t->accent, 0.35f));
-        else if (u->caretOn) ui_line(tx + tw + 1.0f, f.top + 6.0f, tx + tw + 1.0f, f.bottom - 6.0f, 1.2f, t->accent);
-    } else if (ui_is_hot(id)) {
-        ui_rrect(f, 6, t->panelHover);
+        D2D1_RECT_F tr = rectf(f.left + 7.0f, f.top + 5.0f, f.right - f.left - 14.0f, f.bottom - f.top - 10.0f);
+        te_set_layout(u->fBody, tr);
+        te_draw(tr, t->text, col_a(t->accent, 0.35f), t->accent, u->caretOn);
+    } else {
+        if (ui_is_hot(id)) ui_rrect(f, 6, t->panelHover);
+        ui_text(text, u->fBody, rectf((left ? x : x - tw) - 1.0f, y, tw + 2.0f, h), c);
     }
-    ui_text(s, u->fBody, rectf(tx - 1.0f, y, tw + 2.0f, h), editing ? t->text : c);
     ui_hit(id, f, 0, 2);
 }
 
@@ -1489,11 +1503,8 @@ static void draw_prop_row(Ui *u, float x, float y, float w, CustomProp *cp, int 
         ui_rrect_stroke(f, 8, focused ? 1.5f : 1.0f, focused ? t->accent : t->border);
         D2D1_RECT_F tr = rectf(f.left + 10, f.top, f.right - f.left - 20, f.bottom - f.top);
         if (focused) {
-            ui_text(cus.edit, u->fBody, tr, t->text);
-            if (u->caretOn) {
-                float caretX = tr.left + SP_MIN(ui_text_width(cus.edit, u->fBody), tr.right - tr.left);
-                ui_line(caretX, f.top + 8, caretX, f.bottom - 8, 1.2f, t->accent);
-            }
+            te_set_layout(u->fBody, tr);
+            te_draw(tr, t->text, col_a(t->accent, 0.35f), t->accent, u->caretOn);
         } else {
             wchar_t val[256];
             json_str_w(cp->value, val, SP_COUNTOF(val));
@@ -1660,6 +1671,7 @@ void pages_activate(int id, int dbl)
 {
     Ui *u = g_ui;
     int kind = HIT_KIND(id), data = HIT_DATA(id);
+    (void)dbl;                           /* double clicks are handled through the text engine */
     switch (kind) {
     case HK_NAV:
         if (u->page != data) {
@@ -1706,10 +1718,9 @@ void pages_activate(int id, int dbl)
         if (u->textFocus == id) {          /* clicked again while typing: keep the caret blinking */
             u->caretOn = 1;
             SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
-        } else if (dbl && data >= 0 && data < u->viewCount) {
+        } else if (data >= 0 && data < u->viewCount) {
             str_copy(cus.edit, SP_COUNTOF(cus.edit), g_app.cfg.items[u->view[data]].name);
-            edit_begin(id, 1);
-            ui_invalidate();
+            edit_begin(id, 0);          /* a double click selects the word through the engine */
         }
         break;
     case HK_TARGET:
