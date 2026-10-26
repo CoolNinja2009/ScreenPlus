@@ -607,7 +607,7 @@ static void draw_settings(Ui *u, float cx, float cw)
         int idx[] = { TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY };
         const wchar_t *l[] = { L"Pause during fullscreen apps", L"Pause hidden wallpapers", L"Suspend while locked",
                                L"Pause on battery power" };
-        const wchar_t *d[] = { L"Games and videos get the GPU to themselves",
+        const wchar_t *d[] = { L"Only the display the game or video is on; others keep playing",
                                L"Stop rendering on displays covered by maximized or fullscreen windows",
                                L"Freeze rendering on the lock screen and while the display is off",
                                L"Also applies when battery saver is on" };

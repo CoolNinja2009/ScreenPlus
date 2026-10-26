@@ -60,10 +60,9 @@ static BOOL CALLBACK enum_cb(HWND h, LPARAM lp)
         int full = contains(&r, &m->rect);
         if (full || contains(&r, &m->work) || (zoomed && hm == m->hmon)) {
             c->out->covered[i] = 1;
-            if (full && h == c->fg && !c->out->fullscreen) {
-                c->out->fullscreen = 1;
-                c->out->fullscreenWnd = h;
-            }
+            /* Per display: a game, video or maximised app focused on one monitor must not
+             * freeze the wallpaper on the others. */
+            if (full && h == c->fg) c->out->fullscreen[i] = 1;
         }
     }
     return TRUE;

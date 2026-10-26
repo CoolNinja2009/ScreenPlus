@@ -35,6 +35,7 @@ typedef struct Slot {
     RenderState    state;
     int            keepFrame;
     int            covered;
+    int            fullscreen;    /* the foreground app fills this display */
     int            failures;
     int            failed;        /* safe state: system wallpaper visible */
     double         retryAt;
@@ -51,7 +52,8 @@ static struct {
     Config        cfg;
     DesktopHost   host;
     Slot          slots[SP_MAX_MONITORS];
-    int           userPaused, locked, displayOff, sleeping, onBattery, energySaver, fullscreen, disconnected;
+    int           userPaused, locked, displayOff, sleeping, onBattery, energySaver, disconnected;
+    int           fullscreen;     /* on any display (status only; pausing is per display) */
     HWINEVENTHOOK hooks[8];
     int           hookCount;
     HPOWERNOTIFY  pn[3];
@@ -328,7 +330,7 @@ static RenderState desired_state(const Slot *s, int *keepFrame)
         *keepFrame = 1;
         return RS_SUSPENDED;
     }
-    if (E.cfg.s.pauseOnFullscreen && E.fullscreen) {
+    if (E.cfg.s.pauseOnFullscreen && s->fullscreen) {
         *keepFrame = !s->covered;
         return RS_SUSPENDED;
     }
@@ -371,13 +373,16 @@ static void update_occlusion(void)
     }
     OcclusionResult o;
     occlusion_compute(mons, n, &o);
-    int changed = o.fullscreen != E.fullscreen;
+    int changed = 0, any = 0;
     for (int i = 0; i < n; i++) {
-        if (map[i]->covered != o.covered[i]) changed = 1;
+        if (map[i]->fullscreen != o.fullscreen[i])
+            LOGI(L"display %d: fullscreen application %ls", map[i]->mon.index, o.fullscreen[i] ? L"detected" : L"closed");
+        if (map[i]->covered != o.covered[i] || map[i]->fullscreen != o.fullscreen[i]) changed = 1;
         map[i]->covered = o.covered[i];
+        map[i]->fullscreen = o.fullscreen[i];
+        any |= o.fullscreen[i];
     }
-    if (o.fullscreen != E.fullscreen) LOGI(L"fullscreen application %ls", o.fullscreen ? L"detected" : L"closed");
-    E.fullscreen = o.fullscreen;
+    E.fullscreen = any;
     if (changed) apply_states();
 }
 
@@ -420,7 +425,7 @@ static void dispatch_mouse(Slot *s, int kind, int button, int wheel)
 
 static void handle_raw_mouse(HRAWINPUT raw)
 {
-    if (!E.cfg.s.htmlMouse || E.fullscreen || !cursor_is_desktop()) {
+    if (!E.cfg.s.htmlMouse || !cursor_is_desktop()) {
         if (E.mouseSlot) { dispatch_mouse(E.mouseSlot, RIN_LEAVE, 0, 0); E.mouseSlot = NULL; }
         return;
     }

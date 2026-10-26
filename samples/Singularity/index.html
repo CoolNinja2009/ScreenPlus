@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Singularity</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  /* Only when WebGL 2 is unavailable: a still impression of the scene. */
+  body.nogl {
+    background:
+      radial-gradient(circle at 50% 50%, #000 0 8.5vmin, #ffd9a0 9vmin, #ff8a3a 10.5vmin, rgba(150, 50, 15, .55) 15vmin, transparent 28vmin),
+      radial-gradient(ellipse 60% 6% at 50% 52%, rgba(255, 150, 70, .55), transparent),
+      radial-gradient(ellipse at 50% 50%, #120b1e, #000 70%);
+  }
+  body.nogl canvas { display: none; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+/* Singularity: a Schwarzschild black hole, ray traced in real time.
+ *
+ * Every pixel follows a photon backwards along its curved path (units: Schwarzschild radius
+ * = 1), collecting light from the accretion disk, the jets and anything falling in. Whatever
+ * escapes picks up the nebula and, at full resolution, the star field. So the far side of the
+ * disk arches over the shadow, stars smear into Einstein rings, and the side of the disk that
+ * rushes towards you burns brighter and bluer than the side that recedes.
+ *
+ * Desktop interaction (Screen+ forwards the mouse, never the keyboard):
+ *   move   the camera drifts with the cursor, and the cursor itself is a small gravitational lens
+ *   click  drops a star in: it spirals down, is torn into a streak and lights the disk up
+ *   wheel  zoom
+ * requestAnimationFrame stops while Screen+ hides or suspends the page. */
+
+const cfg = {
+  quality: 1, fps: 1, position: 1, size: 100, tilt: 10, palette: 0, spin: 100,
+  brightness: 100, nebula: 60, parallax: true, cursorLens: true, bodies: 2, audio: true
+};
+/* The screen itself is always drawn at native resolution (2K, 4K, 8K and beyond, as far as the
+ * GPU allows), stars included. Only the ray-traced buffer is smaller: a share of the screen,
+ * capped at a pixel budget, then upscaled with a sharp filter. Budgets per quality:
+ *            1080p        1440p        4K           8K
+ * Low        960x540      1265x712     1265x712     1265x712
+ * Balanced   1286x724     1715x965     2066x1162    2066x1162
+ * High       1632x918     2176x1224    2981x1677    2981x1677
+ * Ultra      native       native       native       4619x2598 */
+const QUALITY = [   // ray-traced buffer: share of the screen, pixel budget, max steps, step length factor
+  { scale: 0.5, maxPx: 0.9e6, steps: 110, k: 0.11 },
+  { scale: 0.67, maxPx: 2.4e6, steps: 150, k: 0.085 },
+  { scale: 0.85, maxPx: 5e6, steps: 200, k: 0.068 },
+  { scale: 1.0, maxPx: 12e6, steps: 280, k: 0.052 }
+];
+const PALETTES = [  // inner-edge temperature (K), glow tint, iridescent
+  { t0: 4300, tint: [1.0, 0.55, 0.22], spectral: 0 },   // Ember
+  { t0: 11000, tint: [0.55, 0.72, 1.0], spectral: 0 },  // Blue giant
+  { t0: 2500, tint: [1.0, 0.28, 0.12], spectral: 0 },   // Crimson
+  { t0: 6500, tint: [0.75, 0.55, 1.0], spectral: 1 }    // Spectral
+];
+const FOCAL = 1.5, R_IN = 2.6, R_OUT = 11, GM = 60, FLOW_PERIOD = 16;
+const FRAGS = 12, R_EAT = 1.3, TIDE = 4.5;   // pieces per body, where they vanish, how much the tide is exaggerated
+const BODY_COLORS = [[0.75, 0.85, 1.0], [1.0, 0.95, 0.88], [1.0, 0.82, 0.55], [1.0, 0.58, 0.32]];
+const BODY_EVERY = [null, [80, 160], [25, 55], [8, 18]];   // seconds between wandering bodies: never ... often
+
+let onQuality = () => {};
+let audioIn = 0;
+let paused = false, wake = () => {};
+
+window.livelyPropertyListener = (name, val) => {
+  if (!(name in cfg)) return;
+  if (typeof cfg[name] === 'boolean') cfg[name] = val === true || val === 'true' || val === 1;
+  else if (Number.isFinite(Number(val))) cfg[name] = Number(val);
+  if (name === 'quality') onQuality();
+};
+window.livelyAudioListener = (bands) => {
+  if (!bands || !bands.length) return;
+  let s = 0;
+  const n = Math.min(10, bands.length);
+  for (let i = 0; i < n; i++) s += bands[i];
+  audioIn = s / n;
+};
+window.livelyWallpaperPlaybackChanged = (data) => {
+  try {
+    const o = typeof data === 'string' ? JSON.parse(data) : data;
+    paused = !!(o && o.IsPaused);
+  } catch (e) { paused = false; }
+  if (!paused) wake();
+};
+
+const VS = `#version 300 es
+out vec2 vUv;
+void main() {
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  vUv = p;
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const COMMON = `
+float hash13(vec3 p3) {
+  p3 = fract(p3 * 0.1031);
+  p3 += dot(p3, p3.zyx + 31.32);
+  return fract((p3.x + p3.y) * p3.z);
+}
+vec3 hash33(vec3 p3) {
+  p3 = fract(p3 * vec3(0.1031, 0.1030, 0.0973));
+  p3 += dot(p3, p3.yxz + 33.33);
+  return fract((p3.xxy + p3.yxx) * p3.zyx);
+}`;
+
+const SCENE_FS = `#version 300 es
+precision highp float;
+precision highp int;
+layout(location = 0) out vec4 oColor;   // rgb: light gathered along the ray, a: what still shows through
+layout(location = 1) out vec4 oDir;     // how far gravity bent the ray (final minus initial direction);
+                                        // small, so half floats keep it exact enough for stars on 8K screens
+
+uniform vec2 uRes;
+uniform vec3 uCamPos;
+uniform mat3 uCamRot;
+uniform float uFocal;
+uniform vec2 uShift;
+uniform int uSteps;
+uniform float uStepK;
+uniform float uEscR;
+uniform vec4 uPhase;      // disk texture: two flow-phase times and their seeds
+uniform vec2 uFlowW;      // and their crossfade weights
+uniform float uT0;
+uniform float uSpectral;
+uniform vec3 uTint;
+uniform float uDiskGain;
+uniform vec2 uShock;      // radius and strength of the bright ring a meal sends through the disk
+uniform float uJets;
+uniform float uJetPhase;
+uniform float uNebula;
+uniform float uEnc;
+uniform int uBodies;      // large bodies in flight, each a chain of FRAGS pieces:
+uniform vec4 uFrag[${4 * FRAGS}];   // xyz position, w brightness (0 = gone)
+uniform vec4 uBodyA[4];   // xyz bounding-sphere centre, w its radius
+uniform vec4 uBodyB[4];   // rgb colour, w tube radius
+uniform float uBAA;       // one traced pixel, in impact parameter: the shadow edge's anti-aliasing width
+
+const float B_CRIT = 2.598076;   // critical impact parameter (3*sqrt(3)/2): rays aimed closer fall in
+const float R_IN = ${R_IN.toFixed(2)};
+const float R_OUT = ${R_OUT.toFixed(2)};
+const int FRAGS = ${FRAGS};
+${COMMON}
+
+// Squared distance between segments p1-q1 (a ray step) and p2-q2 (a piece of a stream);
+// t receives where along p2-q2 the closest point lies.
+float segDist2(vec3 p1, vec3 q1, vec3 p2, vec3 q2, out float t) {
+  vec3 d1 = q1 - p1, d2 = q2 - p2, r = p1 - p2;
+  float a = dot(d1, d1), e = max(dot(d2, d2), 1e-8), f = dot(d2, r), c = dot(d1, r), b = dot(d1, d2);
+  float den = a * e - b * b;
+  float s = den > 1e-10 ? clamp((b * f - c * e) / den, 0.0, 1.0) : 0.0;
+  t = (b * s + f) / e;
+  if (t < 0.0) { t = 0.0; s = clamp(-c / a, 0.0, 1.0); }
+  else if (t > 1.0) { t = 1.0; s = clamp((b - c) / a, 0.0, 1.0); }
+  vec3 dd = r + d1 * s - d2 * t;
+  return dot(dd, dd);
+}
+
+float vnoise(vec3 p) {
+  vec3 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), f.x),
+                 mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), f.x),
+                 mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p) {
+  float s = 0.0, a = 0.5;
+  for (int i = 0; i < 4; i++) { s += a * vnoise(p); p = p * 2.03 + vec3(1.7, 9.2, 3.1); a *= 0.5; }
+  return s;
+}
+
+// Planckian locus (Krystek), brightest channel normalised to 1.
+vec3 blackbody(float t) {
+  t = clamp(t, 1000.0, 15000.0);
+  float u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t * t) / (1.0 + 8.42420235e-4 * t + 7.08145163e-7 * t * t);
+  float v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t * t) / (1.0 - 2.89741816e-5 * t + 1.61456053e-7 * t * t);
+  float x = 3.0 * u / (2.0 * u - 8.0 * v + 4.0), y = 2.0 * v / (2.0 * u - 8.0 * v + 4.0);
+  vec3 c = vec3(x / y, 1.0, (1.0 - x - y) / y) * mat3(3.2404542, -1.5371385, -0.4985314,
+                                                      -0.9692660, 1.8760108, 0.0415560,
+                                                       0.0556434, -0.2040259, 1.0572252);
+  c = max(c, 0.0);
+  return c / max(max(c.r, c.g), max(c.b, 1e-4));
+}
+
+// The thin disk where the ray crosses y = 0: premultiplied emission and opacity.
+vec4 disk(vec3 hit, float r, vec3 rd) {
+  float inner = smoothstep(R_IN - 0.3, R_IN + 0.55, r);
+  float prof = inner * (1.0 - smoothstep(R_OUT * 0.45, R_OUT, r));
+  if (prof <= 0.001) return vec4(0.0);
+
+  // Streaks co-rotating at the Keplerian rate, in two crossfaded phases so the
+  // differential rotation never winds them into noise.
+  float ang = atan(hit.z, hit.x);
+  float w = 0.35 * pow(R_IN / r, 1.5);
+  float a1 = ang - w * uPhase.x, a2 = ang - w * uPhase.y;
+  float n1 = fbm(vec3(cos(a1) * 2.2, sin(a1) * 2.2, r * 2.3) + uPhase.z * vec3(7.31, 3.17, 5.71));
+  float n2 = fbm(vec3(cos(a2) * 2.2, sin(a2) * 2.2, r * 2.3) + uPhase.w * vec3(7.31, 3.17, 5.71));
+  float n = 0.5 + (n1 * uFlowW.x + n2 * uFlowW.y - 0.5) * inversesqrt(dot(uFlowW, uFlowW));
+  float dens = clamp(0.15 + 1.9 * n * n, 0.0, 2.2) * (0.86 + 0.14 * sin(r * 5.0 + n * 9.0));
+
+  // Doppler beaming and gravitational redshift of gas on circular orbits.
+  vec3 v = normalize(vec3(-hit.z, 0.0, hit.x));
+  float beta = min(sqrt(0.5 / max(r - 1.0, 0.6)), 0.75);
+  float g = sqrt(1.0 - beta * beta) / (1.0 - beta * dot(v, -rd)) * sqrt(max(1.0 - 1.0 / r, 0.05));
+  float heat = pow(R_IN / r, 0.6);
+  vec3 c = blackbody(uT0 * heat * pow(g, 0.9));
+  vec3 iri = 0.55 + 0.45 * cos(6.2832 * (vec3(0.0, 0.33, 0.67) + r * 0.06 + n * 0.35 - g * 0.3));
+  c = mix(c, iri, uSpectral);
+  float I = prof * dens * heat * heat * pow(g, 2.2) * uDiskGain * 2.2;
+  I += uShock.y * exp(-(r - uShock.x) * (r - uShock.x) * 2.0) * 4.0 * prof;
+  return vec4(c * I, clamp(prof * (0.3 + 0.7 * dens), 0.0, 0.94));
+}
+
+vec3 nebula(vec3 d) {
+  float b = dot(d, normalize(vec3(-0.55, 0.8, 0.12)));   // a galactic band running behind the hole
+  float band = exp(-b * b * 9.0);
+  float n1 = fbm(d * 2.2 + 11.0);
+  float n2 = fbm(d * 4.7 + n1 * 1.8 + 3.0);
+  vec3 c = mix(vec3(0.32, 0.10, 0.55), vec3(0.05, 0.30, 0.50), smoothstep(0.3, 0.7, n1));
+  c = mix(c, vec3(0.85, 0.42, 0.30), smoothstep(0.55, 0.85, n2) * band);
+  return c * (0.05 + 0.9 * band) * smoothstep(0.32, 0.85, n2 * 0.6 + n1 * 0.6) * 0.35;
+}
+
+void main() {
+  vec2 frag = gl_FragCoord.xy;
+  vec2 p = (frag - 0.5 * uRes) / uRes.y - uShift;
+  vec3 vel = normalize(uCamRot * vec3(p, uFocal));
+  vec3 ray0 = vel;
+  vec3 pos = uCamPos;
+  vec3 lm = cross(pos, vel);
+  float h2 = dot(lm, lm);     // squared angular momentum: fixes how hard the hole pulls this ray
+
+  vec3 col = vec3(0.0);
+  float T = 1.0, state = 0.0;   // state: 0 running, 1 escaped, 2 fell in
+  float jit = hash13(vec3(frag, 3.7));
+  float r = length(pos);
+  vec3 acc = -(1.5 * h2 / (r * r * r * r * r)) * pos;
+
+  for (int i = 0; i < uSteps; i++) {
+    // Leapfrog with a step that shrinks near the hole. It stays deterministic so neighbouring
+    // rays bend alike and the stars stay sharp; only the glow sampling below is dithered.
+    float dt = clamp(uStepK * (r - 0.9), 0.008, 4.0);
+    vel += acc * (dt * 0.5);
+    vec3 prev = pos;
+    pos += vel * dt;
+    r = length(pos);
+    acc = -(1.5 * h2 / (r * r * r * r * r)) * pos;
+    vel += acc * (dt * 0.5);
+    vec3 vp = mix(prev, pos, jit);   // where this step samples the haze and jets
+
+    if ((prev.y > 0.0) != (pos.y > 0.0)) {
+      vec3 hit = mix(prev, pos, prev.y / (prev.y - pos.y));
+      float rh = length(hit.xz);
+      if (rh > R_IN - 0.3 && rh < R_OUT) {
+        vec4 d = disk(hit, rh, normalize(vel));
+        col += T * d.rgb;
+        T *= 1.0 - d.a;
+      }
+    }
+
+    // Thin glowing haze above and below the disk.
+    float rxz2 = dot(vp.xz, vp.xz);
+    float hz = exp(-vp.y * vp.y * 2.0) * smoothstep(R_IN * R_IN * 0.8, R_IN * R_IN * 1.6, rxz2) / (1.0 + rxz2 * 0.12);
+    col += T * uTint * (hz * dt * 0.12 * uDiskGain);
+
+    // Relativistic jets along the spin axis, fired when the hole feeds.
+    if (uJets > 0.002) {
+      float hy = abs(vp.y);
+      float w = 0.08 + 0.06 * hy;
+      float j = exp(-rxz2 / (w * w)) * smoothstep(1.0, 2.4, hy) * exp(-hy * 0.06) / (0.4 + w);
+      float knot = 0.6 + 0.4 * sin(hy * 1.2 - uJetPhase);
+      col += T * vec3(0.4, 0.6, 1.0) * (uJets * j * knot * dt * (vp.y > 0.0 ? 1.0 : 0.45));
+    }
+
+    // Large bodies: each a chain of pieces drawn as one glowing tube, so a body the tide pulls
+    // apart stretches into a continuous stream. Integrated over the whole step so none is skipped.
+    for (int b = 0; b < uBodies; b++) {
+      vec4 bs = uBodyA[b], bb = uBodyB[b];
+      vec3 sg = pos - prev, c = bs.xyz - prev;
+      vec3 dq = c - sg * clamp(dot(c, sg) / dot(sg, sg), 0.0, 1.0);
+      float reach = bs.w + 3.0 * bb.w;
+      if (dot(dq, dq) > reach * reach) continue;   // this step passes nowhere near it
+      float glow = 0.0;
+      for (int k = 0; k < FRAGS - 1; k++) {
+        vec4 f0 = uFrag[b * FRAGS + k], f1 = uFrag[b * FRAGS + k + 1];
+        if (f0.w <= 0.0 || f1.w <= 0.0) continue;
+        float t;
+        float d2 = segDist2(prev, pos, f0.xyz, f1.xyz, t);
+        float link = 1.0 - smoothstep(1.5, 3.0, distance(f0.xyz, f1.xyz));   // pieces flung apart break the stream
+        glow = max(glow, exp(-d2 / (bb.w * bb.w)) * mix(f0.w, f1.w, t) * link);
+      }
+      col += T * bb.rgb * (glow * min(length(sg), bb.w * 1.77) / (bb.w * 1.77));
+    }
+
+    if (r < 1.0) { state = 2.0; break; }
+    if (r > uEscR && dot(pos, vel) > 0.0) { state = 1.0; break; }
+    if (T < 0.003) break;
+  }
+  // The shadow's edge comes from the impact parameter rather than from which rays happened to
+  // fall in, so it is smooth at any upscale (8K included); the photon ring hugs it.
+  float b = sqrt(h2);
+  float edge = smoothstep(B_CRIT - uBAA, B_CRIT + uBAA, b);
+  vec3 ring = uTint * (exp(-8.3 * (sqrt(max(b - B_CRIT, 0.0) + uBAA) - sqrt(uBAA))) * 0.5 * uDiskGain);
+  vec3 dir = normalize(vel);
+  if (state == 2.0 || (state == 0.0 && length(pos) < 4.0)) {
+    col += T * edge * ring;
+    T = 0.0;
+  } else {
+    col += T * edge * (ring + nebula(dir) * uNebula);
+    T *= edge;
+  }
+  oColor = vec4(col * uEnc, T);
+  vec3 defl = dir - ray0;
+  oDir = vec4(uEnc < 1.0 ? defl * 0.25 + 0.5 : defl, 1.0);
+}`;
+
+const DOWN_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 o;
+uniform sampler2D uSrc;
+uniform vec2 uTexel;
+void main() {
+  vec3 c = texture(uSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb + texture(uSrc, vUv + uTexel * vec2(1.0, -1.0)).rgb
+         + texture(uSrc, vUv + uTexel * vec2(-1.0, 1.0)).rgb + texture(uSrc, vUv + uTexel * vec2(1.0, 1.0)).rgb;
+  o = vec4(c * 0.25, 1.0);
+}`;
+
+const UP_FS = `#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 o;
+uniform sampler2D uSrc;
+uniform vec2 uTexel;
+void main() {
+  vec3 c = texture(uSrc, vUv + uTexel * vec2(-0.5, -0.5)).rgb + texture(uSrc, vUv + uTexel * vec2(0.5, -0.5)).rgb
+         + texture(uSrc, vUv + uTexel * vec2(-0.5, 0.5)).rgb + texture(uSrc, vUv + uTexel * vec2(0.5, 0.5)).rgb;
+  o = vec4(c * 0.25, 1.0);
+}`;
+
+const COMP_FS = `#version 300 es
+precision highp float;
+out vec4 oColor;
+uniform sampler2D uScene, uDir, uBloom;
+uniform vec2 uRes;
+uniform vec2 uHole;       // the hole on screen, px
+uniform vec3 uLens;       // cursor px, Einstein radius px (0 = off)
+uniform vec4 uWave;       // gravitational wave: front radius, amplitude, width, wavelength (px)
+uniform float uPxAng;     // radians per pixel
+uniform float uStarS2;    // star size: squared radius in px, grows with the screen so 8K looks like 1080p
+uniform vec2 uSceneSize;  // the ray-traced buffer, px
+uniform mat3 uCamRot;     // the camera, to rebuild each pixel's unbent ray exactly
+uniform float uFocal;
+uniform vec2 uShift;
+uniform float uExposure, uBloomK, uEnc;
+${COMMON}
+
+// Upscales the ray-traced buffer with a 5-tap Catmull-Rom filter: bicubic sharpness, so the
+// shadow's edge and the photon ring stay crisp on 4K and 8K screens.
+vec4 sceneTex(vec2 uv) {
+  vec2 pos = uv * uSceneSize;
+  vec2 t1 = floor(pos - 0.5) + 0.5, f = pos - t1;
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  vec2 w3 = f * f * (-0.5 + 0.5 * f);
+  vec2 w12 = w1 + w2;
+  vec2 t0 = (t1 - 1.0) / uSceneSize, t3 = (t1 + 2.0) / uSceneSize, t12 = (t1 + w2 / w12) / uSceneSize;
+  vec4 c = texture(uScene, vec2(t12.x, t0.y)) * (w12.x * w0.y)
+         + texture(uScene, vec2(t0.x, t12.y)) * (w0.x * w12.y)
+         + texture(uScene, t12) * (w12.x * w12.y)
+         + texture(uScene, vec2(t3.x, t12.y)) * (w3.x * w12.y)
+         + texture(uScene, vec2(t12.x, t3.y)) * (w12.x * w3.y);
+  c /= w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+  return vec4(max(c.rgb, 0.0), clamp(c.a, 0.0, 1.0));
+}
+
+// One layer of stars on a cube-mapped grid. Stars are point sources: lensing moves them and
+// changes their brightness but never smears them, so each is drawn about a pixel wide using
+// the local sky-to-screen mapping (dx, dy = sky uv per screen pixel).
+vec3 starLayer(vec2 uv, float face, vec2 dx, vec2 dy, float N, float density, float bright, float halo, float seed) {
+  vec2 g = uv * N, id = floor(g);
+  vec3 h = hash33(vec3(id, face * 7.13 + seed));
+  if (h.z > density) return vec3(0.0);
+  vec2 dd = g - id - (0.25 + 0.5 * h.xy);    // star offset, in cells
+  dx *= N;
+  dy *= N;
+  float det = dx.x * dy.y - dx.y * dy.x;
+  det = det < 0.0 ? min(det, -1e-12) : max(det, 1e-12);
+  vec2 o = vec2(dd.x * dy.y - dd.y * dy.x, dx.x * dd.y - dx.y * dd.x) / det;   // the same offset in pixels
+  float r2 = dot(o, o);
+  float lum = bright * (0.12 + 0.88 * pow(1.0 - h.z / density, 4.0));
+  vec3 tint = mix(vec3(1.0, 0.8, 0.64), vec3(0.72, 0.84, 1.0), fract(h.x * 13.7 + h.y * 7.1));
+  return tint * lum * (exp(-r2 / uStarS2) + halo * exp(-r2 / (uStarS2 * 12.0)));   // halo stays inside the cell
+}
+
+vec3 aces(vec3 x) { return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0); }
+
+void main() {
+  vec2 px = gl_FragCoord.xy, src = px;
+  // The cursor is a point-mass lens: the thin-lens equation, fading out with distance.
+  if (uLens.z > 0.5) {
+    vec2 v = px - uLens.xy;
+    float d2 = dot(v, v), e2 = uLens.z * uLens.z, x = d2 / (e2 * 30.0);
+    src -= v * (e2 / (d2 + 0.03 * e2)) / (1.0 + x * x);
+  }
+  // After a meal, a quadrupolar gravitational wave races out from the hole.
+  if (uWave.y > 0.01) {
+    vec2 v = px - uHole;
+    float r = length(v) + 1.0, x = r - uWave.x;
+    float h = uWave.y * exp(-x * x / (uWave.z * uWave.z)) * sin(6.2832 * x / uWave.w) * sqrt(300.0 / (r + 300.0));
+    vec2 n = v / r;
+    float c2 = n.x * n.x - n.y * n.y, s2 = 2.0 * n.x * n.y;
+    src += h * (c2 * n - s2 * vec2(-n.y, n.x));
+  }
+  vec2 uv = src / uRes;
+  vec4 sc = sceneTex(uv);
+  vec3 defl = texture(uDir, uv).xyz;
+  if (uEnc < 1.0) defl = (defl - 0.5) * 4.0;
+  vec2 p = (src - 0.5 * uRes) / uRes.y - uShift;
+  vec3 dir = normalize(normalize(uCamRot * vec3(p, uFocal)) + defl);   // this pixel's ray, bent as traced
+
+  // Sky coordinates on the cube face, and how the lensed sky maps onto screen pixels.
+  vec3 a = abs(dir);
+  vec2 sky; float face;
+  if (a.x >= a.y && a.x >= a.z) { sky = dir.yz / a.x; face = dir.x > 0.0 ? 0.0 : 1.0; }
+  else if (a.y >= a.z) { sky = dir.zx / a.y; face = dir.y > 0.0 ? 2.0 : 3.0; }
+  else { sky = dir.xy / a.z; face = dir.z > 0.0 ? 4.0 : 5.0; }
+  vec2 dx = dFdx(sky), dy = dFdy(sky);
+  float pxSky = uPxAng * (1.0 + 0.5 * dot(sky, sky));   // one unlensed pixel, in sky units
+  float mag = clamp(pxSky * pxSky / max(abs(dx.x * dy.y - dx.y * dy.x), 1e-14), 0.0, 8.0);   // lensing magnification
+
+  vec3 col = sc.rgb / uEnc;
+  col += sc.a * mag * (starLayer(sky, face, dx, dy, 260.0, 0.05, 0.5, 0.0, 1.0)
+                     + starLayer(sky, face, dx, dy, 110.0, 0.04, 1.4, 0.0, 2.0)
+                     + starLayer(sky, face, dx, dy, 42.0, 0.035, 4.5, 0.08, 3.0));
+  col += texture(uBloom, uv).rgb * (uBloomK / uEnc);
+  vec2 q = px / uRes - 0.5;
+  col *= uExposure * (1.0 - 0.45 * dot(q, q));
+  col = pow(aces(col), vec3(1.0 / 2.2));
+  oColor = vec4(col + (hash13(vec3(px, 1.3)) - 0.5) / 255.0, 1.0);
+}`;
+
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const len = (a) => Math.hypot(a[0], a[1], a[2]);
+const norm = (a) => mul(a, 1 / (len(a) || 1));
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+const ease = (dt, rate) => 1 - Math.exp(-dt * rate);
+const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+(function main() {
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false });
+  if (!gl) { document.body.classList.add('nogl'); return; }
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let P = null, vao = null, floatOK = false, f32 = false, enc = 1;
+  let W = 1, H = 1, SW = 1, SH = 1, sceneC = null, sceneD = null, sceneFbo = null, levels = [];
+
+  // ---- simulation state
+  let clock = 0, diskTime = 0, zoom = 1, zoomTarget = 1, lens = 0, audio = 0, flare = 0;
+  let shock = null, waveAge = -1, lastDrop = -1, nextBody = 6 + Math.random() * 6;
+  const cam = { x: 0, y: 0 };
+  const mouse = { x: -1, y: -1, nx: 0, ny: 0, inside: false, moved: -1e9 };
+  const bodies = [];
+  const fragU = new Float32Array(4 * FRAGS * 4), bodyA = new Float32Array(16), bodyB = new Float32Array(16);
+  function compile(type, src) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS) && !gl.isContextLost()) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  function program(fs) {
+    const p = gl.createProgram();
+    gl.attachShader(p, compile(gl.VERTEX_SHADER, VS));
+    gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS) && !gl.isContextLost()) throw new Error(gl.getProgramInfoLog(p));
+    const u = {};
+    for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
+      const name = gl.getActiveUniform(p, i).name;
+      u[name.replace(/\[0\]$/, '')] = gl.getUniformLocation(p, name);
+    }
+    return { p, u };
+  }
+  function texture(w, h, precise) {
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    if (precise && f32) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+    else if (floatOK) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return t;
+  }
+  function framebuffer(texs) {
+    const f = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, f);
+    texs.forEach((t, i) => gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, t, 0));
+    gl.drawBuffers(texs.map((t, i) => gl.COLOR_ATTACHMENT0 + i));
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return ok ? f : null;
+  }
+
+  let sizeKey = '';
+  function resize() {
+    // Native device pixels at any scaling (8K at 300% included), within what the GPU allows.
+    const dpr = window.devicePixelRatio || 1;
+    const maxDim = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), ...gl.getParameter(gl.MAX_VIEWPORT_DIMS));
+    sizeKey = innerWidth + 'x' + innerHeight + '@' + dpr;
+    canvas.width = clamp(Math.round(innerWidth * dpr), 1, maxDim);
+    canvas.height = clamp(Math.round(innerHeight * dpr), 1, maxDim);
+    W = gl.drawingBufferWidth;   // the browser may grant less than asked
+    H = gl.drawingBufferHeight;
+    const q = QUALITY[clamp(cfg.quality | 0, 0, 3)];
+    const s = Math.min(q.scale, Math.sqrt(q.maxPx / (W * H)));
+    SW = Math.max(8, Math.round(W * s));
+    SH = Math.max(8, Math.round(H * s));
+    [sceneC, sceneD, ...levels.map((l) => l.t)].forEach((t) => t && gl.deleteTexture(t));
+    [sceneFbo, ...levels.map((l) => l.f)].forEach((f) => f && gl.deleteFramebuffer(f));
+    levels = [];
+    sceneC = texture(SW, SH);
+    sceneD = texture(SW, SH, true);   // 32-bit: star positions stay exact to the pixel at 8K
+    sceneFbo = framebuffer([sceneC, sceneD]);
+    if (!sceneFbo && (f32 || floatOK)) {   // step down: 32-bit bends, then 16-bit, then 8-bit
+      if (f32) f32 = false; else floatOK = false;
+      resize();
+      return;
+    }
+    enc = floatOK ? 1 : 0.25;   // 8-bit fallback: store a quarter of the HDR light
+    for (let w = SW >> 1, h = SH >> 1; levels.length < 10 && w >= 8 && h >= 8; w >>= 1, h >>= 1) {
+      const t = texture(w, h);
+      levels.push({ t, f: framebuffer([t]), w, h });
+    }
+  }
+
+  function init() {
+    floatOK = !!(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
+    f32 = !!(gl.getExtension('EXT_color_buffer_float') && gl.getExtension('OES_texture_float_linear'));
+    P = { scene: program(SCENE_FS), down: program(DOWN_FS), up: program(UP_FS), comp: program(COMP_FS) };
+    vao = gl.createVertexArray();
+    sceneC = sceneD = sceneFbo = null;
+    levels = [];
+    resize();
+  }
+
+  // ---- camera and the hole's place on screen (shared by the renderer and clicks)
+  function camera() {
+    const yaw = cam.x * 0.24 + (reduceMotion ? 0 : 0.04 * Math.sin(clock * 0.043));
+    const pitch = clamp(cfg.tilt * Math.PI / 180 + cam.y * 0.12 + (reduceMotion ? 0 : 0.015 * Math.sin(clock * 0.029)), -1.3, 1.3);
+    const D = 31 * (100 / clamp(cfg.size, 30, 300)) * zoom;
+    const cp = Math.cos(pitch);
+    const pos = [D * cp * Math.sin(yaw), D * Math.sin(pitch), -D * cp * Math.cos(yaw)];
+    const f = norm(mul(pos, -1));
+    const r = norm(cross([0, 1, 0], f));
+    return { pos, f, r, u: cross(f, r), D };
+  }
+  const holeShift = () => [([-1, 0, 1][cfg.position] || 0) * 0.2 * (W / H), 0];
+
+  // ---- large bodies, and their spaghettification
+  // A body is a rubble pile: FRAGS pieces in a chain. Far out it falls as one; inside its tidal
+  // radius every piece falls on its own orbit, the tide (exaggerated a little) pulls the near end
+  // away from the far end, and the pile stretches into a stream that winds into the hole.
+  const tidalRadius = (b) => 6.5 + 6 * b.size;
+  function spawn(p, rp, size) {
+    const r0 = len(p), ph = mul(p, 1 / r0);
+    // orbital plane: mostly turning with the disk, tilted at random
+    let ax = [(Math.random() - 0.5) * 0.9, Math.random() < 0.75 ? -1 : 1, (Math.random() - 0.5) * 0.9];
+    ax = add(ax, mul(ph, -dot(ax, ph)));
+    if (len(ax) < 1e-3) ax = cross(ph, Math.abs(ph[0]) < 0.9 ? [1, 0, 0] : [0, 0, 1]);
+    const th = norm(cross(norm(ax), ph));
+    // a near-parabolic fall that would swing past the hole at rp
+    const v = Math.sqrt(2 * GM / r0) * 0.97, vt = Math.min(Math.sqrt(2 * GM * rp) / r0, v * 0.95);
+    const frags = [];
+    for (let i = 0; i < FRAGS; i++) {
+      frags.push({ o: i / (FRAGS - 1) * 2 - 1, j: [Math.random() - 0.5, Math.random() - 0.5], p: p.slice(), v: null, alive: true });
+    }
+    if (bodies.length >= 4) bodies.shift();
+    bodies.push({
+      c: p.slice(), v: add(mul(ph, -Math.sqrt(v * v - vt * vt)), mul(th, vt)), size, frags,
+      color: BODY_COLORS[Math.floor(Math.random() * BODY_COLORS.length)], age: 0, free: -1, len0: 1, eaten: 0
+    });
+  }
+  function chainLength(b) {
+    let L = 0;
+    for (let i = 1; i < FRAGS; i++) {
+      const f0 = b.frags[i - 1], f1 = b.frags[i];
+      if (f0.alive && f1.alive) L += len(add(f1.p, mul(f0.p, -1)));
+    }
+    return L;
+  }
+  // While whole, the pile lies along the line to the hole, drawn out more as the tide grows.
+  function layPile(b) {
+    const r = len(b.c), n = mul(b.c, 1 / r);
+    let e1 = cross(n, b.v);
+    e1 = len(e1) > 1e-6 ? norm(e1) : norm(cross(n, Math.abs(n[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]));
+    const e2 = cross(n, e1);
+    const s = b.size * (0.55 + 0.9 * Math.min(1, (tidalRadius(b) / r) ** 3));
+    for (const f of b.frags) {
+      f.p = add(add(b.c, mul(n, f.o * s)), add(mul(e1, f.j[0] * b.size * 0.25), mul(e2, f.j[1] * b.size * 0.25)));
+    }
+  }
+  function drop(clientX, clientY) {
+    if (clock - lastDrop < 0.25) return;
+    lastDrop = clock;
+    const c = camera(), sh = holeShift();
+    const px = (clientX - innerWidth / 2) / innerHeight - sh[0];
+    const py = (innerHeight / 2 - clientY) / innerHeight - sh[1];
+    const d = norm(add(add(mul(c.r, px), mul(c.u, py)), mul(c.f, FOCAL)));
+    let p = null;
+    if (Math.abs(d[1]) > 1e-4) {    // where the click meets the disk plane
+      const t = -c.pos[1] / d[1];
+      const hp = add(c.pos, mul(d, t));
+      const r = Math.hypot(hp[0], hp[2]);
+      if (t > 0 && r > 3.6 && r < 22) p = [hp[0], 0.3 * Math.sign(c.pos[1] || 1), hp[2]];
+    }
+    if (!p) {                         // otherwise the point of the click ray nearest the hole
+      const q = add(c.pos, mul(d, Math.max(0, -dot(c.pos, d))));
+      const r = len(q);
+      p = r > 1e-3 ? mul(q, clamp(r, 4.5, 18) / r) : [6, 0.5, 0];
+    }
+    spawn(p, 1.5 + Math.random() * 1.5, 0.14 + Math.random() * 0.1);
+  }
+  function eat(b) {   // one piece crossed the horizon
+    b.eaten++;
+    flare = Math.min(flare + 0.075 * (0.6 + 1.6 * b.size), 2.4);
+    if (b.eaten === 1) shock = { r: R_IN, a: Math.min(1, 0.5 + b.size) };
+    if (b.eaten === 4 && !reduceMotion) waveAge = 0;
+  }
+  function stepBodies(dt) {
+    for (let i = bodies.length - 1; i >= 0; i--) {
+      const b = bodies[i];
+      b.age += dt;
+      if (b.free < 0) {   // still whole: it falls as one
+        for (let left = dt; left > 1e-6;) {
+          const r = len(b.c), h = Math.min(left, 0.004 + 0.003 * r * Math.sqrt(r)), k = -GM / (r * r * r);
+          for (let j = 0; j < 3; j++) { b.v[j] += b.c[j] * k * h; b.c[j] += b.v[j] * h; }
+          left -= h;
+        }
+        layPile(b);
+        if (len(b.c) < tidalRadius(b)) {   // the tide wins: every piece on its own from here
+          b.free = 0;
+          b.len0 = Math.max(chainLength(b), 1e-3);
+          for (const f of b.frags) f.v = mul(b.v, 1 - 0.1 * f.o);   // the near end already pulls ahead
+        }
+        if (b.age > 50) bodies.splice(i, 1);
+        continue;
+      }
+      b.free += dt;
+      // Gravity at the pile's middle: the tide is each piece's difference from it, and is
+      // exaggerated for the first moments so the stretching reads clearly.
+      let m = [0, 0, 0], n = 0;
+      for (const f of b.frags) if (f.alive) { m = add(m, f.p); n++; }
+      m = mul(m, 1 / Math.max(n, 1));
+      const rm = Math.max(len(m), 1e-3), am = mul(m, -GM / (Math.max(rm, 4) ** 2 * rm));
+      const tide = (TIDE - 1) * Math.max(0, 1 - b.free / 4);
+      for (const f of b.frags) {
+        if (!f.alive) continue;
+        for (let left = dt; left > 1e-6;) {
+          const r = len(f.p);
+          if (r < R_EAT) break;
+          const h = Math.min(left, 0.004 + 0.003 * r * Math.sqrt(r)), k = -GM / (r * r * r);
+          const drag = 0.06 + 0.2 * smooth(5, 2, r);   // debris that skims the hole loses its orbit and winds in
+          for (let j = 0; j < 3; j++) {
+            const g = f.p[j] * k;
+            f.v[j] += (g + (g - am[j]) * tide - f.v[j] * drag) * h;
+            f.p[j] += f.v[j] * h;
+          }
+          left -= h;
+        }
+        const r = len(f.p);
+        if (r < R_EAT) { f.alive = false; eat(b); }
+        else if (r > 34) f.alive = false;   // flung out of the scene
+      }
+      if (b.age > 50 || !b.frags.some((f) => f.alive)) bodies.splice(i, 1);
+    }
+  }
+  // Fragments, bounding spheres, colours and tube radii for the shader.
+  function packBodies(D) {
+    const sigMin = 1.2 * D / (FOCAL * SH);   // never thinner than a traced pixel, so streams stay smooth
+    let nb = 0;
+    fragU.fill(0);
+    for (const b of bodies) {
+      let m = [0, 0, 0], n = 0, rMin = 1e9, R = 0;
+      for (const f of b.frags) if (f.alive) { m = add(m, f.p); n++; rMin = Math.min(rMin, len(f.p)); }
+      if (!n) continue;
+      m = mul(m, 1 / n);
+      for (const f of b.frags) if (f.alive) R = Math.max(R, len(add(f.p, mul(m, -1))));
+      // spaghettification: the longer the stream, the thinner it gets
+      const sig0 = 0.5 * b.size;
+      const sig = b.free < 0 ? sig0 : sig0 * (b.len0 / Math.max(chainLength(b), b.len0)) ** 0.75;
+      const tube = Math.max(sig, sigMin);
+      const fade = Math.min(1, b.age / 0.6) * clamp((50 - b.age) / 3, 0, 1) * sig / tube;
+      b.frags.forEach((f, i) => {
+        if (!f.alive) return;
+        const r = len(f.p);
+        const w = fade * (0.7 + 2.2 * clamp((7 - r) / 5.5, 0, 1)) * (1 - smooth(26, 34, r));   // heats up as it nears the hole
+        fragU.set([f.p[0], f.p[1], f.p[2], w], (nb * FRAGS + i) * 4);
+      });
+      const hot = 0.5 * clamp((6 - rMin) / 4.5, 0, 1), c = b.color;
+      bodyA.set([m[0], m[1], m[2], R], nb * 4);
+      bodyB.set([c[0] + (1 - c[0]) * hot, c[1] + (0.93 - c[1]) * hot, c[2] + (0.86 - c[2]) * hot, tube], nb * 4);
+      if (++nb === 4) break;
+    }
+    return nb;
+  }
+
+  // ---- input (desktop mouse via Screen+; ordinary mouse in a browser)
+  addEventListener('mousemove', (e) => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+    mouse.inside = e.clientX >= 0 && e.clientY >= 0 && e.clientX < innerWidth && e.clientY < innerHeight;
+    mouse.nx = clamp(e.clientX / innerWidth * 2 - 1, -1, 1);
+    mouse.ny = clamp(1 - e.clientY / innerHeight * 2, -1, 1);
+    mouse.moved = clock;
+  });
+  document.addEventListener('mouseout', (e) => { if (!e.relatedTarget) mouse.inside = false; });
+  addEventListener('mousedown', (e) => { if (e.button === 0) drop(e.clientX, e.clientY); });
+  addEventListener('wheel', (e) => { zoomTarget = clamp(zoomTarget * Math.exp(e.deltaY * 0.0011), 0.55, 1.9); }, { passive: true });
+
+  function update(dt) {
+    clock += dt;
+    diskTime += dt * clamp(cfg.spin, 0, 1000) / 100 * (reduceMotion ? 0.35 : 1);
+    const follow = cfg.parallax && mouse.inside;
+    cam.x += ((follow ? mouse.nx : 0) - cam.x) * ease(dt, 1.4);
+    cam.y += ((follow ? mouse.ny : 0) - cam.y) * ease(dt, 1.4);
+    zoom += (zoomTarget - zoom) * ease(dt, 3);
+    const lensOn = cfg.cursorLens && mouse.inside && clock - mouse.moved < 2.5;
+    lens += ((lensOn ? 1 : 0) - lens) * ease(dt, lensOn ? 6 : 1.5);
+    const a = cfg.audio ? audioIn : 0;
+    audio += (a - audio) * ease(dt, a > audio ? 18 : 4);
+    audioIn *= Math.exp(-dt * 2);   // fades out if the feed stops
+    stepBodies(dt);
+    flare *= Math.exp(-dt / 2.4);
+    if (shock) {
+      shock.r += dt * 3;
+      shock.a *= Math.exp(-dt / 1.8);
+      if (shock.r > R_OUT + 2) shock = null;
+    }
+    if (waveAge >= 0 && (waveAge += dt) > 6) waveAge = -1;
+    // Now and then a large body wanders in from beyond the screen on an orbit that grazes the hole.
+    if (clock > nextBody) {
+      const every = BODY_EVERY[clamp(cfg.bodies | 0, 0, 3)];
+      nextBody = clock + (every ? every[0] + Math.random() * (every[1] - every[0]) : 5);
+      if (every && bodies.length < 3) {
+        const a = Math.random() * Math.PI * 2, r0 = 21 + Math.random() * 5;
+        let p = mul(norm([Math.cos(a), (Math.random() - 0.5) * 0.7, Math.sin(a)]), r0);
+        if (dot(norm(p), norm(camera().pos)) > 0.3) p = [-p[0], p[1], -p[2]];   // not right in front of the camera
+        spawn(p, 1.8 + Math.random() * 1.6, 0.28 + Math.random() * 0.32);
+      }
+    }
+  }
+
+  function draw() {
+    const c = camera(), sh = holeShift();
+    const q = QUALITY[clamp(cfg.quality | 0, 0, 3)];
+    const pal = PALETTES[clamp(cfg.palette | 0, 0, 3)];
+    const t1 = diskTime % FLOW_PERIOD, t2 = (diskTime + FLOW_PERIOD / 2) % FLOW_PERIOD;
+    const w1 = 1 - Math.abs(2 * t1 / FLOW_PERIOD - 1);
+    gl.bindVertexArray(vao);
+
+    // 1. trace the rays into the low-resolution HDR buffers
+    let u = P.scene.u;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, sceneFbo);
+    gl.viewport(0, 0, SW, SH);
+    gl.useProgram(P.scene.p);
+    gl.uniform2f(u.uRes, SW, SH);
+    const rot = [...c.r, ...c.u, ...c.f];
+    gl.uniform3fv(u.uCamPos, c.pos);
+    gl.uniformMatrix3fv(u.uCamRot, false, rot);
+    gl.uniform1f(u.uFocal, FOCAL);
+    gl.uniform2fv(u.uShift, sh);
+    gl.uniform1i(u.uSteps, q.steps);
+    gl.uniform1f(u.uStepK, q.k);
+    gl.uniform1f(u.uEscR, c.D * 1.25 + 8);
+    gl.uniform1f(u.uBAA, 0.75 * c.D / (FOCAL * SH));
+    gl.uniform4f(u.uPhase, t1, t2, Math.floor(diskTime / FLOW_PERIOD) % 64, Math.floor(diskTime / FLOW_PERIOD + 0.5) % 64);
+    gl.uniform2f(u.uFlowW, w1, 1 - w1);
+    gl.uniform1f(u.uT0, pal.t0);
+    gl.uniform1f(u.uSpectral, pal.spectral);
+    gl.uniform3fv(u.uTint, pal.tint);
+    gl.uniform1f(u.uDiskGain, (1 + 0.55 * flare) * (1 + 0.6 * audio));
+    gl.uniform2f(u.uShock, shock ? shock.r : 0, shock ? shock.a : 0);
+    gl.uniform1f(u.uJets, flare * 0.75);
+    gl.uniform1f(u.uJetPhase, (clock * 9) % (Math.PI * 2000));
+    gl.uniform1f(u.uNebula, clamp(cfg.nebula, 0, 200) / 100);
+    gl.uniform1f(u.uEnc, enc);
+    gl.uniform1i(u.uBodies, packBodies(c.D));
+    gl.uniform4fv(u.uFrag, fragU);
+    gl.uniform4fv(u.uBodyA, bodyA);
+    gl.uniform4fv(u.uBodyB, bodyB);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // 2. bloom: progressive downsample, then additive upsample
+    gl.activeTexture(gl.TEXTURE0);
+    gl.useProgram(P.down.p);
+    gl.uniform1i(P.down.u.uSrc, 0);
+    let src = sceneC, sw = SW, shh = SH;
+    for (const l of levels) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, l.f);
+      gl.viewport(0, 0, l.w, l.h);
+      gl.bindTexture(gl.TEXTURE_2D, src);
+      gl.uniform2f(P.down.u.uTexel, 1 / sw, 1 / shh);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      src = l.t; sw = l.w; shh = l.h;
+    }
+    gl.useProgram(P.up.p);
+    gl.uniform1i(P.up.u.uSrc, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE);
+    for (let i = levels.length - 1; i > 0; i--) {
+      const s = levels[i], d = levels[i - 1];
+      gl.bindFramebuffer(gl.FRAMEBUFFER, d.f);
+      gl.viewport(0, 0, d.w, d.h);
+      gl.bindTexture(gl.TEXTURE_2D, s.t);
+      gl.uniform2f(P.up.u.uTexel, 1 / s.w, 1 / s.h);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+    gl.disable(gl.BLEND);
+
+    // 3. full resolution: lensing by the cursor and the wave, stars, bloom, tone mapping
+    u = P.comp.u;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, W, H);
+    gl.useProgram(P.comp.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, sceneC);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, sceneD);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, levels.length ? levels[0].t : sceneC);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(u.uScene, 0);
+    gl.uniform1i(u.uDir, 1);
+    gl.uniform1i(u.uBloom, 2);
+    // Everything below is sized against the screen, so 1080p, 2K, 4K and 8K look alike.
+    gl.uniform2f(u.uRes, W, H);
+    gl.uniform2f(u.uSceneSize, SW, SH);
+    gl.uniformMatrix3fv(u.uCamRot, false, rot);
+    gl.uniform1f(u.uFocal, FOCAL);
+    gl.uniform2fv(u.uShift, sh);
+    gl.uniform2f(u.uHole, W / 2 + sh[0] * H, H / 2 + sh[1] * H);
+    gl.uniform3f(u.uLens, mouse.x * W / innerWidth, H - mouse.y * H / innerHeight, 0.037 * H * lens);
+    const wave = waveAge >= 0 ? 0.015 * H * Math.exp(-waveAge / 2) * Math.min(1, waveAge * 4) : 0;
+    gl.uniform4f(u.uWave, waveAge * 0.42 * Math.max(W, H), wave, 0.07 * H, 0.05 * H);
+    gl.uniform1f(u.uPxAng, 1 / (FOCAL * H));
+    gl.uniform1f(u.uStarS2, 0.6 * Math.max(1, H / 1080) ** 2);
+    gl.uniform1f(u.uExposure, clamp(cfg.brightness, 0, 400) / 100);
+    gl.uniform1f(u.uBloomK, 0.3 / Math.max(1, levels.length));
+    gl.uniform1f(u.uEnc, enc);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  // ---- loop
+  let raf = 0, prev = 0, lastDraw = 0;
+  function frame(now) {
+    raf = 0;
+    if (paused || gl.isContextLost()) return;
+    raf = requestAnimationFrame(frame);
+    const interval = [1000 / 30, 1000 / 60, 0][cfg.fps] || 0;
+    const since = now - lastDraw;
+    if (interval && since < interval - 1.5) return;
+    lastDraw = interval ? now - (since % interval) : now;
+    if (innerWidth + 'x' + innerHeight + '@' + (window.devicePixelRatio || 1) !== sizeKey) resize();   // also catches DPI changes
+    update(Math.min(0.1, Math.max(0, (now - prev) / 1000)));
+    prev = now;
+    draw();
+  }
+  wake = () => {
+    if (raf || paused) return;
+    prev = performance.now();
+    raf = requestAnimationFrame(frame);
+  };
+
+  canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); cancelAnimationFrame(raf); raf = 0; });
+  canvas.addEventListener('webglcontextrestored', () => { init(); wake(); });
+  addEventListener('resize', () => resize());
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+  onQuality = () => resize();
+
+  try {
+    init();
+  } catch (err) {
+    console.error(err);
+    document.body.classList.add('nogl');
+    return;
+  }
+  wake();
+})();
+</script>
+</body>
+</html>

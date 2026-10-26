@@ -1,0 +1,14 @@
+{
+  "AppVersion": "2.0.6.1",
+  "Title": "Singularity",
+  "Thumbnail": "preview.jpg",
+  "Preview": null,
+  "Desc": "A black hole ray traced in real time: its gravity bends the light of the accretion disk and of the stars behind it, and bodies that stray too close are torn into streams. Move the cursor to bend light, click to throw something in, scroll to zoom.",
+  "Author": "Screen+",
+  "License": null,
+  "Contact": null,
+  "Type": 1,
+  "FileName": "index.html",
+  "Arguments": null,
+  "IsAbsolutePath": false
+}

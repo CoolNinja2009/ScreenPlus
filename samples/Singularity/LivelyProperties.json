@@ -1,0 +1,91 @@
+{
+  "hint": {
+    "type": "label",
+    "value": "Click the desktop to throw something in. Scroll to zoom."
+  },
+  "quality": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Quality",
+    "items": ["Low", "Balanced", "High", "Ultra"]
+  },
+  "fps": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Frame rate",
+    "items": ["30 fps", "60 fps", "Display refresh rate"]
+  },
+  "palette": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Disk",
+    "items": ["Ember", "Blue giant", "Crimson", "Spectral"]
+  },
+  "position": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Position",
+    "items": ["Left", "Center", "Right"]
+  },
+  "size": {
+    "type": "slider",
+    "value": 100,
+    "min": 50,
+    "max": 180,
+    "step": 5,
+    "text": "Size"
+  },
+  "tilt": {
+    "type": "slider",
+    "value": 10,
+    "min": 0,
+    "max": 40,
+    "step": 1,
+    "text": "Viewing angle"
+  },
+  "spin": {
+    "type": "slider",
+    "value": 100,
+    "min": 0,
+    "max": 300,
+    "step": 10,
+    "text": "Disk speed"
+  },
+  "brightness": {
+    "type": "slider",
+    "value": 100,
+    "min": 30,
+    "max": 200,
+    "step": 5,
+    "text": "Brightness"
+  },
+  "nebula": {
+    "type": "slider",
+    "value": 60,
+    "min": 0,
+    "max": 150,
+    "step": 5,
+    "text": "Nebula"
+  },
+  "parallax": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Camera follows the cursor"
+  },
+  "cursorLens": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Cursor bends light"
+  },
+  "bodies": {
+    "type": "dropdown",
+    "value": 2,
+    "text": "Bodies torn apart",
+    "items": ["Never", "Rarely", "Sometimes", "Often"]
+  },
+  "audio": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Pulse with music"
+  }
+}

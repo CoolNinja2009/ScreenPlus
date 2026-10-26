@@ -97,7 +97,7 @@ Native-app, Unity, Godot and Wallpaper Engine *scene* projects need their origin
 <br>
 
 - In the library, **All displays** applies a wallpaper everywhere; choose a monitor, or use the **Displays** page, to give each screen its own.
-- Rendering pauses during fullscreen apps, on displays covered by maximised windows, while the PC is locked or the screen is off, and on battery power. Each rule can be switched off in **Settings**.
+- Rendering pauses on the display a fullscreen app is on (other displays keep playing), on displays covered by maximised windows, while the PC is locked or the screen is off, and on battery power. Each rule can be switched off in **Settings**.
 - Video and web wallpapers are muted until you turn audio on.
 </details>
 

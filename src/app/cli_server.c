@@ -879,7 +879,7 @@ enum { SK_BOOL, SK_THEME };
 static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *desc; } k_settings[] = {
     { L"start_with_windows",  offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
     { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Start in the notification area" },
-    { L"pause_on_fullscreen", offsetof(Settings, pauseOnFullscreen), SK_BOOL,  L"Pause while a fullscreen app or game runs" },
+    { L"pause_on_fullscreen", offsetof(Settings, pauseOnFullscreen), SK_BOOL,  L"Pause the display a fullscreen app or game is on" },
     { L"pause_when_covered",  offsetof(Settings, pauseWhenCovered),  SK_BOOL,  L"Stop rendering while windows cover the desktop" },
     { L"suspend_on_lock",     offsetof(Settings, suspendOnLock),     SK_BOOL,  L"Suspend while the PC is locked" },
     { L"pause_on_battery",    offsetof(Settings, pauseOnBattery),    SK_BOOL,  L"Pause on battery or energy saver" },
