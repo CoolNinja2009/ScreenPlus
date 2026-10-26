@@ -52,6 +52,7 @@ void config_defaults(Config *c)
     c->s.htmlMouse = 1;
     c->s.htmlAudio = 1;
     c->s.livelyImport = 1;
+    c->s.urlImport = 1;
     c->s.theme = THEME_SYSTEM;
 }
 
@@ -280,6 +281,7 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"html_mouse")) s->htmlMouse = parse_bool(val, s->htmlMouse);
             else if (str_ieq(key, L"html_audio")) s->htmlAudio = parse_bool(val, s->htmlAudio);
             else if (str_ieq(key, L"lively_auto_import")) s->livelyImport = parse_bool(val, s->livelyImport);
+            else if (str_ieq(key, L"url_import")) s->urlImport = parse_bool(val, s->urlImport);
             else if (str_ieq(key, L"theme"))
                 s->theme = str_ieq(val, L"light") ? THEME_LIGHT : str_ieq(val, L"dark") ? THEME_DARK : THEME_SYSTEM;
             break;
@@ -391,9 +393,11 @@ BOOL config_save(const Config *c, const wchar_t *path)
     sb_printf(&b, "[screenplus]\r\nschema=%d\r\n\r\n", CONFIG_SCHEMA);
     sb_printf(&b, "[settings]\r\nstart_with_windows=%d\r\nlaunch_to_tray=%d\r\npause_on_fullscreen=%d\r\n"
                   "pause_when_covered=%d\r\nsuspend_on_lock=%d\r\npause_on_battery=%d\r\naudio=%d\r\n"
-                  "auto_recover=%d\r\npaused=%d\r\nhtml_mouse=%d\r\nhtml_audio=%d\r\nlively_auto_import=%d\r\ntheme=%s\r\n\r\n",
+                  "auto_recover=%d\r\npaused=%d\r\nhtml_mouse=%d\r\nhtml_audio=%d\r\nlively_auto_import=%d\r\n"
+                  "url_import=%d\r\ntheme=%s\r\n\r\n",
               s->startWithWindows, s->launchToTray, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
               s->pauseOnBattery, s->audio, s->autoRecover, s->paused, s->htmlMouse, s->htmlAudio, s->livelyImport,
+              s->urlImport,
               s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system");
     sb_puts(&b, "[assignments]\r\n");
     if (c->defaultWallpaper[0]) {

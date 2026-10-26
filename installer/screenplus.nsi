@@ -4,12 +4,16 @@
 ;   makensis /DVERSION=1.2.3 /DSTAGE=<folder with ScreenPlus.exe> /DOUTFILE=<setup.exe> installer\screenplus.nsi
 ; STAGE is the build output: ScreenPlus.exe, ScreenPlus.com (terminal), the FFmpeg DLLs, licenses\ and samples\.
 ;
-; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/D=<install folder>]   (/D must be last)
+; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/D=<install folder>]   (/D must be last)
 ; An existing installation is found automatically and updated in place, keeping the library.
 ; Installation types (applied by Screen+ on its next launch via HKCU\Software\ScreenPlus\SetupMode):
 ;   default - Aurora sample + automatic import of Lively Wallpaper's library
 ;   clean   - empty library, no sample, no automatic Lively import
 ;   keep    - update of an existing installation: nothing is changed (SetupMode is not written)
+; Optional feature "Video import from web links" (on unless /NOURL or turned off before): setup runs
+; `ScreenPlus.com tools install`, which downloads the pinned yt-dlp + QuickJS-NG releases (~20 MB, SHA-256
+; verified) into %LOCALAPPDATA%\ScreenPlus\tools, so this installer stays small. Off: the app hides its
+; link button (HKCU\Software\ScreenPlus\UrlImport = 0) and downloaded tools are removed.
 
 Unicode true
 ManifestDPIAware true
@@ -70,6 +74,7 @@ VIAddVersionKey "LegalCopyright" "Copyright (c) 2026 Screen+ contributors"
 Var InstMode        ; "keep" (update in place) | "default" | "clean"
 Var OptStartup      ; 1 = start with Windows
 Var OptDesktop      ; 1 = desktop shortcut
+Var OptUrl          ; 1 = video import from web links (downloads yt-dlp + QuickJS-NG)
 Var Existing        ; folder of an installed Screen+, "" when none was found
 Var ExistingVer
 Var WelcomeText
@@ -78,12 +83,14 @@ Var hDefault
 Var hClean
 Var hStartup
 Var hDesktop
+Var hUrl
 
 ; ------------------------------------------------------------------ pages
 !define MUI_WELCOMEPAGE_TEXT "$WelcomeText"
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "..\LICENSE"
 Page custom InstallTypePage InstallTypeLeave
+Page custom OptionsPage OptionsLeave
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipWhenUpdating
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
@@ -172,6 +179,11 @@ Function .onInit
   StrCpy $InstMode "default"
   StrCpy $OptStartup 1
   StrCpy $OptDesktop 1
+  StrCpy $OptUrl 1
+  ReadINIStr $0 "$LOCALAPPDATA\ScreenPlus\config.ini" "settings" "url_import"
+  ${If} $0 == "0"                                     ; turned off in an earlier installation
+    StrCpy $OptUrl 0
+  ${EndIf}
   StrCpy $WelcomeText "Setup will guide you through the installation of ${APP_NAME} ${VERSION}, a lightweight live wallpaper engine for Windows.$\r$\n$\r$\n${APP_NAME} is installed for your account only, so administrator rights are not needed.$\r$\n$\r$\nClick Next to continue."
 
   Call FindExisting
@@ -209,6 +221,11 @@ Function .onInit
   ${GetOptions} $R0 "/DEFAULT" $R1
   ${IfNot} ${Errors}
     StrCpy $InstMode "default"
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $R0 "/NOURL" $R1
+  ${IfNot} ${Errors}
+    StrCpy $OptUrl 0
   ${EndIf}
 FunctionEnd
 
@@ -296,6 +313,27 @@ Function InstallTypeLeave
   ${NSD_GetState} $hDesktop $OptDesktop
 FunctionEnd
 
+Function OptionsPage
+  !insertmacro MUI_HEADER_TEXT "Optional Features" "Choose additional features for ${APP_NAME}."
+  nsDialogs::Create 1018
+  Pop $0
+  ${If} $0 == error
+    Abort
+  ${EndIf}
+  ${NSD_CreateCheckbox} 0 0 100% 12u "&Video import from web links (recommended)"
+  Pop $hUrl
+  ${NSD_CreateLabel} 13u 14u -13u 48u "Adds a link button to the Library for importing videos from YouTube and other sites. Setup downloads yt-dlp and the QuickJS-NG JavaScript runtime now: about 20 MB, official releases, verified by SHA-256.$\r$\n$\r$\nWithout it the link button is hidden; you can turn it on later in Settings."
+  Pop $0
+  ${If} $OptUrl == 1
+    ${NSD_Check} $hUrl
+  ${EndIf}
+  nsDialogs::Show
+FunctionEnd
+
+Function OptionsLeave
+  ${NSD_GetState} $hUrl $OptUrl
+FunctionEnd
+
 ; ------------------------------------------------------------------ install
 Section "Install"
   SetShellVarContext current
@@ -370,6 +408,22 @@ Section "Install"
   WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" $0
 SectionEnd
 
+; Optional feature: video import from web links. The tools are downloaded here, not embedded.
+Section "-UrlImport"
+  ${If} $OptUrl == 1
+    DetailPrint "Downloading yt-dlp and QuickJS-NG (official releases, SHA-256 verified)..."
+    nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" tools install'
+    Pop $0
+    ${If} $0 != 0
+      DetailPrint "Not downloaded now; ${APP_NAME} gets them the first time you import a video link."
+    ${EndIf}
+  ${Else}
+    nsExec::Exec '"$INSTDIR\ScreenPlus.com" tools remove --quiet'
+    Pop $0
+  ${EndIf}
+  WriteRegDWORD HKCU "${APP_KEY}" "UrlImport" $OptUrl   ; read once by the app: shows or hides its link button
+SectionEnd
+
 ; ------------------------------------------------------------------ uninstall
 Section "Uninstall"
   SetShellVarContext current
@@ -395,6 +449,10 @@ Section "Uninstall"
   RMDir "$INSTDIR\samples"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
+  Delete "$LOCALAPPDATA\ScreenPlus\tools\yt-dlp.exe"     ; downloaded URL-import tools (not user data)
+  Delete "$LOCALAPPDATA\ScreenPlus\tools\qjs.exe"
+  Delete "$LOCALAPPDATA\ScreenPlus\tools\*.download"
+  RMDir "$LOCALAPPDATA\ScreenPlus\tools"
 
   Delete "$SMPROGRAMS\${APP_NAME}.lnk"
   Delete "$DESKTOP\${APP_NAME}.lnk"
@@ -404,7 +462,7 @@ Section "Uninstall"
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "${APP_KEY}"
 
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also remove your ${APP_NAME} settings, library list and logs?$\r$\n$\r$\nYour wallpaper files are never deleted." /SD IDNO IDNO keep
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also remove your ${APP_NAME} settings, library list, logs and wallpapers downloaded from web links?$\r$\n$\r$\nYour own wallpaper files are never deleted." /SD IDNO IDNO keep
     RMDir /r "$LOCALAPPDATA\ScreenPlus"
   keep:
 SectionEnd

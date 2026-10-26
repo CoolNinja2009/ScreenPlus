@@ -27,6 +27,18 @@ permitted provided that the conditions of the BSD 3-Clause license are met (see 
 `LICENSE.txt` in the NuGet package). The WebView2 *Runtime* is not redistributed; it is
 part of Windows 11 and installable on Windows 10.
 
+## yt-dlp 2026.10.21 — Unlicense; QuickJS-NG 0.17.0 — MIT (optional, separate programs)
+
+Used only by "Import from a link" (the optional setup component, or the `tools` folder of the
+portable zip). The unmodified official release binaries are run as separate processes, never
+linked: `yt-dlp.exe` from <https://github.com/yt-dlp/yt-dlp/releases/tag/2026.10.21>
+(SHA-256 `33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555`; public domain under
+the Unlicense, its bundled components carry their own notices) and `qjs.exe`
+(`qjs-windows-x86_64.exe`) from <https://github.com/quickjs-ng/quickjs/releases/tag/v0.17.0>
+(SHA-256 `2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77`; Copyright (c)
+Fabrice Bellard, Charlie Gordon and the QuickJS-NG contributors, MIT License). Screen+ refuses
+any file that does not match these checksums.
+
 ## Windows SDK / system components
 
 Direct3D 11, DXGI, Direct2D, DirectWrite, WIC, WASAPI, DWM and the Segoe fonts are part of

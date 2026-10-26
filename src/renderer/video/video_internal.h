@@ -49,6 +49,7 @@ typedef struct PacketQueue {
 } PacketQueue;
 
 typedef struct VideoSource VideoSource;
+typedef struct NetStream NetStream;
 
 typedef struct VideoOutput {
     Renderer                base;
@@ -87,6 +88,11 @@ struct VideoSource {
     CRITICAL_SECTION  outLock;
     VideoOutput      *outputs[SP_MAX_MONITORS];
     int               outputCount;
+
+    /* stream wallpaper (path is a link): read through video_stream.c */
+    NetStream        *net;
+    int               ytdlp;                /* the link is a page yt-dlp resolves */
+    int               maxRes;               /* quality: the display's smaller side, pixels */
 
     /* decode thread */
     AVFormatContext  *fmt;
@@ -132,6 +138,12 @@ struct VideoSource {
 /* video_renderer.c */
 double video_media_now(VideoSource *s);
 void   video_source_fail(VideoSource *s, HRESULT hr, const wchar_t *fmt, ...);
+
+/* video_stream.c: online videos read from small byte ranges kept in RAM (stream wallpapers) */
+NetStream     *netstream_open(const wchar_t *url, int ytdlp, int maxRes, volatile LONG *quit, wchar_t *err, size_t errCap);
+AVIOContext   *netstream_avio(NetStream *n);        /* rewound to the start */
+const wchar_t *netstream_failure(NetStream *n);     /* why it stopped for good, NULL while it works */
+void           netstream_close(NetStream *n);
 
 /* video_audio.c */
 void   audio_start(VideoSource *s);    /* decode thread: opens decoder + output thread */

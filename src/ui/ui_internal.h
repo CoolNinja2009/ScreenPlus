@@ -18,7 +18,7 @@ enum HitKind {
     HK_PLAYPAUSE, HK_AUDIO, HK_RESTART_CURRENT, HK_REVEAL, HK_TOGGLE, HK_THEME, HK_OPEN_LOGS, HK_OPEN_DATA,
     HK_RESTART_ENGINE, HK_NOTICE_CLOSE, HK_MONITOR, HK_USE_DEFAULT, HK_CHANGE, HK_GET_WEBVIEW, HK_LICENSES,
     HK_SCROLLBAR, HK_SLIDER, HK_DISC, HK_PCHECK, HK_PSLIDER, HK_PDOWN, HK_PCOLOR, HK_PTEXT, HK_RESET_LOOK,
-    HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL
+    HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL, HK_URL, HK_URL_TEXT, HK_URL_MODE, HK_URL_GO, HK_URL_CLOSE
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -26,7 +26,7 @@ enum HitKind {
 #define HIT_DATA(id)       ((int)(short)((id) & 0xffff))
 
 enum { TOG_STARTUP, TOG_TRAY, TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY, TOG_AUDIO, TOG_RECOVER,
-       TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_COUNT };
+       TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_COUNT };
 
 typedef struct Hit {
     int         id;
@@ -99,6 +99,8 @@ typedef struct Ui {
     double                 lastTick;
     int                    statsTimer;
     const wchar_t         *iconFont;
+    HWND                   tip;            /* tooltip for icon-only buttons (pages_tooltip) */
+    int                    tipId;          /* hit id the tooltip currently describes */
 } Ui;
 
 extern Ui *g_ui;
@@ -153,6 +155,7 @@ void pages_customise_reload(void);                         /* Customise values c
 int  pages_text_char(wchar_t ch);                           /* 1 consumed: the Customise text field */
 int  pages_text_key(UINT vk, int ctrl, int shift);
 void pages_text_end(int commit);                            /* focus left the field (0: cancel) */
+const wchar_t *pages_tooltip(int id);                       /* tooltip text for a hit id, or NULL */
 
 /* glyphs (Segoe Fluent Icons / Segoe MDL2 Assets) */
 #define GL_LIBRARY  0xE8F1
@@ -160,6 +163,7 @@ void pages_text_end(int commit);                            /* focus left the fi
 #define GL_SETTINGS 0xE713
 #define GL_ADD      0xE710
 #define GL_FOLDER   0xE8B7
+#define GL_LINK     0xE71B
 #define GL_PLAY     0xE768
 #define GL_PAUSE    0xE769
 #define GL_VOLUME   0xE767

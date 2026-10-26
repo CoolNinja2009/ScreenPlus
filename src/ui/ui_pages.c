@@ -188,6 +188,16 @@ static void finish_scroll(Ui *u, int page, float contentBottom, float top)
 
 /* ================================================================ library */
 
+/* Import from a web link: the link button opens this panel above the library (url_import.c does the work). */
+static struct {
+    int     open;
+    int     mode;               /* URLMODE_* */
+    int     seen;               /* UrlImportState.finished already handled */
+    wchar_t url[SP_MAX_PATH];
+} urlp;
+
+static float draw_url_panel(Ui *u, float x, float y, float w);
+
 static void draw_search(Ui *u, D2D1_RECT_F r)
 {
     Theme *t = &u->t;
@@ -403,11 +413,16 @@ static void draw_library(Ui *u, float cx, float cw)
     ui_button(HIT_ID(HK_IMPORT, 0), rectf(bx, by, iw, bh), L"Import", GL_ADD, BTN_PRIMARY);
     bx -= 8 + 36;
     ui_button(HIT_ID(HK_IMPORT_FOLDER, 0), rectf(bx, by, 36, bh), NULL, GL_FOLDER, BTN_SECONDARY);
+    if (g_app.cfg.s.urlImport) {
+        bx -= 8 + 36;
+        ui_button(HIT_ID(HK_URL, 0), rectf(bx, by, 36, bh), NULL, GL_LINK, BTN_SECONDARY);
+    }
     float sw = SP_MIN(260.0f, w * 0.34f);
     bx -= 12 + sw;
     draw_search(u, rectf(bx, by, sw, bh));
 
     float top = 88;
+    top += draw_url_panel(u, x, top, w);
     top += draw_notice(u, x, top, w);
     D2D1_RECT_F view = { cx, top, cx + cw, u->h };
     u->viewTop = top;
@@ -628,14 +643,15 @@ static void draw_settings(Ui *u, float cx, float cw)
     y += 10;
     y = section(u, x, y, L"HTML WALLPAPERS");
     {
-        int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY };
+        int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL };
         const wchar_t *l[] = { L"Allow desktop mouse interaction", L"Enable audio-reactive spectrum",
-                               L"Import Lively wallpapers automatically" };
+                               L"Import Lively wallpapers automatically", L"Import wallpapers from web links" };
         const wchar_t *d[] = { L"Forwards mouse activity only while the pointer is over the desktop; keyboard is never shared",
                                L"Captures the default output device only when an HTML wallpaper requests it",
-                               L"Adds newly installed Lively Wallpaper packages each time Screen+ starts" };
-        int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport };
-        y = toggle_group(u, x, y, w, idx, l, d, v, 3);
+                               L"Adds newly installed Lively Wallpaper packages each time Screen+ starts",
+                               L"Shows the link button in the Library; video sites use yt-dlp, downloaded once (about 20 MB)" };
+        int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport, s->urlImport };
+        y = toggle_group(u, x, y, w, idx, l, d, v, 4);
     }
     y += 26;
     y = section(u, x, y, L"RENDERER & DIAGNOSTICS");
@@ -1009,7 +1025,7 @@ static int edit_is_hex(int id)
 static int edit_accepts(wchar_t ch)
 {
     int id = g_ui->textFocus;
-    if (HIT_KIND(id) == HK_PTEXT) return ch >= 32;
+    if (HIT_KIND(id) == HK_PTEXT || HIT_KIND(id) == HK_URL_TEXT) return ch >= 32;
     return ch && wcschr(edit_is_hex(id) ? L"0123456789abcdefABCDEF#" : L"0123456789+-.", ch);
 }
 
@@ -1052,7 +1068,10 @@ static void edit_commit(int id)
     int kind = HIT_KIND(id), data = HIT_DATA(id), style;
     uint32_t rgb;
     double v;
-    if (kind == HK_LOOKVAL && data == SL_COUNT) {   /* tint: the colour's hue/saturation + its brightness */
+    if (kind == HK_URL_TEXT) {
+        str_copy(urlp.url, SP_COUNTOF(urlp.url), cus.edit);
+        str_trim(urlp.url);
+    } else if (kind == HK_LOOKVAL && data == SL_COUNT) {   /* tint: the colour's hue/saturation + its brightness */
         if (!wpapi_parse_rgb(cus.edit, &rgb)) return;
         float h, s, val;
         ui_rgb_hsv(col(rgb, 1.0f), &h, &s, &val);
@@ -1081,7 +1100,7 @@ int pages_text_char(wchar_t ch)
 {
     Ui *u = g_ui;
     if (!u->textFocus) return 0;
-    int text = HIT_KIND(u->textFocus) == HK_PTEXT;
+    int text = HIT_KIND(u->textFocus) == HK_PTEXT || HIT_KIND(u->textFocus) == HK_URL_TEXT;
     size_t cap = text ? SP_COUNTOF(cus.edit) : edit_is_hex(u->textFocus) ? 8 : 16;
     if (!text && ch == L',') ch = L'.';   /* decimal comma */
     if (cus.editAll && (ch == 8 || ch == 127 || ch == 22 || edit_accepts(ch))) cus.edit[0] = 0;
@@ -1121,13 +1140,21 @@ int pages_text_char(wchar_t ch)
     return 1;
 }
 
+static void url_go(void);
+
 int pages_text_key(UINT vk, int ctrl, int shift)
 {
     Ui *u = g_ui;
     (void)ctrl; (void)shift;
     if (!u->textFocus) return 0;
-    if (vk == VK_ESCAPE) pages_text_end(0);
-    else if (vk == VK_RETURN) pages_text_end(1);
+    int url = HIT_KIND(u->textFocus) == HK_URL_TEXT;
+    if (vk == VK_ESCAPE) {
+        pages_text_end(url);             /* the link field keeps what was typed and closes */
+        if (url) urlp.open = 0;
+    } else if (vk == VK_RETURN) {
+        pages_text_end(1);
+        if (url) url_go();
+    }
     return 1;                            /* characters arrive via WM_CHAR; consume the rest */
 }
 
@@ -1138,6 +1165,113 @@ void pages_text_end(int commit)
     u->textFocus = 0;
     if (commit && id) edit_commit(id);
     ui_invalidate();
+}
+
+/* ---- import from a web link */
+
+static void url_focus(void)
+{
+    Ui *u = g_ui;
+    int id = HIT_ID(HK_URL_TEXT, 0);
+    if (!urlp.url[0] && OpenClipboard(u->hwnd)) {   /* a link on the clipboard is offered right away */
+        HANDLE h = GetClipboardData(CF_UNICODETEXT);
+        const wchar_t *p = h ? (const wchar_t *)GlobalLock(h) : NULL;
+        if (p) {
+            wchar_t clip[SP_MAX_PATH];
+            str_copy(clip, SP_COUNTOF(clip), p);
+            str_trim(clip);
+            if (wcslen(p) < SP_COUNTOF(clip) && wallpaper_is_url(clip) && !wcspbrk(clip, L" \t\r\n"))
+                str_copy(urlp.url, SP_COUNTOF(urlp.url), clip);
+            GlobalUnlock(h);
+        }
+        CloseClipboard();
+    }
+    str_copy(cus.edit, SP_COUNTOF(cus.edit), urlp.url);
+    u->focus = id;
+    edit_begin(id, urlp.url[0] != 0);
+    ui_invalidate();
+}
+
+static void url_go(void)
+{
+    UrlImportState st;
+    url_import_get(&st);
+    if (st.busy) {
+        url_import_cancel();
+        return;
+    }
+    if (HIT_KIND(g_ui->textFocus) == HK_URL_TEXT) pages_text_end(1);
+    url_import_start(urlp.url, urlp.mode);
+}
+
+static float draw_url_panel(Ui *u, float x, float y, float w)
+{
+    Theme *t = &u->t;
+    UrlImportState st;
+    url_import_get(&st);
+    if (st.finished != urlp.seen) {                 /* an import ended: a success closes the panel */
+        urlp.seen = st.finished;
+        if (st.lastOk) {
+            urlp.open = 0;
+            urlp.url[0] = 0;
+            if (HIT_KIND(u->textFocus) == HK_URL_TEXT) u->textFocus = 0;
+        }
+    }
+    if (!st.busy && (!urlp.open || !g_app.cfg.s.urlImport)) return 0.0f;
+    const float h = 128.0f;
+    ui_glass(rectf(x, y, w, h), 14, 0, 0);
+    ui_icon(GL_LINK, u->fIconS, rectf(x + 14, y + 10, 24, 28), t->accent);
+    ui_text(L"Import from a link", u->fBodyB, rectf(x + 44, y + 10, w - 100, 28), t->text);
+    if (!st.busy) ui_button(HIT_ID(HK_URL_CLOSE, 0), rectf(x + w - 42, y + 8, 32, 32), NULL, GL_CLOSE, BTN_GHOST);
+
+    const wchar_t *go = st.busy ? L"Cancel" : L"Import";
+    float gw = ui_button_width(go, 0), fy = y + 46;
+    D2D1_RECT_F f = rectf(x + 16, fy, w - 42 - gw, 36);
+    int id = HIT_ID(HK_URL_TEXT, 0), editing = u->textFocus == id;
+    ui_rrect(f, 9, t->field);
+    ui_rrect_stroke(f, 9, editing ? 1.5f : 1.0f, editing ? t->accent : t->border);
+    const wchar_t *s = editing ? cus.edit : urlp.url;
+    float tx = f.left + 12, avail = f.right - f.left - 24;
+    if (!s[0] && !editing) {
+        ui_text(L"Paste a link to a video, an image or a web page", u->fBody, rectf(tx, f.top, avail, 36), t->text3);
+    } else {
+        float tw = ui_text_width(s, u->fBody), shift = editing ? SP_MAX(0.0f, tw - avail) : 0.0f;   /* end in view */
+        ui_push_clip(rectf(tx - 2, f.top, avail + 4, 36));
+        if (editing && cus.editAll && s[0]) ui_rrect(rectf(tx - 2, f.top + 8, SP_MIN(tw, avail) + 4, 20), 3, col_a(t->accent, 0.35f));
+        ui_text(s, u->fBody, rectf(tx - shift, f.top, editing ? tw + 4 : avail, 36), st.busy ? t->text2 : t->text);
+        ui_pop_clip();
+        if (editing && !cus.editAll && u->caretOn)
+            ui_line(tx + tw - shift + 1, f.top + 9, tx + tw - shift + 1, f.bottom - 9, 1.2f, t->accent);
+    }
+    if (!st.busy) {
+        ui_hit(id, f, 1, 2);
+        ui_focus_ring(f, 9, id);
+    }
+    ui_button(HIT_ID(HK_URL_GO, 0), rectf(f.right + 10, fy + 1, gw, 34), go, 0, st.busy ? BTN_SECONDARY : BTN_PRIMARY);
+
+    float ry = y + 92;
+    if (st.busy) {
+        D2D1_RECT_F bar = rectf(x + 16, ry + 22, w - 32, 4);
+        ui_text(st.text, u->fSmall, rectf(x + 16, ry, w - 32, 18), t->text2);
+        ui_rrect(bar, 2, t->track);
+        if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
+        return h + 12.0f;
+    }
+    static const wchar_t *modes[] = { L"Automatic", L"Download", L"Web page" };
+    static const wchar_t *hints[] = {
+        L"Long videos stream in small parts (nothing saved); short ones are saved once. Other pages show live.",
+        L"Saves the video or image so it plays offline; long videos take a lot of disk space.",
+        L"Shows the page itself as a live web wallpaper; it needs an internet connection.",
+    };
+    float cx = x + 16;
+    for (int i = 0; i < (int)SP_COUNTOF(modes); i++) {
+        float cw = ui_text_width(modes[i], u->fCenter) + 30;
+        ui_chip(HIT_ID(HK_URL_MODE, i), rectf(cx, ry, cw, 28), modes[i], urlp.mode == i);
+        cx += cw + 8;
+    }
+    int failed = st.failed && st.text[0];
+    ui_text(failed ? st.text : hints[urlp.mode], u->fSmall, rectf(cx + 6, ry, x + w - 22 - cx, 28), failed ? t->danger : t->text3);
+    return h + 12.0f;
 }
 
 /* ---- drawing */
@@ -1429,6 +1563,7 @@ static void toggle_setting(int idx)
     case TOG_HTML_MOUSE: s->htmlMouse = !s->htmlMouse; break;
     case TOG_HTML_SPECTRUM: s->htmlAudio = !s->htmlAudio; break;
     case TOG_LIVELY:     s->livelyImport = !s->livelyImport; break;
+    case TOG_URL:        s->urlImport = !s->urlImport; break;
     case TOG_AUDIO:      app_set_audio(!s->audio); ui_animate(); return;
     default: return;
     }
@@ -1452,6 +1587,22 @@ void pages_activate(int id, int dbl)
         break;
     case HK_IMPORT:        library_import_dialog(u->hwnd, FALSE); break;
     case HK_IMPORT_FOLDER: library_import_dialog(u->hwnd, TRUE); break;
+    case HK_URL:
+        urlp.open = !urlp.open;
+        if (urlp.open) url_focus();
+        else if (HIT_KIND(u->textFocus) == HK_URL_TEXT) pages_text_end(1);
+        break;
+    case HK_URL_TEXT:
+        if (u->textFocus != id) {
+            url_focus();
+        } else {                         /* clicked again while typing: keep the caret blinking */
+            u->caretOn = 1;
+            SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+        }
+        break;
+    case HK_URL_MODE:      urlp.mode = SP_CLAMP(data, URLMODE_AUTO, URLMODE_PAGE); break;   /* chip order = URLMODE_* */
+    case HK_URL_GO:        url_go(); break;
+    case HK_URL_CLOSE:     urlp.open = 0; break;
     case HK_SEARCH_CLEAR:
         u->search[0] = 0;
         pages_rebuild_view();
@@ -1477,7 +1628,8 @@ void pages_activate(int id, int dbl)
     case HK_RESTART_ENGINE: app_restart_renderer(); break;
     case HK_REVEAL: {
         WallpaperEntry *e = config_find(&g_app.cfg, app_wallpaper_for(target_id()));
-        if (e) shell_reveal(e->path);
+        if (e && wallpaper_is_url(e->path)) shell_open(e->path);   /* a web page or stream: its link */
+        else if (e) shell_reveal(e->path);
         break;
     }
     case HK_TOGGLE:        toggle_setting(data); break;
@@ -1631,4 +1783,13 @@ int pages_key(UINT vk, int ctrl, int shift)
     pages_scroll_into_view(u->focus);
     ui_invalidate();
     return 1;
+}
+
+const wchar_t *pages_tooltip(int id)
+{
+    switch (HIT_KIND(id)) {
+    case HK_URL:           return L"Import URL wallpaper";
+    case HK_IMPORT_FOLDER: return HIT_DATA(id) == 0 ? L"Import a wallpaper folder" : NULL;
+    default:               return NULL;
+    }
 }

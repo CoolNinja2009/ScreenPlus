@@ -78,7 +78,8 @@ endforeach()
 # ---------------------------------------------------------------- application
 set(SOURCES
     src/main.c
-    src/common/util.c src/common/log.c src/common/paths.c src/common/json.c
+    src/common/util.c src/common/log.c src/common/paths.c src/common/json.c src/common/webfetch.c
+    src/common/ytdlp.c
     src/settings/config.c
     src/monitor/monitor.c
     src/desktop/desktop_host.c
@@ -87,9 +88,10 @@ set(SOURCES
     src/engine/sysinfo.c
     src/renderer/image/image_renderer.c
     src/renderer/video/video_renderer.c src/renderer/video/video_audio.c src/renderer/video/ffmpeg_thumb.c
+    src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
-    src/app/cli_server.c
+    src/app/cli_server.c src/app/url_import.c
     src/tray/tray.c
     src/ui/ui_core.c src/ui/ui_pages.c src/ui/thumbs.c
     resources/screenplus.rc
@@ -109,18 +111,19 @@ target_link_libraries(ScreenPlus PRIVATE
     "${WEBVIEW2_SDK_DIR}/build/native/x64/WebView2LoaderStatic.lib"
     ${FFMPEG_IMPLIBS} delayimp
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
-    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh)
+    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp)
 
 # Terminal companion, shipped as ScreenPlus.com next to ScreenPlus.exe: a terminal resolves
 # `screenplus` to the .com first (PATHEXT order), shortcuts and the startup entry name the .exe.
-add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/json.c src/common/paths.c)
+add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/json.c src/common/paths.c
+                             src/common/webfetch.c)
 set_target_properties(ScreenPlusCli PROPERTIES OUTPUT_NAME ScreenPlus SUFFIX ".com" PDB_NAME ScreenPlusCli)
 target_include_directories(ScreenPlusCli PRIVATE src)
 target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
                                                  _CRT_SECURE_NO_WARNINGS SP_VERSION_STR="${PROJECT_VERSION}")
 target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /wd4221 /wd4100)
 target_link_options(ScreenPlusCli PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /INCREMENTAL:NO)
-target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 advapi32 bcrypt)
+target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 advapi32 bcrypt winhttp)
 
 # Validation helpers (not shipped): check the wallpaper is attached and visible behind the
 # icons, and print the livelySystemInformation payload the engine feeds web wallpapers.

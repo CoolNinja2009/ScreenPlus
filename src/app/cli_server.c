@@ -403,6 +403,24 @@ static void cmd_import(Reply *r, const Req *q)
         fail(r, L"Usage: screenplus import <file or folder> [...] [--apply]");
         return;
     }
+    for (int i = 1; i < q->argc; i++) {          /* a web link: the Library's link-import job */
+        if (!wallpaper_is_url(q->argv[i])) continue;
+        if (!g_app.cfg.s.urlImport) {
+            fail(r, L"Importing from web links is turned off. Turn it on: screenplus settings set url_import on");
+            return;
+        }
+        int mode = has_flag(q, L"--page") ? URLMODE_PAGE
+                 : has_flag(q, L"--download") || has_flag(q, L"--media") ? URLMODE_DOWNLOAD : URLMODE_AUTO;
+        UrlImportState st;
+        if (!url_import_start(q->argv[i], mode)) {
+            url_import_get(&st);
+            fail(r, L"%ls", st.busy ? L"Another link is still being imported." : st.text);
+            return;
+        }
+        say(r, L"Importing %ls in the background; the Library shows its progress (screenplus logs -f follows it).\n", q->argv[i]);
+        sb_puts(&r->data, "{\"started\":true}");
+        return;
+    }
     Config *c = &g_app.cfg;
     const wchar_t *paths[MAX_ARGS];
     int n = 0;
@@ -889,6 +907,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"html_mouse",          offsetof(Settings, htmlMouse),         SK_BOOL,  L"Mouse input for web wallpapers" },
     { L"html_audio",          offsetof(Settings, htmlAudio),         SK_BOOL,  L"System audio spectrum for web wallpapers" },
     { L"lively_auto_import",  offsetof(Settings, livelyImport),      SK_BOOL,  L"Add new Lively Wallpaper packages at launch" },
+    { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
 };
 

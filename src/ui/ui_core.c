@@ -10,6 +10,8 @@
 #include <windowsx.h>
 #include <shellapi.h>
 #include <shellscalingapi.h>
+#include <commctrl.h>
+#include <uxtheme.h>
 #include <stdlib.h>
 #include <math.h>
 
@@ -998,6 +1000,41 @@ static void on_char(Ui *u, wchar_t ch)
     search_changed(u);
 }
 
+/* One tooltip, moved onto whichever icon-only button is hovered (texts: pages_tooltip). */
+static void tip_update(Ui *u)
+{
+    const wchar_t *text = u->hot && !u->pressed ? pages_tooltip(u->hot) : NULL;
+    const Hit *h = text ? hit_find(u, u->hot) : NULL;
+    int id = h ? u->hot : 0;
+    if (id == u->tipId) return;
+    u->tipId = id;
+    if (!u->tip && h) {
+        INITCOMMONCONTROLSEX icc = { sizeof icc, ICC_WIN95_CLASSES };
+        InitCommonControlsEx(&icc);
+        u->tip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, NULL, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+                                 CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, u->hwnd, NULL, g_app.inst, NULL);
+        TOOLINFOW add = { sizeof add, TTF_SUBCLASS, u->hwnd, 1 };
+        add.lpszText = L"";
+        if (u->tip) {
+            SendMessageW(u->tip, TTM_ADDTOOLW, 0, (LPARAM)&add);
+            SetWindowTheme(u->tip, u->t.dark ? L"DarkMode_Explorer" : NULL, NULL);
+        }
+    }
+    if (!u->tip) return;
+    TOOLINFOW ti = { sizeof ti, TTF_SUBCLASS, u->hwnd, 1 };
+    ti.lpszText = L"";                             /* empty rect and text: nothing to show */
+    if (h) {
+        ti.rect.left = (LONG)(h->r.left * u->scale);
+        ti.rect.top = (LONG)(h->r.top * u->scale);
+        ti.rect.right = (LONG)(h->r.right * u->scale);
+        ti.rect.bottom = (LONG)(h->r.bottom * u->scale);
+        ti.lpszText = (LPWSTR)text;
+    }
+    SendMessageW(u->tip, TTM_POP, 0, 0);
+    SendMessageW(u->tip, TTM_NEWTOOLRECTW, 0, (LPARAM)&ti);
+    SendMessageW(u->tip, TTM_UPDATETIPTEXTW, 0, (LPARAM)&ti);
+}
+
 static void on_wheel(Ui *u, int delta)
 {
     int p = u->page;
@@ -1058,6 +1095,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             u->hot = HIT_KIND(u->pressed) == HK_SLIDER || HIT_KIND(u->pressed) == HK_DISC ||
                      HIT_KIND(u->pressed) == HK_PSLIDER ? u->pressed : hot;
             ui_invalidate();
+            tip_update(u);
         }
         if (u->pressed) {                               /* continuous controls: slider + colour wheel */
             int k = HIT_KIND(u->pressed);
@@ -1070,6 +1108,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (u->hot) {
             u->hot = 0;
             ui_invalidate();
+            tip_update(u);
         }
         return 0;
     case WM_SETCURSOR:
@@ -1309,6 +1348,7 @@ void ui_refresh_theme(void)
 {
     if (!g_ui) return;
     theme_build(g_ui);
+    if (g_ui->tip) SetWindowTheme(g_ui->tip, g_ui->t.dark ? L"DarkMode_Explorer" : NULL, NULL);
     ui_invalidate();
 }
 

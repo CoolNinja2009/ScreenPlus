@@ -44,8 +44,9 @@ static inline int adjust_active(const WallpaperAdjust *a)
 /* Origin of a wallpaper package: drives which JavaScript APIs the HTML engine provides. */
 typedef enum WallpaperFormat { WPF_PLAIN = 0, WPF_LIVELY = 1, WPF_WE = 2 } WallpaperFormat;
 enum { WPFLAG_AUDIO   = 1,  /* audio-reactive (Lively "webaudio") */
-       WPFLAG_URL     = 2,  /* online page: path is an http(s) URL */
-       WPFLAG_SYSINFO = 4 };/* wants livelySystemInformation (Lively "--system-information") */
+       WPFLAG_URL     = 2,  /* path is an http(s) URL: an online page, or a streamed video */
+       WPFLAG_SYSINFO = 4,  /* wants livelySystemInformation (Lively "--system-information") */
+       WPFLAG_YTDLP   = 8 };/* stream wallpaper (video, path is a page): yt-dlp finds the media address */
 
 typedef struct WallpaperEntry {
     wchar_t       id[SP_ID_LEN];
@@ -78,6 +79,7 @@ typedef struct Settings {
     int       htmlMouse;      /* forward desktop mouse input to HTML wallpapers */
     int       htmlAudio;      /* system-audio spectrum for audio-reactive wallpapers */
     int       livelyImport;   /* add newly installed Lively Wallpaper packages at launch */
+    int       urlImport;      /* link button: import from web links (setup's optional yt-dlp component) */
     ThemeMode theme;
 } Settings;
 

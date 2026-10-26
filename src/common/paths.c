@@ -4,7 +4,7 @@
 
 static wchar_t g_root[SP_MAX_PATH], g_config[SP_MAX_PATH], g_backup[SP_MAX_PATH], g_logs[SP_MAX_PATH],
                g_crash[SP_MAX_PATH], g_cache[SP_MAX_PATH], g_webview[SP_MAX_PATH], g_exe[SP_MAX_PATH],
-               g_exeDir[SP_MAX_PATH];
+               g_exeDir[SP_MAX_PATH], g_downloads[SP_MAX_PATH];
 
 void paths_init(void)
 {
@@ -27,6 +27,7 @@ void paths_init(void)
     path_join(g_crash, SP_COUNTOF(g_crash), g_logs, L"crash");
     path_join(g_cache, SP_COUNTOF(g_cache), g_root, L"cache");
     path_join(g_webview, SP_COUNTOF(g_webview), g_root, L"WebView2");
+    path_join(g_downloads, SP_COUNTOF(g_downloads), g_root, L"downloads");
     dir_create_recursive(g_logs);
     dir_create_recursive(g_cache);
 
@@ -42,5 +43,6 @@ const wchar_t *paths_logs(void)          { return g_logs; }
 const wchar_t *paths_crash(void)         { return g_crash; }
 const wchar_t *paths_cache(void)         { return g_cache; }
 const wchar_t *paths_webview(void)       { return g_webview; }
+const wchar_t *paths_downloads(void)     { return g_downloads; }
 const wchar_t *paths_exe(void)           { return g_exe; }
 const wchar_t *paths_exe_dir(void)       { return g_exeDir; }

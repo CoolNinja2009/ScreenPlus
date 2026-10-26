@@ -146,6 +146,13 @@ jobs:
           New-Item -ItemType Directory -Force $stage | Out-Null
           Copy-Item build\ScreenPlus.exe, build\*.dll $stage
           Copy-Item build\licenses, build\samples $stage -Recurse
+          # Self-contained like the rest of the zip: the URL-import tools (yt-dlp + QuickJS-NG), fetched and
+          # SHA-256 verified by the app's own downloader (versions pinned in src/common/webfetch.c).
+          # The installer stays small: it downloads them during setup, when that component is chosen.
+          $env:SCREENPLUS_DATA_DIR = "$env:RUNNER_TEMP\sp-data"
+          & build\ScreenPlus.com tools install
+          if ($LASTEXITCODE -ne 0) { throw "Could not fetch the URL-import tools" }
+          Copy-Item "$env:SCREENPLUS_DATA_DIR\tools" $stage -Recurse
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $setup release\
           Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$v-win-x64-portable.zip"

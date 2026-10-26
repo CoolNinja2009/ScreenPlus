@@ -153,6 +153,7 @@ void app_exit(void)
     if (g_app.exiting) return;
     g_app.exiting = 1;
     LOGI(L"exit requested");
+    url_import_shutdown();
     ui_destroy();
     supervisor_stop();
     tray_remove();
@@ -213,6 +214,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SP_ENGINE_EXITED:
         supervisor_on_exit((DWORD)wp, (DWORD)lp);
+        return 0;
+    case WM_SP_URLIMPORT:
+        url_import_on_event(wp, lp);
         return 0;
     case WM_SP_TRAY:
         tray_on_message(wp, lp);
@@ -287,6 +291,15 @@ static void apply_setup_choice(void)
         LOGI(L"applied the %ls installation chosen in setup", mode);
     }
     RegDeleteValueW(key, L"SetupMode");
+    /* setup's optional "import from web links" component (yt-dlp): shows or hides the link button */
+    DWORD on = 0;
+    size = sizeof on;
+    if (RegQueryValueExW(key, L"UrlImport", NULL, &type, (BYTE *)&on, &size) == ERROR_SUCCESS && type == REG_DWORD) {
+        g_app.cfg.s.urlImport = on != 0;
+        config_save(&g_app.cfg, paths_config());
+        LOGI(L"setup: import from web links %ls", on ? L"on" : L"off");
+    }
+    RegDeleteValueW(key, L"UrlImport");
     RegCloseKey(key);
 }
 
@@ -333,13 +346,15 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     HRESULT hrCo = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
     int existed = file_exists(paths_config());
-    if (!config_load(&g_app.cfg, paths_config()) && !existed) first_run();
+    int loaded = config_load(&g_app.cfg, paths_config());
+    if (!loaded && !existed) first_run();
     int sw = startup_is_enabled();
     if (sw != g_app.cfg.s.startWithWindows) g_app.cfg.s.startWithWindows = sw;
     if (sw) startup_set_enabled(TRUE);      /* refresh the path if the executable moved */
     if (forward == CMD_PAUSE) g_app.cfg.s.paused = 1;
     if (forward == CMD_RESUME) g_app.cfg.s.paused = 0;
     apply_setup_choice();
+    if (loaded) url_import_sweep();   /* only against a library that loaded, never a damaged one */
     if (g_app.cfg.s.livelyImport)
         library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
     library_check_missing();

@@ -522,6 +522,15 @@ static int open_input(VideoSource *s)
     if (!fmt) return AVERROR(ENOMEM);
     fmt->interrupt_callback.callback = interrupt_cb;
     fmt->interrupt_callback.opaque = s;
+    if (wallpaper_is_url(s->path)) {               /* stream wallpaper: FFmpeg has no network code */
+        if (!s->net) s->net = netstream_open(s->path, s->ytdlp, s->maxRes, &s->quit, s->err, SP_COUNTOF(s->err));
+        if (!s->net) {
+            avformat_free_context(fmt);
+            return AVERROR(EIO);
+        }
+        fmt->pb = netstream_avio(s->net);
+        fmt->flags |= AVFMT_FLAG_CUSTOM_IO;
+    }
     int r = avformat_open_input(&fmt, s->pathUtf8, NULL, NULL);
     if (r < 0) return r;                          /* fmt freed by avformat_open_input */
     fmt->max_analyze_duration = 3 * (int64_t)AV_TIME_BASE;
@@ -536,7 +545,12 @@ static int media_open(VideoSource *s)
     double t0 = time_ms();
     int r = open_input(s);
     if (r < 0) {
-        wchar_t e[96];
+        wchar_t e[SP_ERR_LEN];
+        if (wallpaper_is_url(s->path) && !s->net && s->err[0]) {   /* the stream's own reason */
+            str_copy(e, SP_COUNTOF(e), s->err);
+            video_source_fail(s, E_FAIL, L"%ls", e);
+            return 0;
+        }
         ff_err_text(r, e, SP_COUNTOF(e));
         video_source_fail(s, E_FAIL, r == AVERROR_INVALIDDATA ? L"Unsupported or corrupt media file (%ls)"
                                                               : L"Could not open the video (%ls)", e);
@@ -725,6 +739,11 @@ static unsigned __stdcall decode_main(void *arg)
         int r = av_read_frame(s->fmt, pkt);
         if (r == AVERROR_EXIT || s->quit) break;
         if (r == AVERROR_EOF || (r < 0 && s->fmt->pb && avio_feof(s->fmt->pb))) {
+            const wchar_t *gone = s->net ? netstream_failure(s->net) : NULL;
+            if (gone) {                            /* not the end: the stream broke for good */
+                video_source_fail(s, E_FAIL, L"%ls", gone);
+                break;
+            }
             handle_eof(s);
             continue;
         }
@@ -1219,11 +1238,13 @@ static void source_update_flags(VideoSource *s)
     SetEvent(s->audioWake);
 }
 
-static VideoSource *source_create(const wchar_t *path)
+static VideoSource *source_create(const wchar_t *path, int ytdlp, int maxRes)
 {
     VideoSource *s = (VideoSource *)calloc(1, sizeof *s);
     if (!s) return NULL;
     s->refs = 1;
+    s->ytdlp = ytdlp;
+    s->maxRes = maxRes;
     str_copy(s->path, SP_COUNTOF(s->path), path);
     s->pathUtf8 = utf8_from_wide(path, NULL);
     s->wake = CreateEventW(NULL, FALSE, FALSE, NULL);
@@ -1291,6 +1312,7 @@ static void source_destroy(VideoSource *s)
     avcodec_free_context(&s->vdec);
     avcodec_free_context(&s->adec);
     avformat_close_input(&s->fmt);
+    netstream_close(s->net);
     LOGI(L"video: released %ls (decoded %lld, presented %lld, dropped %lld, avg decode submit %.2f ms) in %.1f ms",
          path_filename(s->path), s->framesDecoded, s->presented, s->dropped,
          s->framesDecoded ? s->decodeMsTotal / (double)s->framesDecoded : 0.0, time_ms() - t0);
@@ -1429,7 +1451,7 @@ static BOOL create_swapchain(VideoOutput *o, wchar_t *err, size_t cap)
 Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap)
 {
     if (!video_ffmpeg_available(err, errCap)) return NULL;
-    if (!file_exists(ctx->wp->path)) {
+    if (!wallpaper_is_url(ctx->wp->path) && !file_exists(ctx->wp->path)) {
         str_copy(err, errCap, L"Video file not found");
         return NULL;
     }
@@ -1462,7 +1484,8 @@ Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     for (int i = 0; i < g.sourceCount; i++)
         if (!g.sources[i]->failed && str_ieq(g.sources[i]->path, ctx->wp->path)) s = g.sources[i];
     if (!s) {
-        if (g.sourceCount >= SP_MAX_MONITORS || !(s = source_create(ctx->wp->path))) {
+        if (g.sourceCount >= SP_MAX_MONITORS ||
+            !(s = source_create(ctx->wp->path, (ctx->wp->flags & WPFLAG_YTDLP) != 0, SP_MIN(ctx->width, ctx->height)))) {
             ReleaseSRWLockExclusive(&g.lock);
             SP_RELEASE(o->swap);
             free(o);

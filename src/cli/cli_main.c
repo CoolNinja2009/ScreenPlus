@@ -4,7 +4,7 @@
  * the .com first (PATHEXT order) while shortcuts and the startup entry name the .exe, the same
  * arrangement as devenv.com/devenv.exe. Commands run inside the running app: each one is sent as
  * IPC_CLI_REQUEST and the app's IPC_CLI_REPLY is printed (src/app/cli_server.c). A few work
- * without the app: help, version, start, logs, paths, path. No arguments: an interactive prompt.
+ * without the app: help, version, start, logs, paths, path, tools. No arguments: an interactive prompt.
  *
  * Exit codes: 0 ok, 1 the command failed, 2 bad usage, 3 Screen+ is not running. */
 #include "../common/common.h"
@@ -12,6 +12,7 @@
 #include "../common/util.h"
 #include "../common/json.h"
 #include "../common/paths.h"
+#include "../common/webfetch.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,7 +176,8 @@ static int request(int argc, wchar_t **argv, JVal **reply)
     for (int i = 0; i < argc; i++) {
         wchar_t full[SP_MAX_PATH];
         const wchar_t *a = argv[i];
-        if (i && a[0] != L'-' && (pathArgs || (maybePath && looks_like_path(a))) &&
+        if (i && a[0] != L'-' && !str_istarts(a, L"https://") && !str_istarts(a, L"http://") &&
+            (pathArgs || (maybePath && looks_like_path(a))) &&
             GetFullPathNameW(a, SP_COUNTOF(full), full, NULL))
             a = full;
         char *u = utf8_from_wide(a, NULL);
@@ -283,6 +285,7 @@ static const wchar_t k_help[] =
     L"                                         missing active, or part of a name\n"
     L"  apply <wallpaper> [--display N]        by name, number from 'list', id, or a file/folder path\n"
     L"  import <path>... [--apply]             add files or folders to the library\n"
+    L"  import <link> [--download | --page]    a web link: long videos stream, short ones and images are saved\n"
     L"  remove <wallpaper>                     remove from the library (the file stays)\n"
     L"  displays                               monitors and what they show\n"
     L"\n"
@@ -303,6 +306,7 @@ static const wchar_t k_help[] =
     L"  logs [app | engine] [-n N] [-f]        recent log lines (both logs by default); -f keeps following\n"
     L"  paths                                  where Screen+ keeps its data, config and logs\n"
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"
+    L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
     L"  ping | version | help [command]\n"
     L"\n"
     L"Options\n"
@@ -410,8 +414,48 @@ static int cmd_paths(void)
     out(L"Logs       %ls\n", paths_logs());
     out(L"Customise  %ls  (one <wallpaper id>.json each)\n", props);
     out(L"Cache      %ls\n", paths_cache());
+    out(L"Downloads  %ls  (wallpapers imported from web links)\n", paths_downloads());
     out(L"Program    %ls\n", paths_exe_dir());
     return EXIT_OK;
+}
+
+/* ---- tools: the optional URL-import downloaders (setup runs `tools install` when chosen) */
+
+static int tools_progress(void *ctx, int64_t done, int64_t total)
+{
+    int *last = (int *)ctx, pct = total > 0 ? (int)(done * 100 / total) : 0;
+    if (pct / 10 != *last / 10) out(L"  %d%%\n", pct);
+    *last = pct;
+    return 1;
+}
+
+static int cmd_tools(const wchar_t *sub)
+{
+    wchar_t p[SP_MAX_PATH], e[320];
+    if (!sub || !sub[0] || str_ieq(sub, L"status")) {
+        for (int i = 0; i < TOOL_COUNT; i++)
+            if (urltools_find(i, p, SP_COUNTOF(p))) out(L"%-18ls %ls\n", k_urlTools[i].name, p);
+            else out(L"%-18ls not installed (screenplus tools install)\n", k_urlTools[i].name);
+        return EXIT_OK;
+    }
+    if (str_ieq(sub, L"install")) {
+        int last = -1;
+        out(L"Downloading %ls and %ls (official releases, SHA-256 verified)...\n", k_urlTools[TOOL_YTDLP].name,
+            k_urlTools[TOOL_QJS].name);
+        if (!urltools_install(tools_progress, &last, e, SP_COUNTOF(e))) {
+            err(L"%ls%ls%ls\n", c_red(), e, c_off());
+            return EXIT_FAILED;
+        }
+        out(L"Ready: videos can be imported from web links.\n");
+        return EXIT_OK;
+    }
+    if (str_ieq(sub, L"remove")) {
+        urltools_remove();
+        out(L"Removed the downloaded tools.\n");
+        return EXIT_OK;
+    }
+    err(L"Usage: screenplus tools [status | install | remove]\n");
+    return EXIT_USAGE;
 }
 
 /* ---- logs */
@@ -675,6 +719,7 @@ static int run_command(int argc, wchar_t **in)
     if (str_ieq(c, L"logs") || str_ieq(c, L"log")) return cmd_logs(n, argv);
     if (str_ieq(c, L"paths")) return cmd_paths();
     if (str_ieq(c, L"path")) return cmd_path(n > 1 ? argv[1] : NULL);
+    if (str_ieq(c, L"tools")) return cmd_tools(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"watch") || (watch && str_ieq(c, L"status"))) {
         argv[0] = L"status";
         return cmd_watch(1, argv);

@@ -9,6 +9,7 @@
 #define WM_SP_ENGINE_EXITED (WM_APP + 60)
 #define WM_SP_TRAY          (WM_APP + 61)
 #define WM_SP_STATUS        (WM_APP + 62)
+#define WM_SP_URLIMPORT     (WM_APP + 63)   /* wParam 0: progress, 1: job finished (lParam: the job) */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
@@ -98,3 +99,23 @@ void library_import_wallpaper_engine(void);
 void library_remove(const wchar_t *id);
 void library_check_missing(void);
 BOOL library_html_entry(const wchar_t *folder, wchar_t *out, size_t cap);
+
+/* url_import.c: import from a web link (the Library's link button), one job at a time */
+enum { URLMODE_AUTO = 0, URLMODE_DOWNLOAD = 1, URLMODE_PAGE = 2 };   /* AUTO: long videos stream */
+typedef struct UrlImportState {
+    int     busy;
+    int     percent;        /* -1: unknown */
+    int     failed;         /* text says why the last attempt failed */
+    int     finished;       /* jobs finished so far */
+    int     lastOk;         /* the last job added (or found) its wallpaper */
+    wchar_t text[200];      /* busy: what is happening */
+} UrlImportState;
+BOOL url_import_start(const wchar_t *url, int mode);   /* FALSE: invalid link (state.text says why) or busy */
+void url_import_cancel(void);
+void url_import_get(UrlImportState *out);
+void url_import_on_event(WPARAM wp, LPARAM lp);        /* WM_SP_URLIMPORT */
+void url_import_shutdown(void);
+void url_import_sweep(void);                           /* startup: delete downloads no longer in the library */
+/* An entry was removed: deletes what Screen+ made for it (its download, a stream's cached address and
+ * preview). TRUE when a downloaded wallpaper file was deleted. */
+BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb);

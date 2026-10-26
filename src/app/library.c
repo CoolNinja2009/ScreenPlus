@@ -1,7 +1,8 @@
 /* Library management. Imports only what the user explicitly asks for: picked files, the top
  * level of a picked folder, or the wallpaper libraries of Lively Wallpaper / Wallpaper Engine
  * (known locations only, never a drive scan). Entries store paths; wallpaper files are never
- * copied, modified or deleted. */
+ * copied, modified or deleted, except those Screen+ downloaded itself for a web link
+ * (<data>\downloads, cache\streams: url_import.c), which are deleted with their entry. */
 #include "app.h"
 #include "../ui/ui.h"
 #include "../common/util.h"
@@ -511,12 +512,20 @@ void library_remove(const wchar_t *id)
 {
     WallpaperEntry *e = config_find(&g_app.cfg, id);
     if (!e) return;
-    wchar_t name[SP_NAME_LEN];
+    wchar_t name[SP_NAME_LEN], path[SP_MAX_PATH], thumb[SP_MAX_PATH];
     str_copy(name, SP_COUNTOF(name), e->name);
+    str_copy(path, SP_COUNTOF(path), e->path);
+    str_copy(thumb, SP_COUNTOF(thumb), e->thumb);
     config_remove(&g_app.cfg, id);
-    LOGI(L"library: removed '%ls' (file left untouched)", name);
     app_save_config();
-    app_notice(NOTICE_INFO, L"Removed '%ls' from the library. The original file was not deleted.", name);
+    /* what Screen+ downloaded for a web link goes with its entry */
+    if (url_import_forget(path, thumb)) {
+        LOGI(L"library: removed '%ls' and deleted its download", name);
+        app_notice(NOTICE_INFO, L"Removed '%ls' and its downloaded file.", name);
+    } else {
+        LOGI(L"library: removed '%ls' (file left untouched)", name);
+        app_notice(NOTICE_INFO, L"Removed '%ls' from the library. The original file was not deleted.", name);
+    }
     ui_on_config_changed();
 }
 
