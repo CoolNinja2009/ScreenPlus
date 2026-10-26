@@ -46,7 +46,9 @@ typedef enum WallpaperFormat { WPF_PLAIN = 0, WPF_LIVELY = 1, WPF_WE = 2 } Wallp
 enum { WPFLAG_AUDIO   = 1,  /* audio-reactive (Lively "webaudio") */
        WPFLAG_URL     = 2,  /* path is an http(s) URL: an online page, or a streamed video */
        WPFLAG_SYSINFO = 4,  /* wants livelySystemInformation (Lively "--system-information") */
-       WPFLAG_YTDLP   = 8 };/* stream wallpaper (video, path is a page): yt-dlp finds the media address */
+       WPFLAG_YTDLP   = 8,  /* stream wallpaper (video, path is a page): yt-dlp finds the media address */
+       WPFLAG_DEPTH   = 16, /* image made interactive (depth.c): path is the generated page, `thumb` the picture */
+       WPFLAG_NOCOOL  = 32 };/* image the user took back to plain: the "interactive images" setting skips it */
 
 typedef struct WallpaperEntry {
     wchar_t       id[SP_ID_LEN];
@@ -80,6 +82,7 @@ typedef struct Settings {
     int       htmlAudio;      /* system-audio spectrum for audio-reactive wallpapers */
     int       livelyImport;   /* add newly installed Lively Wallpaper packages at launch */
     int       urlImport;      /* link button: import from web links (setup's optional yt-dlp component) */
+    int       depthAll;       /* make every image wallpaper interactive (depth.c) when it is applied */
     ThemeMode theme;
 } Settings;
 

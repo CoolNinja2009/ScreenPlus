@@ -908,6 +908,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"html_audio",          offsetof(Settings, htmlAudio),         SK_BOOL,  L"System audio spectrum for web wallpapers" },
     { L"lively_auto_import",  offsetof(Settings, livelyImport),      SK_BOOL,  L"Add new Lively Wallpaper packages at launch" },
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
+    { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
 };
 
@@ -978,6 +979,7 @@ static void cmd_settings(Reply *r, const Req *q)
             } else {
                 *field = on;
                 app_save_config();
+                if (field == &s->depthAll) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download */
             }
         }
         ui_on_config_changed();

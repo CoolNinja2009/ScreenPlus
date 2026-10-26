@@ -10,6 +10,7 @@
 #define WM_SP_TRAY          (WM_APP + 61)
 #define WM_SP_STATUS        (WM_APP + 62)
 #define WM_SP_URLIMPORT     (WM_APP + 63)   /* wParam 0: progress, 1: job finished (lParam: the job) */
+#define WM_SP_DEPTH         (WM_APP + 64)   /* wParam 0: progress, 1: job finished (lParam: the job) */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
@@ -120,3 +121,27 @@ void url_import_sweep(void);                           /* startup: delete downlo
  * preview). TRUE when a downloaded wallpaper file was deleted. */
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb);
 BOOL url_import_is_download(const wchar_t *path);      /* a file Screen+ downloaded (removed with its entry) */
+
+/* depth.c: "Make wallpaper cooler" turns an image wallpaper into an interactive depth web wallpaper (the
+ * entry becomes WP_HTML + WPFLAG_DEPTH). One job at a time; the downloads (ONNX Runtime, model) are only
+ * ever started by the user's own action. depth_infer.c is the --depth child process that runs the model. */
+typedef struct DepthState {
+    int     busy;
+    int     percent;        /* -1: unknown */
+    int     failed;         /* text says why the last job failed */
+    wchar_t id[SP_ID_LEN];  /* wallpaper being converted; empty: only fetching the files */
+    wchar_t text[200];
+} DepthState;
+BOOL depth_ready(void);                                /* runtime and model are downloaded (cheap check) */
+BOOL depth_can_cool(const WallpaperEntry *e);          /* a still picture that exists (not an animated GIF) */
+BOOL depth_start(const wchar_t *wallpaperId);          /* "" fetches the files only; FALSE: busy or not an image */
+void depth_cancel(void);
+void depth_get(DepthState *out);
+void depth_revert(const wchar_t *wallpaperId);         /* back to the plain image; the depth data is kept */
+void depth_auto(const wchar_t *wallpaperId);           /* "interactive images" setting: cool this wallpaper if it is a new image */
+void depth_auto_all(BOOL fetchMissing);                /* the same for every assigned wallpaper; fetchMissing: the user just switched it on */
+void depth_forget(const WallpaperEntry *e);            /* the entry was removed: delete its generated page */
+void depth_sweep(void);                                /* startup: delete generated pages no entry uses */
+void depth_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_DEPTH */
+void depth_shutdown(void);
+int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int cpuOnly, int wantPng);   /* ScreenPlus.exe --depth */

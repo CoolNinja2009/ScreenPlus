@@ -94,6 +94,9 @@ BOOL html_grab(Renderer *r);
 /* Shared WIC helper: decode (file path or stream), apply EXIF orientation and scale-to-cover
  * into a top-down 32-bpp DIB of exactly w x h. Caller owns the HBITMAP. */
 HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut);
+struct IWICBitmapFrameDecode;
+UINT image_exif_orientation(struct IWICBitmapFrameDecode *frame);   /* 1..8 (1: upright or unknown) */
+int  image_orientation_transform(UINT orientation);                /* WICBitmapTransformOptions that makes it upright */
 
 /* Shared D3D11 presenter for static content (video_renderer.c). Flip-model swap chain on the
  * host window; the texture can be released after a successful present. Thread-safe. */

@@ -30,7 +30,7 @@ void renderer_post(HWND notify, uint32_t rid, int code, HRESULT hr, const wchar_
 
 /* ------------------------------------------------------------------ WIC decode */
 
-static UINT exif_orientation(IWICBitmapFrameDecode *frame)
+UINT image_exif_orientation(IWICBitmapFrameDecode *frame)
 {
     IWICMetadataQueryReader *q = NULL;
     UINT o = 1;
@@ -49,15 +49,15 @@ static UINT exif_orientation(IWICBitmapFrameDecode *frame)
     return (o >= 1 && o <= 8) ? o : 1;
 }
 
-static WICBitmapTransformOptions orientation_transform(UINT o)
+int image_orientation_transform(UINT o)
 {
     switch (o) {
     case 2: return WICBitmapTransformFlipHorizontal;
     case 3: return WICBitmapTransformRotate180;
     case 4: return WICBitmapTransformFlipVertical;
-    case 5: return (WICBitmapTransformOptions)(WICBitmapTransformRotate90 | WICBitmapTransformFlipHorizontal);
+    case 5: return WICBitmapTransformRotate90 | WICBitmapTransformFlipHorizontal;
     case 6: return WICBitmapTransformRotate90;
-    case 7: return (WICBitmapTransformOptions)(WICBitmapTransformRotate270 | WICBitmapTransformFlipHorizontal);
+    case 7: return WICBitmapTransformRotate270 | WICBitmapTransformFlipHorizontal;
     case 8: return WICBitmapTransformRotate270;
     default: return WICBitmapTransformRotate0;
     }
@@ -92,10 +92,10 @@ HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, H
 
     src = (IWICBitmapSource *)frame;
     IWICBitmapSource_AddRef(src);
-    UINT orient = exif_orientation(frame);
+    UINT orient = image_exif_orientation(frame);
     if (orient != 1) {
         if (SUCCEEDED(IWICImagingFactory_CreateBitmapFlipRotator(f, &rot)) &&
-            SUCCEEDED(IWICBitmapFlipRotator_Initialize(rot, src, orientation_transform(orient)))) {
+            SUCCEEDED(IWICBitmapFlipRotator_Initialize(rot, src, (WICBitmapTransformOptions)image_orientation_transform(orient)))) {
             IWICBitmapSource_Release(src);
             src = (IWICBitmapSource *)rot;
             IWICBitmapSource_AddRef(src);

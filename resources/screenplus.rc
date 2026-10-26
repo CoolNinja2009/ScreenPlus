@@ -2,6 +2,7 @@
 #include "resource.h"
 
 IDI_APP ICON "app.ico"
+IDR_DEPTH_HTML RCDATA "depth.html"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "screenplus.manifest"
 
 #ifndef SP_VERSION_STR                 /* normally defined by CMake from the project version */

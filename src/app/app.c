@@ -103,6 +103,7 @@ void app_apply_wallpaper(const wchar_t *wallpaperId, const wchar_t *monitorIdOrN
     LOGI(L"apply '%ls' (%ls) to %ls", e->name, wallpaper_type_name(e->type), monitorIdOrNull ? monitorIdOrNull : L"all displays");
     if (e->missing) app_notice(NOTICE_WARN, L"'%ls' could not be found at its original location.", e->name);
     app_save_config();
+    depth_auto(wallpaperId);        /* "interactive images" setting: an image is cooled in the background */
 }
 
 void app_set_paused(BOOL paused)
@@ -154,6 +155,7 @@ void app_exit(void)
     g_app.exiting = 1;
     LOGI(L"exit requested");
     url_import_shutdown();
+    depth_shutdown();
     ui_destroy();
     supervisor_stop();
     tray_remove();
@@ -217,6 +219,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SP_URLIMPORT:
         url_import_on_event(wp, lp);
+        return 0;
+    case WM_SP_DEPTH:
+        depth_on_event(wp, lp);
         return 0;
     case WM_SP_TRAY:
         tray_on_message(wp, lp);
@@ -354,7 +359,10 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     if (forward == CMD_PAUSE) g_app.cfg.s.paused = 1;
     if (forward == CMD_RESUME) g_app.cfg.s.paused = 0;
     apply_setup_choice();
-    if (loaded) url_import_sweep();   /* only against a library that loaded, never a damaged one */
+    if (loaded) {                     /* only against a library that loaded, never a damaged one */
+        url_import_sweep();
+        depth_sweep();
+    }
     if (g_app.cfg.s.livelyImport)
         library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
     library_check_missing();
@@ -378,6 +386,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     g_app.nativeInitMs = (double)(filetime_now() - g_app.processStart) / 10000.0;
     LOGI(L"native init complete: %.1f ms after process creation", g_app.nativeInitMs);
 
+    depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
     if (!trayOnly && !g_app.cfg.s.launchToTray) app_show_ui();
     else if (forward == CMD_NEXT_WALLPAPER) app_next_wallpaper();
 

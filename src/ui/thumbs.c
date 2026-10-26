@@ -21,6 +21,7 @@ typedef struct Req {
     wchar_t         anim[SP_MAX_PATH];    /* animation source (animation requests only) */
     WallpaperType   type;
     WallpaperFormat format;
+    int             flags;                /* WPFLAG_* */
     int             w, h, large;
 } Req;
 
@@ -137,6 +138,7 @@ static int manifest_gif(const wchar_t *dir, const wchar_t *manifest, const char 
  * wallpaper itself, or (for videos without one) the video. Still images get no animation. */
 static int anim_source(const Req *r, wchar_t *out, size_t cap)
 {
+    if (r->flags & WPFLAG_DEPTH) return 0;      /* a picture that only moves with the mouse: its still is the picture */
     if (r->type == WP_IMAGE) {
         if (!is_gif(r->path) || !file_exists(r->path)) return 0;
         str_copy(out, cap, r->path);
@@ -318,6 +320,7 @@ void thumbs_request(const WallpaperEntry *e, int w, int h, int large)
     str_copy(r->thumb, SP_COUNTOF(r->thumb), e->thumb);
     r->type = e->type;
     r->format = e->format;
+    r->flags = e->flags;
     r->w = w;
     r->h = h;
     r->large = large;

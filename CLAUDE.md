@@ -27,7 +27,9 @@ repository; open only the files a change touches. README.md is the user-facing d
   `config.ini` itself and reloads on command.
 - **Preview helper**: `ScreenPlus.exe --capture-preview <id>` (`src/app/preview_capture.c`) records HTML
   previews into `cache\previews`.
-- **Child processes**: WebView2 browser processes, and yt-dlp (+ qjs) for link wallpapers.
+- **Depth helper**: `ScreenPlus.exe --depth <image> <dir> [--cpu] [--png]` (`src/app/depth_infer.c`) runs the depth
+  model on one picture and exits (0 ok, 2 unreadable picture, 3 ONNX Runtime missing, 4 inference failed).
+- **Child processes**: WebView2 browser processes, yt-dlp (+ qjs) for link wallpapers, `tar.exe` once to unpack ONNX Runtime.
 - **IPC** (`src/common/ipc.h`) is WM_COPYDATA:
   - `IPC_ENGINE_HELLO` / `IPC_ENGINE_STATUS`: engine → shell.
   - `IPC_ENGINE_CMD`: shell → engine, `CMD_*`, sent with `supervisor_send`.
@@ -41,6 +43,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/app.c` | Shell window proc (`shell_proc`), `app_notice`, apply/pause/audio, setup handoff (`apply_setup_choice`) |
 | `src/app/library.c` | Imports (files, folders, Lively/WE packages, Lively auto-discovery), remove, missing check |
 | `src/app/url_import.c` | Link button job on a worker thread: direct downloads, yt-dlp streams/downloads, live pages |
+| `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/startup.c`, `supervisor.c` | HKCU Run entry; engine process lifecycle |
 | `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools), IPC for the rest |
@@ -89,12 +92,14 @@ Renderer details:
   | `WebView2\` | WebView2 user data |
   | `downloads\` | Link imports; deleted with their entry |
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |
+  | `depth\` | `ort\onnxruntime.dll`, `model.onnx` (both downloaded on request, pinned in `depth.c`), `<id>\` = a depth wallpaper's page, picture, `depth.png` |
 - `WallpaperEntry` fields:
   - `type`: image, video or html.
   - `path`: a file, the HTML entry document, or an http(s) URL.
   - `format`: plain, lively or we.
   - `flags`: `WPFLAG_URL` (http(s) path), `WPFLAG_YTDLP` (a stream that yt-dlp resolves), `WPFLAG_AUDIO`,
-    `WPFLAG_SYSINFO`.
+    `WPFLAG_SYSINFO`, `WPFLAG_DEPTH` (an image converted by depth.c: `type` html, `path` its page, `thumb` the
+    original picture), `WPFLAG_NOCOOL` (the user took it back to plain; the "interactive images" setting skips it).
   - `thumb`.
 - To add a setting:
   1. Add the field to `Settings` in `config.h`.
@@ -118,6 +123,19 @@ Renderer details:
   video becomes a live HTML wallpaper.
 - yt-dlp.exe is a PyInstaller one-file build. It ignores `PYTHON*` variables, so pass `--encoding utf-8`.
   Killing its launcher leaks `%TEMP%\_MEI*`, so stop its children first (`stop_tree` in `ytdlp.c`).
+
+## Depth wallpapers (v1.6)
+- Pinned in `depth.c`: the DirectML ONNX Runtime NuGet package (URL, size, SHA-256 of the package and of
+  `onnxruntime.dll`) and the onnx-community Depth Anything V2 Small FP32 model. CMake downloads the same package
+  for its C API headers only (`ORT_VERSION`/`ORT_SHA256`): keep both in step. DirectML is the system's copy.
+- Nothing downloads unless the user pressed Make wallpaper cooler or switched on `interactive_images`.
+- The child tries DirectML (`HighPerformance` GPU), then the CPU; the parent retries once on the CPU if it dies.
+  Model: input `pixel_values` [1,3,H,W] (H, W multiples of 14, short side 518, long side at most 1036), output
+  `predicted_depth`; shapes are fixed with free-dimension overrides. Depth map = min-max normalised, dilated, blurred.
+- The page is the existing HTML renderer's: Lively properties (`LivelyProperties.json`) give Customise its depth
+  strength / auto move controls and the engine forwards the mouse. It draws only while something moves.
+- Test the child with `SCREENPLUS_DATA_DIR=<scratch>` holding `depth\model.onnx` + `depth\ort\onnxruntime.dll`:
+  `ScreenPlus.exe --depth <image> <outdir>`; read `logs\depth.log`.
 
 ## Conventions
 - C17 with MSVC `/W4 /utf-8` and zero warnings. Use `wchar_t` throughout, and UTF-8 only at file, JSON and

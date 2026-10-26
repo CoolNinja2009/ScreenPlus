@@ -513,11 +513,13 @@ void library_remove(const wchar_t *id)
     WallpaperEntry *e = config_find(&g_app.cfg, id);
     if (!e) return;
     wchar_t name[SP_NAME_LEN], path[SP_MAX_PATH], thumb[SP_MAX_PATH];
+    WallpaperEntry gone = *e;                   /* depth_forget needs it once the entry is out of the list */
     str_copy(name, SP_COUNTOF(name), e->name);
     str_copy(path, SP_COUNTOF(path), e->path);
     str_copy(thumb, SP_COUNTOF(thumb), e->thumb);
     config_remove(&g_app.cfg, id);
     app_save_config();
+    depth_forget(&gone);                        /* the page "Make wallpaper cooler" generated goes with its entry */
     /* what Screen+ downloaded for a web link goes with its entry */
     if (url_import_forget(path, thumb)) {
         LOGI(L"library: removed '%ls' and deleted its download", name);

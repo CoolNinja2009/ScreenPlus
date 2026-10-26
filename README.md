@@ -34,6 +34,7 @@
 | 🖥️ **Multi-monitor** | One wallpaper everywhere, or a different one on each display. |
 | 🔋 **Gets out of the way** | Pauses for fullscreen games and videos, covered or locked screens and battery power. A renderer that crashes restarts on its own. |
 | 🖱️ **Interactive** | Web wallpapers can react to the mouse on the desktop. The keyboard is never shared. |
+| 🧊 **Make wallpaper cooler** | Turns any picture into a 3D wallpaper that follows your mouse: the Depth Anything V2 AI model finds the depth on your GPU (DirectML) or CPU. A one-time download of about 110 MB, and only when you ask for it. |
 | 📦 **Friendly installer** | Per-user, no administrator rights. Default or clean install, updates in place, and a real uninstaller. |
 
 ## Screenshots
@@ -114,6 +115,17 @@ Native-app, Unity, Godot and Wallpaper Engine *scene* projects need their origin
 </details>
 
 <details>
+<summary><b>Make wallpaper cooler (depth wallpapers)</b></summary>
+<br>
+
+- An image wallpaper has a **Make wallpaper cooler** button in **Customise**. The first press downloads ONNX Runtime and the Depth Anything V2 Small model (about 110 MB, checked against pinned SHA-256 hashes and kept in `%LOCALAPPDATA%\ScreenPlus\depth\`). Nothing is downloaded, or bundled, before you ask.
+- The model runs in its own process on your GPU through DirectML (the fastest adapter) and falls back to the CPU. It takes a few seconds per picture.
+- The picture becomes a web wallpaper: near things slide over far ones as you move the mouse over the desktop. **Depth strength**, **Auto move** and its speed are under *Wallpaper properties*; **Use plain image** switches back. The page only draws while something moves.
+- **Settings › HTML wallpapers › Make image wallpapers interactive** does this to every image you apply (switching it on starts the download). Mouse movement needs *Allow desktop mouse interaction*; Auto move does not.
+- Needs the Microsoft Visual C++ Redistributable (x64), which most PCs already have.
+</details>
+
+<details>
 <summary><b>For wallpaper creators: web API</b></summary>
 <br>
 
@@ -181,6 +193,7 @@ uninstall.exe /S                                                      silent uni
 | `%LOCALAPPDATA%\ScreenPlus\cache\previews\` | Recorded web previews, safe to delete |
 | `%LOCALAPPDATA%\ScreenPlus\downloads\` | Wallpapers saved from links, deleted with their library entry |
 | `%LOCALAPPDATA%\ScreenPlus\tools\` | yt-dlp and QuickJS-NG (`screenplus tools remove` deletes them) |
+| `%LOCALAPPDATA%\ScreenPlus\depth\` | ONNX Runtime, the depth model and one folder per depth wallpaper (deleted with its entry) |
 | `SCREENPLUS_DATA_DIR` | Use another data folder, e.g. for a portable setup |
 | `SCREENPLUS_HWDEC=zerocopy` or `off` | Video decoding mode. Default: GPU decode plus one GPU-side copy per frame |
 

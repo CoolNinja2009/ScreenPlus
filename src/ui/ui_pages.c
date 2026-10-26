@@ -648,15 +648,19 @@ static void draw_settings(Ui *u, float cx, float cw)
     y += 10;
     y = section(u, x, y, L"HTML WALLPAPERS");
     {
-        int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL };
+        DepthState ds;
+        depth_get(&ds);
+        int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_DEPTH_ALL };
         const wchar_t *l[] = { L"Allow desktop mouse interaction", L"Enable audio-reactive spectrum",
-                               L"Import Lively wallpapers automatically", L"Import wallpapers from web links" };
+                               L"Import Lively wallpapers automatically", L"Import wallpapers from web links",
+                               L"Make image wallpapers interactive" };
         const wchar_t *d[] = { L"Forwards mouse activity only while the pointer is over the desktop; keyboard is never shared",
                                L"Captures the default output device only when an HTML wallpaper requests it",
                                L"Adds newly installed Lively Wallpaper packages each time Screen+ starts",
-                               L"Shows the link button in the Library; video sites use yt-dlp, downloaded once (about 20 MB)" };
-        int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport, s->urlImport };
-        y = toggle_group(u, x, y, w, idx, l, d, v, 4);
+                               L"Shows the link button in the Library; video sites use yt-dlp, downloaded once (about 20 MB)",
+                               ds.busy && !ds.id[0] ? ds.text : L"Every image you apply follows the mouse in 3D; downloads about 110 MB once" };
+        int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport, s->urlImport, s->depthAll };
+        y = toggle_group(u, x, y, w, idx, l, d, v, 5);
     }
     y += 26;
     y = section(u, x, y, L"RENDERER & DIAGNOSTICS");
@@ -1495,6 +1499,41 @@ static float draw_props_section(Ui *u, float x, float y, float w)
     return y + card + 26.0f;
 }
 
+/* Image wallpapers, and the interactive pages made from them (depth.c). */
+static float draw_cooler_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
+{
+    Theme *t = &u->t;
+    DepthState st;
+    depth_get(&st);
+    int cool = (e->flags & WPFLAG_DEPTH) != 0, mine = !st.id[0] || str_ieq(st.id, e->id);
+    int busy = st.busy && mine, failed = !st.busy && st.failed && st.text[0] && mine;
+    const float h = 100.0f;
+    y = section(u, x, y, L"MAKE WALLPAPER COOLER");
+    ui_glass(rectf(x, y, w, h), 14, 0, 0);
+    const wchar_t *label = busy ? L"Cancel" : cool ? L"Use plain image" : L"Make wallpaper cooler";
+    wchar_t icon = busy ? GL_CLOSE : cool ? GL_PHOTO : GL_SPEED;
+    float bw = ui_button_width(label, icon);
+    ui_button(HIT_ID(HK_COOL, busy ? 2 : cool ? 1 : 0), rectf(x + w - 18 - bw, y + 14, bw, 36), label, icon,
+              busy ? BTN_SECONDARY : cool ? BTN_GHOST : BTN_PRIMARY);
+    ui_text(cool ? L"Interactive depth is on" : L"Interactive depth", u->fBodyB, rectf(x + 18, y + 16, w - 54 - bw, 22), t->text);
+    if (busy) {
+        D2D1_RECT_F bar = rectf(x + 18, y + 72, w - 36, 4);
+        ui_text(st.text, u->fSmall, rectf(x + 18, y + 46, w - 36, 18), t->text2);
+        ui_rrect(bar, 2, t->track);
+        if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
+        return y + h + 26.0f;
+    }
+    const wchar_t *note;
+    if (failed) note = st.text;
+    else if (st.busy) note = L"Another wallpaper is being made cooler. Try again when it has finished.";
+    else if (cool) note = g_app.cfg.s.htmlMouse ? L"This picture moves with your mouse. Depth strength and Auto move are under Wallpaper properties below."
+                                                : L"Mouse interaction is off in Settings, so only Auto move animates it. Depth strength and Auto move are below.";
+    else if (depth_ready()) note = L"Adds real depth to this picture so it follows your mouse. The AI model runs on your GPU, or your CPU if it has none.";
+    else note = L"Adds real depth to this picture so it follows your mouse. Needs the Depth Anything V2 AI model, downloaded once (about 110 MB).";
+    ui_text(note, u->fWrap, rectf(x + 18, y + 46, w - 36, 44), failed ? t->danger : t->text2);
+    return y + h + 26.0f;
+}
+
 static void draw_customise(Ui *u, float cx, float cw)
 {
     Theme *t = &u->t;
@@ -1525,6 +1564,7 @@ static void draw_customise(Ui *u, float cx, float cw)
                 u->fBody, rectf(x + 20, y + 100, w - 40, 22), t->text2);
         y += 190;
     } else {
+        if (depth_can_cool(e) || (e->flags & WPFLAG_DEPTH)) y = draw_cooler_section(u, x, y, w, e);
         y = draw_look_section(u, x, y, w, e);
         y = draw_props_section(u, x, y, w);
     }
@@ -1569,10 +1609,12 @@ static void toggle_setting(int idx)
     case TOG_HTML_SPECTRUM: s->htmlAudio = !s->htmlAudio; break;
     case TOG_LIVELY:     s->livelyImport = !s->livelyImport; break;
     case TOG_URL:        s->urlImport = !s->urlImport; break;
+    case TOG_DEPTH_ALL:  s->depthAll = !s->depthAll; break;
     case TOG_AUDIO:      app_set_audio(!s->audio); ui_animate(); return;
     default: return;
     }
     app_save_config();
+    if (idx == TOG_DEPTH_ALL) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download and to start on the current image */
     ui_animate();
 }
 
@@ -1662,6 +1704,18 @@ void pages_activate(int id, int dbl)
         cus.adj = adjust_defaults();
         look_commit(0);
         break;
+    case HK_COOL: {
+        WallpaperEntry *e = customise_entry();
+        if (!e) break;
+        if (data == 2) depth_cancel();
+        else if (data == 1) depth_revert(e->id);
+        else {
+            e->flags &= ~WPFLAG_NOCOOL;      /* asked for by hand: the "interactive images" setting may keep it cool too */
+            depth_start(e->id);
+        }
+        ui_invalidate();
+        break;
+    }
     case HK_RESET_PROPS: {
         WallpaperEntry *e = customise_entry();
         if (e) {

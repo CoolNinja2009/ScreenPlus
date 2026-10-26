@@ -453,6 +453,9 @@ Section "Uninstall"
   Delete "$LOCALAPPDATA\ScreenPlus\tools\qjs.exe"
   Delete "$LOCALAPPDATA\ScreenPlus\tools\*.download"
   RMDir "$LOCALAPPDATA\ScreenPlus\tools"
+  Delete "$LOCALAPPDATA\ScreenPlus\depth\model.onnx*"    ; downloaded depth model + ONNX Runtime (not user data)
+  Delete "$LOCALAPPDATA\ScreenPlus\depth\ort\*"
+  RMDir "$LOCALAPPDATA\ScreenPlus\depth\ort"
 
   Delete "$SMPROGRAMS\${APP_NAME}.lnk"
   Delete "$DESKTOP\${APP_NAME}.lnk"

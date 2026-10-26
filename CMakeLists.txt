@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "1.5.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
+set(SCREENPLUS_VERSION "1.6.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
 project(ScreenPlus VERSION ${SCREENPLUS_VERSION} LANGUAGES C)
 
 if(NOT MSVC)
@@ -23,6 +23,20 @@ if(NOT EXISTS "${WEBVIEW2_SDK_DIR}/build/native/include/WebView2.h")
     file(DOWNLOAD "https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/${WEBVIEW2_VERSION}/microsoft.web.webview2.${WEBVIEW2_VERSION}.nupkg"
          "${_pkg}" EXPECTED_HASH SHA256=${WEBVIEW2_SHA256} TLS_VERIFY ON)
     file(ARCHIVE_EXTRACT INPUT "${_pkg}" DESTINATION "${WEBVIEW2_SDK_DIR}")
+endif()
+
+# ---------------------------------------------------------------- ONNX Runtime C API headers (MIT)
+# Only the headers are used at build time. The DirectML build of onnxruntime.dll comes from the very same
+# package at run time (src/app/depth.c downloads it on the user's request, pinned by the same SHA-256).
+set(ORT_VERSION "1.24.4")
+set(ORT_SHA256 "57E9F11B73437BEF7A309496135D4C1F96B1A8E9DDBA60013FA27BFC1D788681")
+set(ORT_SDK_DIR "${CMAKE_BINARY_DIR}/_deps/onnxruntime" CACHE PATH "Extracted Microsoft.ML.OnnxRuntime.DirectML NuGet package")
+if(NOT EXISTS "${ORT_SDK_DIR}/build/native/include/onnxruntime_c_api.h")
+    set(_pkg "${CMAKE_BINARY_DIR}/_deps/microsoft.ml.onnxruntime.directml.${ORT_VERSION}.nupkg")
+    message(STATUS "Downloading ONNX Runtime ${ORT_VERSION} (DirectML) from nuget.org")
+    file(DOWNLOAD "https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/${ORT_VERSION}/microsoft.ml.onnxruntime.directml.${ORT_VERSION}.nupkg"
+         "${_pkg}" EXPECTED_HASH SHA256=${ORT_SHA256} TLS_VERIFY ON)
+    file(ARCHIVE_EXTRACT INPUT "${_pkg}" DESTINATION "${ORT_SDK_DIR}" PATTERNS "build/native/include/*")
 endif()
 
 # ---------------------------------------------------------------- FFmpeg (LGPL-2.1+, shared)
@@ -91,14 +105,16 @@ set(SOURCES
     src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
-    src/app/cli_server.c src/app/url_import.c
+    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c
     src/tray/tray.c
     src/ui/ui_core.c src/ui/ui_pages.c src/ui/thumbs.c
     resources/screenplus.rc
 )
 add_executable(ScreenPlus WIN32 ${SOURCES} ${SHADER_HEADERS})
 target_include_directories(ScreenPlus PRIVATE src "${SHADER_OUT}")
-target_include_directories(ScreenPlus SYSTEM PRIVATE "${WEBVIEW2_SDK_DIR}/build/native/include" "${FFMPEG_DIR}/include")
+target_include_directories(ScreenPlus SYSTEM PRIVATE "${WEBVIEW2_SDK_DIR}/build/native/include" "${FFMPEG_DIR}/include"
+                                                     "${ORT_SDK_DIR}/build/native/include")
+set_source_files_properties(resources/screenplus.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/resources/depth.html")
 target_compile_definitions(ScreenPlus PRIVATE UNICODE _UNICODE COBJMACROS NOMINMAX
                                               _WIN32_WINNT=0x0A00 WINVER=0x0A00 NTDDI_VERSION=0x0A00000C
                                               _CRT_SECURE_NO_WARNINGS

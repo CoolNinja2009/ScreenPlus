@@ -1,0 +1,130 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Depth wallpaper</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000}
+#bg,#c{position:fixed;left:0;top:0;width:100%;height:100%}
+#bg{background:url(__IMG__) center/cover no-repeat;transform:scale(1.0638)}
+#c{opacity:0;transition:opacity .4s}
+</style>
+<div id="bg"></div><canvas id="c"></canvas>
+<script>
+/* Interactive depth wallpaper made by Screen+ ("Make wallpaper cooler"): the picture (__IMG__) is shifted per
+ * pixel by a depth map (depth.png, 255 = nearest) with a parallax-occlusion raymarch, so near things slide
+ * over far ones when the pointer moves. Plain WebGL2, no libraries. Frames are drawn only while something
+ * moves: an idle desktop costs no GPU time. If WebGL2 or the textures fail, the CSS picture stays. */
+(function () {
+  var cv = document.getElementById('c'), bg = document.getElementById('bg');
+  var gl = cv.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false });
+  if (!gl) return;
+  var P = { strength: 40, autoMove: false, autoSpeed: 100 };
+  window.livelyPropertyListener = function (n, v) {
+    if (!(n in P)) return;
+    P[n] = v;
+    if (n === 'autoMove' && !v) tx = ty = 0;
+    kick();
+  };
+
+  var VS = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0,1);}';
+  var FS = '#version 300 es\nprecision highp float;\n' +
+    'uniform sampler2D I,D;uniform vec2 R,M,K;uniform float S,N;out vec4 o;\n' +
+    'float h(vec2 u){return textureLod(D,clamp(u,.001,.999),0.).r;}\n' +
+    'void main(){\n' +
+    ' vec2 st=(gl_FragCoord.xy/R-.5)*K+.5;\n' +
+    ' vec2 off=-M*S,d=off/N,u=st-off*.5;\n' +
+    ' float ls=1./N,l=1.,m=h(u);\n' +
+    ' for(int i=0;i<40;i++){if(float(i)>=N||l<=m)break;u+=d;m=h(u);l-=ls;}\n' +
+    ' float a=m-l,b=h(u-d)-(l+ls);\n' +
+    ' u=mix(u,u-d,clamp(a/(a-b+1e-5),0.,1.));\n' +
+    ' o=vec4(texture(I,clamp(u,.001,.999)).rgb,1.);}';
+  function shader(t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; }
+  var pr = gl.createProgram();
+  gl.attachShader(pr, shader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(pr, shader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(pr);
+  if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return;
+  gl.useProgram(pr);
+  var U = {};
+  ['I', 'D', 'R', 'M', 'K', 'S', 'N'].forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
+  gl.uniform1i(U.I, 0);
+  gl.uniform1i(U.D, 1);
+
+  function tex(img, unit, ifmt, fmt, mip) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, mip ? gl.BROWSER_DEFAULT_WEBGL : gl.NONE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, ifmt, fmt, gl.UNSIGNED_BYTE, img);
+    if (mip) gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mip ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+
+  var ready = 0, run = 0, last = 0, ph = 0, mx = 0, my = 0, tx = 0, ty = 0, iw = 1, ih = 1, kx = 1, ky = 1;
+  function size() {
+    var d = window.devicePixelRatio || 1, w = Math.max(1, Math.round(innerWidth * d)), h = Math.max(1, Math.round(innerHeight * d));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    var sa = w / h, ia = iw / ih;
+    kx = Math.min(sa / ia, 1) * 0.94;    /* cover the screen, 6% closer so shifted pixels stay inside the picture */
+    ky = Math.min(ia / sa, 1) * 0.94;
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(U.R, w, h);
+    gl.uniform2f(U.K, kx, ky);
+  }
+  function draw() {
+    var s = P.strength / 100 * 0.075;
+    var px = Math.hypot(mx * s / kx * cv.width, my * s / ky * cv.height);      /* shift in screen pixels */
+    gl.uniform2f(U.M, mx, my);
+    gl.uniform1f(U.S, s);
+    gl.uniform1f(U.N, Math.max(4, Math.min(40, Math.ceil(px / 2.5))));         /* a step per ~2.5 px of shift */
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+  function frame(now) {
+    run = 0;
+    var dt = last ? Math.min((now - last) / 1000, 0.1) : 0.016;
+    last = now;
+    if (P.autoMove) {
+      ph += dt * P.autoSpeed / 100;
+      tx = Math.sin(ph * 1.2) * 0.75;
+      ty = Math.cos(ph * 0.8) * 0.45;
+    }
+    var k = 1 - Math.exp(-dt * 5);
+    mx += (tx - mx) * k;
+    my += (ty - my) * k;
+    draw();
+    if (P.autoMove || Math.abs(tx - mx) > 5e-4 || Math.abs(ty - my) > 5e-4) kick();
+    else last = 0;
+  }
+  function kick() { if (ready && !run) run = requestAnimationFrame(frame); }
+  function aim(x, y) { tx = x; ty = y; kick(); }
+
+  addEventListener('mousemove', function (e) {
+    if (P.autoMove) return;
+    var w = innerWidth, h = innerHeight;
+    if (e.clientX < 0 || e.clientY < 0 || e.clientX > w || e.clientY > h) aim(0, 0);   /* Screen+ sends -16,-16 on leave */
+    else aim((e.clientX / w - 0.5) * 2, -(e.clientY / h - 0.5) * 2);
+  }, { passive: true });
+  document.documentElement.addEventListener('mouseleave', function () { if (!P.autoMove) aim(0, 0); });
+  addEventListener('resize', function () { if (ready) { size(); draw(); } });
+  cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); });
+  cv.addEventListener('webglcontextrestored', function () { location.reload(); });
+
+  /* onload rather than decode(): a page that starts while the desktop is covered produces no frames yet */
+  function load(u) { return new Promise(function (ok, no) { var i = new Image(); i.onload = function () { ok(i); }; i.onerror = no; i.src = u; }); }
+  Promise.all([load('__IMG__'), load('depth.png')]).then(function (r) {
+    iw = r[0].naturalWidth;
+    ih = r[0].naturalHeight;
+    tex(r[0], 0, gl.RGB, gl.RGB, 1);
+    tex(r[1], 1, gl.R8, gl.RED, 0);
+    if (gl.getError()) return;           /* e.g. a picture larger than the GPU allows: keep the plain CSS picture */
+    ready = 1;
+    size();
+    draw();
+    cv.style.opacity = 1;
+    setTimeout(function () { bg.remove(); }, 500);
+    kick();                              /* the pointer may have moved while the picture loaded */
+  }).catch(function () {});
+})();
+</script>

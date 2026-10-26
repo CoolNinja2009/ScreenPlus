@@ -39,6 +39,17 @@ the Unlicense, its bundled components carry their own notices) and `qjs.exe`
 Fabrice Bellard, Charlie Gordon and the QuickJS-NG contributors, MIT License). Screen+ refuses
 any file that does not match these checksums.
 
+## ONNX Runtime 1.24.4 (DirectML build) — MIT; Depth Anything V2 Small — Apache-2.0 (optional, downloaded on request)
+
+Used only by "Make wallpaper cooler". Nothing is bundled: on the user's request Screen+ downloads, verifies
+(SHA-256) and keeps `onnxruntime.dll` from the official `Microsoft.ML.OnnxRuntime.DirectML` 1.24.4 NuGet package
+(SHA-256 `57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681`; Copyright (c) Microsoft
+Corporation, MIT License) and the unquantized FP32 ONNX export of Depth Anything V2 Small
+(<https://huggingface.co/onnx-community/depth-anything-v2-small>, SHA-256
+`afb6a5c28f3b6bf1618c6e43f02073ef9dfdc70e937502d51603e57b0a1df10c`; Copyright the Depth Anything V2 authors,
+Apache License 2.0). Only the ONNX Runtime C API headers are used at build time. DirectML is the copy that is
+part of Windows.
+
 ## Windows SDK / system components
 
 Direct3D 11, DXGI, Direct2D, DirectWrite, WIC, WASAPI, DWM and the Segoe fonts are part of
