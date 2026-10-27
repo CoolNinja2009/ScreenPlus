@@ -1,8 +1,9 @@
 /* Store: live wallpapers and still pictures from several sites (store_sources.c, docs/store/sources.md) in one
  * feed, searched and filtered as if it were one site, with copies of one wallpaper folded into the best of them.
  *   - A listing reads page n of every site the filters leave in, all at once, and merges the round one card from
- *     each site in turn, once all are in or ROUND_MS after the first: a slow site never holds the feed back, its
- *     cards join later. The next round is asked for a screen and a half before the end is reached.
+ *     each site in turn, once all are in or ROUND_MS after the first (FIRST_MS for a listing's first round, which
+ *     also pays every site's TLS handshake, so the first screen mixes them): a slow site never holds the feed back,
+ *     its cards join later. The next round is asked for a screen and a half before the end is reached.
  *   - Copies: every preview gets a 64-bit difference hash of its centre 16:9. Two cards of one kind whose hashes
  *     are near (or a little further apart when their titles agree) are one wallpaper: the one with more pixels,
  *     then the larger file (more detail at one resolution), stays. A copy whose resolution only its page tells
@@ -37,6 +38,7 @@
 #define CACHE_DAYS  7
 #define DAY_TICKS   864000000000ull /* FILETIME units */
 #define ROUND_MS    450
+#define FIRST_MS    1000
 
 enum { T_LIST = 0, T_DETAIL, T_PREVIEW };
 
@@ -718,7 +720,7 @@ static void on_list(Result *r)
         LOGW(L"store: %ls page %d: %ls", k_sources[r->source].name, r->page, x->error);
     }
     if (!g_out) round_merge();
-    else if (!g_roundTimer) g_roundTimer = SetTimer(NULL, 0, ROUND_MS, round_due);
+    else if (!g_roundTimer) g_roundTimer = SetTimer(NULL, 0, S.count ? ROUND_MS : FIRST_MS, round_due);
 }
 
 /* ---------------------------------------------------------------- the page's calls */
