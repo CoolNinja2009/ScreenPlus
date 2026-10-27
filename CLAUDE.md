@@ -60,6 +60,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/common/` | `util` (bounded `str_*`, paths, UTF-8, StrBuf), `log`, `paths` (data dirs), `json` (small DOM), `ipc.h`, `webfetch` (WinHTTP + pinned tool install + the Visual C++ runtime check/installer; the CLI uses it too), `ytdlp` (run/resolve yt-dlp, stream address cache) |
 | `installer/screenplus.nsi` | Per-user NSIS installer: install type page and an optional-features page (link tools) |
 | `resources/` | Icon, `.rc`, manifest (comctl32 v6, PerMonitorV2) |
+| `docs/store/` | Store sources (branch `store`): one file per site with its endpoints and parse anchors |
 
 Renderer details:
 - **Video**: one D3D11 swapchain per display and one `VideoSource` per path, shared across displays. Decode
