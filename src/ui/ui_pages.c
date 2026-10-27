@@ -1799,6 +1799,7 @@ static void screensaver_menu(int id)
     DestroyMenu(m);
     if (cmd == 1) app_set_screensaver(L"");
     else if (cmd >= 2 && (int)cmd - 2 < g_app.cfg.count) app_set_screensaver(g_app.cfg.items[cmd - 2].id);
+    ui_invalidate();
 }
 
 void pages_activate(int id, int dbl)
@@ -1868,6 +1869,7 @@ void pages_activate(int id, int dbl)
     case HK_IDENTIFY:      identify_displays(g_app.mons, g_app.monCount); break;
     case HK_SCR_CHOOSE:    screensaver_menu(id); break;
     case HK_SCR_PREVIEW:
+        app_save_config();
         if (!scr_launch(L"/s")) app_notice(NOTICE_ERROR, L"Could not start the screensaver preview.");
         break;
     case HK_SCR_TIMEOUT:   scr_set_timeout(data * 60); break;
@@ -1996,7 +1998,7 @@ void pages_context(int id, int sx, int sy)
     else if (cmd == 2 && link) shell_open(e.path);
     else if (cmd == 2) shell_reveal(e.path);
     else if (cmd == 3) library_remove(e.id);
-    else if (cmd == 4) app_set_screensaver(e.id);
+    else if (cmd == 4) app_set_screensaver(wcscmp(g_app.cfg.screensaver, e.id) == 0 ? L"" : e.id);
     ui_invalidate();
 }
 

@@ -447,7 +447,8 @@ BOOL config_save(const Config *c, const wchar_t *path)
     sb_printf(&b, "[settings]\r\nstart_with_windows=%d\r\nlaunch_to_tray=%d\r\npause_on_fullscreen=%d\r\n"
                   "pause_when_covered=%d\r\nsuspend_on_lock=%d\r\npause_on_battery=%d\r\naudio=%d\r\n"
                   "auto_recover=%d\r\npaused=%d\r\nhtml_mouse=%d\r\nhtml_audio=%d\r\nlively_auto_import=%d\r\n"
-                  "url_import=%d\r\ninteractive_images=%d\r\ntheme=%s\r\n\r\n",
+                  "url_import=%d\r\ninteractive_images=%d\r\ndisplay_mode=%s\r\nscreensaver_audio=%d\r\n"
+                  "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\ntheme=%s\r\n\r\n",
               s->startWithWindows, s->launchToTray, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
               s->pauseOnBattery, s->audio, s->autoRecover, s->paused, s->htmlMouse, s->htmlAudio, s->livelyImport,
               s->urlImport, s->depthAll,
@@ -458,6 +459,11 @@ BOOL config_save(const Config *c, const wchar_t *path)
     if (c->defaultWallpaper[0]) {
         sb_puts(&b, "default=");
         sb_put_wide(&b, c->defaultWallpaper);
+        sb_puts(&b, "\r\n");
+    }
+    if (c->screensaver[0]) {
+        sb_puts(&b, "screensaver=");
+        sb_put_wide(&b, c->screensaver);
         sb_puts(&b, "\r\n");
     }
     for (int a = 0; a < c->assignCount; a++) {

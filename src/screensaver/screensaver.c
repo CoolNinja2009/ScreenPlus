@@ -61,30 +61,25 @@ static void request_exit(const wchar_t *why)
     PostQuitMessage(0);
 }
 
-/* Over a fullscreen app (game, video, slideshow) or a presentation, or with the sign-in screen up,
- * a screensaver only gets in the way. */
+/* Over a presentation or on the sign-in screen, a screensaver should not start. */
 static int should_not_start(void)
 {
     QUERY_USER_NOTIFICATION_STATE q;
-    if (SUCCEEDED(SHQueryUserNotificationState(&q)) && q == QUNS_PRESENTATION_MODE) return 1;
+    if (SUCCEEDED(SHQueryUserNotificationState(&q)) && q == QUNS_PRESENTATION_MODE) {
+        LOGI(L"screensaver: not starting during presentation mode");
+        return 1;
+    }
     HDESK d = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
-    wchar_t name[64] = L"";
     if (d) {
+        wchar_t name[64] = L"";
         GetUserObjectInformationW(d, UOI_NAME, name, sizeof name, NULL);
         CloseDesktop(d);
+        if (str_ieq(name, L"Winlogon")) {
+            LOGI(L"screensaver: not starting on Winlogon desktop");
+            return 1;
+        }
     }
-    if (!str_ieq(name, L"Default")) return 1;
-    HWND fg = GetForegroundWindow();
-    if (!fg || !IsWindowVisible(fg) || IsIconic(fg)) return 0;
-    wchar_t cls[64] = L"";
-    GetClassNameW(fg, cls, SP_COUNTOF(cls));
-    if (str_ieq(cls, L"Progman") || str_ieq(cls, L"WorkerW") || str_ieq(cls, L"Shell_TrayWnd")) return 0;
-    RECT r;
-    if (FAILED(DwmGetWindowAttribute(fg, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof r))) GetWindowRect(fg, &r);
-    MONITORINFO mi = { sizeof mi };
-    if (!GetMonitorInfoW(MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST), &mi)) return 0;
-    return r.left <= mi.rcMonitor.left && r.top <= mi.rcMonitor.top && r.right >= mi.rcMonitor.right &&
-           r.bottom >= mi.rcMonitor.bottom;
+    return 0;
 }
 
 static void apply_state(void)

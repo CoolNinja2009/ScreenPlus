@@ -414,6 +414,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     tray_init(g_app.shellWnd, inst);
     g_app.nativeInitMs = (double)(filetime_now() - g_app.processStart) / 10000.0;
     LOGI(L"native init complete: %.1f ms after process creation", g_app.nativeInitMs);
+    scr_sync_binary();
 
     /* Library upkeep after the engine is on its way: none of it changes what the desktop shows first. */
     if (loaded) {                     /* only against a library that loaded, never a damaged one */

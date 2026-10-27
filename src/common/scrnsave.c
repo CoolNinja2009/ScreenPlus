@@ -37,9 +37,21 @@ void scr_query(ScrState *st)
     SystemParametersInfoW(SPI_GETSCREENSAVEACTIVE, 0, &b, 0);
     st->active = b && st->current[0];    /* "(None)" in Screen Saver Settings removes SCRNSAVE.EXE */
     if (SystemParametersInfoW(SPI_GETSCREENSAVETIMEOUT, 0, &t, 0)) st->timeoutSec = (int)t;
+    if (st->timeoutSec <= 0) {
+        wchar_t buf[32] = L"";
+        DWORD sz = sizeof buf;
+        if (RegGetValueW(HKEY_CURRENT_USER, DESKTOP_KEY, L"ScreenSaveTimeOut", RRF_RT_REG_SZ, NULL, buf, &sz) == ERROR_SUCCESS)
+            st->timeoutSec = _wtoi(buf);
+    }
     b = FALSE;
     SystemParametersInfoW(SPI_GETSCREENSAVESECURE, 0, &b, 0);
     st->secure = b != 0;
+    if (!st->secure) {
+        wchar_t buf[32] = L"";
+        DWORD sz = sizeof buf;
+        if (RegGetValueW(HKEY_CURRENT_USER, DESKTOP_KEY, L"ScreenSaverIsSecure", RRF_RT_REG_SZ, NULL, buf, &sz) == ERROR_SUCCESS)
+            st->secure = _wtoi(buf) != 0;
+    }
     wchar_t ours[SP_MAX_PATH];
     scr_path(ours, SP_COUNTOF(ours));
     st->ours = st->current[0] && same_file(st->current, ours);
@@ -93,17 +105,26 @@ BOOL scr_enable(BOOL on, wchar_t *err, size_t cap)
 
 BOOL scr_set_timeout(int seconds)
 {
-    return SystemParametersInfoW(SPI_SETSCREENSAVETIMEOUT, (UINT)SP_CLAMP(seconds, 60, 86400), NULL,
+    int s = SP_CLAMP(seconds, 60, 86400);
+    wchar_t val[16];
+    str_printf(val, SP_COUNTOF(val), L"%d", s);
+    RegSetKeyValueW(HKEY_CURRENT_USER, DESKTOP_KEY, L"ScreenSaveTimeOut", REG_SZ, val,
+                    (DWORD)((wcslen(val) + 1) * sizeof(wchar_t)));
+    return SystemParametersInfoW(SPI_SETSCREENSAVETIMEOUT, (UINT)s, NULL,
                                  SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 }
 
 BOOL scr_set_secure(BOOL on)
 {
+    const wchar_t *val = on ? L"1" : L"0";
+    RegSetKeyValueW(HKEY_CURRENT_USER, DESKTOP_KEY, L"ScreenSaverIsSecure", REG_SZ, val,
+                    (DWORD)((wcslen(val) + 1) * sizeof(wchar_t)));
     return SystemParametersInfoW(SPI_SETSCREENSAVESECURE, on ? TRUE : FALSE, NULL, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
 }
 
 BOOL scr_launch(const wchar_t *args)
 {
+    scr_sync_binary();
     wchar_t exe[SP_MAX_PATH], cmd[SP_MAX_PATH + 64];
     app_file(exe, SP_COUNTOF(exe), L"ScreenPlus.exe");
     str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --screensaver %ls", exe, args ? args : L"/s");
