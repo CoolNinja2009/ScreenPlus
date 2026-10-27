@@ -1,4 +1,4 @@
-/* Page content: sidebar, Library (hero + grid), Displays, Settings/Diagnostics.
+/* Page content: sidebar, Library (hero + grid), Displays, Customise, Store, Settings/Diagnostics.
  * Immediate-mode: layout is recomputed on every paint (paints only happen on change). */
 #include "ui_internal.h"
 #include "../common/util.h"
@@ -104,8 +104,8 @@ static void draw_sidebar(Ui *u)
     ui_line(35, 46, 43, 46, 1.6f, t->onAccent);
     ui_text(L"Screen+", u->fBrand, rectf(64, 22, 150, 30), t->text);
 
-    static const wchar_t *labels[] = { L"Library", L"Displays", L"Customise", L"Settings" };
-    static const wchar_t icons[] = { GL_LIBRARY, GL_DISPLAY, GL_COLOR, GL_SETTINGS };
+    static const wchar_t *labels[] = { L"Library", L"Displays", L"Customise", L"Store", L"Settings" };
+    static const wchar_t icons[] = { GL_LIBRARY, GL_DISPLAY, GL_COLOR, GL_STORE, GL_SETTINGS };
     float y = 84;
     for (int i = 0; i < PAGE_COUNT; i++) {
         int id = HIT_ID(HK_NAV, i);
@@ -201,24 +201,26 @@ static struct {
 
 static float draw_url_panel(Ui *u, float x, float y, float w);
 
-static void draw_search(Ui *u, D2D1_RECT_F r)
+/* A search box (the Library's, the Store's): text holds what was typed; the engine draws it while editing. */
+static void draw_search(Ui *u, D2D1_RECT_F r, int id, int clearId, const wchar_t *text, const wchar_t *hint)
 {
     Theme *t = &u->t;
-    int id = HIT_ID(HK_SEARCH, 0), editing = u->textFocus == id;
+    int editing = u->textFocus == id;
+    float bh = r.bottom - r.top;
     ui_rrect(r, 9, t->field);
     ui_rrect_stroke(r, 9, editing ? 1.5f : 1.0f, editing ? t->accent : t->border);
-    ui_icon(GL_SEARCH, u->fIconS, rectf(r.left + 8, r.top, 22, r.bottom - r.top), t->text3);
-    float tx = r.left + 34, tw = r.right - r.left - 34 - (u->search[0] ? 32 : 10);
-    if (!u->search[0] && !editing) ui_text(L"Search wallpapers", u->fBody, rectf(tx, r.top, tw, r.bottom - r.top), t->text3);
+    ui_icon(GL_SEARCH, u->fIconS, rectf(r.left + 8, r.top, 22, bh), t->text3);
+    float tx = r.left + 34, tw = r.right - r.left - 34 - (text[0] ? 32 : 10);
+    if (!text[0] && !editing) ui_text(hint, u->fBody, rectf(tx, r.top, tw, bh), t->text3);
     else if (editing) {
-        D2D1_RECT_F tr = rectf(tx, r.top + 7, tw, r.bottom - r.top - 14);
+        D2D1_RECT_F tr = rectf(tx, r.top + (bh - 20) * 0.5f, tw, 20);
         te_set_layout(u->fBody, tr);
         te_draw(tr, t->text, col_a(t->accent, 0.35f), t->accent, u->caretOn && GetForegroundWindow() == u->hwnd);
     } else {
-        ui_text(u->search, u->fBody, rectf(tx, r.top, tw, r.bottom - r.top), t->text);
+        ui_text(text, u->fBody, rectf(tx, r.top, tw, bh), t->text);
     }
     ui_hit(id, r, 1, 2);
-    if (u->search[0]) ui_button(HIT_ID(HK_SEARCH_CLEAR, 0), rectf(r.right - 30, r.top + 4, 26, r.bottom - r.top - 8), NULL, GL_CLOSE, BTN_GHOST);
+    if (text[0]) ui_button(clearId, rectf(r.right - 30, r.top + 4, 26, bh - 8), NULL, GL_CLOSE, BTN_GHOST);
 }
 
 static float draw_hero(Ui *u, float x, float y, float w)
@@ -439,7 +441,7 @@ static void draw_library(Ui *u, float cx, float cw)
     }
     float sw = SP_MIN(260.0f, w * 0.34f);
     bx -= 12 + sw;
-    draw_search(u, rectf(bx, by, sw, bh));
+    draw_search(u, rectf(bx, by, sw, bh), HIT_ID(HK_SEARCH, 0), HIT_ID(HK_SEARCH_CLEAR, 0), u->search, L"Search wallpapers");
 
     float top = 88;
     top += draw_url_panel(u, x, top, w);
@@ -460,6 +462,298 @@ static void draw_library(Ui *u, float cx, float cw)
     ui_pop_clip();
     finish_scroll(u, PAGE_LIBRARY, y, top);
     draw_scrollbar(u, view, PAGE_LIBRARY);
+}
+
+/* ================================================================ store */
+
+/* MotionBGS wallpapers (store.c reads the site). The search box has its own buffer and searches as you type,
+ * once typing pauses (TM_STORE); Enter searches at once. */
+static struct {
+    wchar_t text[96];
+} storep;
+
+static D2D1_RECT_F hit_rect(int id);
+static void draw_choice(Ui *u, int id, D2D1_RECT_F r, const wchar_t *text);
+
+static void store_query_changed(void)
+{
+    if (g_ui) SetTimer(g_ui->hwnd, TM_STORE, 250, NULL);
+}
+
+void pages_store_timer(void)
+{
+    Ui *u = g_ui;
+    if (u) KillTimer(u->hwnd, TM_STORE);
+    if (store_search(storep.text) && u) u->scrollTarget[PAGE_STORE] = u->scroll[PAGE_STORE] = 0.0f;
+    ui_invalidate();
+}
+
+void pages_store_search_open(void)
+{
+    Ui *u = g_ui;
+    int id = HIT_ID(HK_STORE_TEXT, 0);
+    if (u->textFocus != id) {
+        if (u->textFocus) pages_text_end(1);
+        u->textFocus = u->focus = id;
+        u->searchFocus = 0;
+        te_open(storep.text, SP_COUNTOF(storep.text), (int)wcslen(storep.text), 0, NULL, store_query_changed);
+    }
+    u->caretOn = 1;                      /* clicked again while typing: the caret keeps blinking */
+    SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+    ui_invalidate();
+}
+
+typedef struct StoreGrid {
+    int   cols;
+    float gap, cw, thumbH, ch;
+} StoreGrid;
+
+static StoreGrid store_grid(float w)
+{
+    StoreGrid g;
+    g.gap = 18;
+    g.cols = SP_MAX(1, (int)((w + g.gap) / (210 + g.gap)));
+    g.cw = (w - g.gap * (g.cols - 1)) / g.cols;
+    g.thumbH = (g.cw - 12) * 9.0f / 16.0f;
+    g.ch = g.thumbH + 100;               /* name, resolution, Download, and the button's 10 px inset below it */
+    return g;
+}
+
+static D2D1_RECT_F store_cell(const StoreGrid *g, float x, float y, int i)
+{
+    return rectf(x + (i % g->cols) * (g->cw + g->gap), y + (i / g->cols) * (g->ch + g->gap), g->cw, g->ch);
+}
+
+static void draw_store_card(Ui *u, const StoreItem *it, int i, D2D1_RECT_F r, float thumbH)
+{
+    Theme *t = &u->t;
+    int id = HIT_ID(HK_STORE_CARD, i), hot = ui_is_hot(id);
+    ui_glass(r, 14, hot, hot);
+    D2D1_RECT_F th = { r.left + 6, r.top + 6, r.right - 6, r.top + 6 + thumbH };
+    WallpaperEntry e;
+    if (store_preview_entry(i, &e)) ui_draw_thumb(&e, th, 10, 0);
+    else {
+        ui_rrect(th, 10, t->chip);
+        if (it->preview == STORE_FAILED) ui_icon(GL_PHOTO, u->fIcon, th, t->text3);
+    }
+    {   /* a live wallpaper or a still picture, and its quality */
+        const wchar_t *label = it->badge[0] ? it->badge : it->kind == SKIND_LIVE ? L"LIVE" : L"PHOTO";
+        float bw = ui_text_width(label, u->fCenterS) + 34;
+        D2D1_RECT_F b = { th.left + 8, th.bottom - 30, th.left + 8 + bw, th.bottom - 8 };
+        ui_rrect(b, 11, col(0x000000, 0.48f));
+        ui_icon(it->kind == SKIND_LIVE ? GL_VIDEO : GL_PHOTO, u->fIconS, rectf(b.left + 6, b.top, 16, 22), col(0xFFFFFF, 0.95f));
+        ui_text(label, u->fCenterS, rectf(b.left + 20, b.top, bw - 24, 22), col(0xFFFFFF, 0.95f));
+    }
+    if (hot) {                           /* the preview opens the wallpaper's page */
+        ui_circle(th.right - 20, th.top + 20, 14, col(0x000000, 0.48f));
+        ui_icon(GL_OPEN, u->fIconS, rectf(th.right - 34, th.top + 6, 28, 28), col(0xFFFFFF, 0.95f));
+    }
+    ui_hit(id, th, 1, 1);
+    ui_focus_ring(th, 10, id);
+    ui_text(it->title, u->fBodyB, rectf(r.left + 12, th.bottom + 8, r.right - r.left - 24, 20), t->text);
+
+    wchar_t meta[128], res[48] = L"";            /* where it is from, and what is known of its file */
+    const StoreVariant *v = store_best(it);
+    int rw = it->w, rh = it->h;
+    float mb = v && v->mb > 0 ? v->mb : it->mb;
+    if (v && (int64_t)v->w * v->h > (int64_t)rw * rh) {
+        rw = v->w;
+        rh = v->h;
+    }
+    if (rw > 0 && mb > 0) str_printf(res, SP_COUNTOF(res), L" · %d × %d · %.1f MB", rw, rh, mb);
+    else if (rw > 0) str_printf(res, SP_COUNTOF(res), L" · %d × %d", rw, rh);
+    str_printf(meta, SP_COUNTOF(meta), L"%ls%ls", store_source_name(it->source), res);
+    ui_text(meta, u->fSmall, rectf(r.left + 12, th.bottom + 28, r.right - r.left - 24, 16), t->text3);
+
+    int pct, style = BTN_SECONDARY;
+    wchar_t label[40], icon = 0;
+    switch (store_dl_state(i, &pct)) {
+    case STOREDL_WAIT:
+        str_copy(label, SP_COUNTOF(label), it->detail == STORE_READY ? L"Queued" : L"Preparing…");
+        break;
+    case STOREDL_RUNNING:
+        if (pct >= 0) str_printf(label, SP_COUNTOF(label), L"Downloading %d%%", pct);
+        else str_copy(label, SP_COUNTOF(label), L"Downloading…");
+        break;
+    case STOREDL_DONE:
+        str_copy(label, SP_COUNTOF(label), L"In library");
+        icon = GL_CHECK;
+        style = BTN_GHOST;
+        break;
+    case STOREDL_FAILED:
+        str_copy(label, SP_COUNTOF(label), L"Try again");
+        icon = GL_REFRESH;
+        break;
+    case STOREDL_SITE:                   /* the site hands its files out only on its own page */
+        str_printf(label, SP_COUNTOF(label), L"Open on %ls", store_source_name(it->source));
+        icon = GL_OPEN;
+        break;
+    default:
+        str_copy(label, SP_COUNTOF(label), L"Download");
+        icon = GL_DOWNLOAD;
+        style = BTN_PRIMARY;
+        break;
+    }
+    ui_button(HIT_ID(HK_STORE_DL, i), rectf(r.left + 10, th.bottom + 52, r.right - r.left - 20, 32), label, icon, style);
+}
+
+static float draw_store_grid(Ui *u, const StoreState *s, float x, float y, float w)
+{
+    StoreGrid g = store_grid(w);
+    float ahead = u->viewH;              /* previews load a screen before their cards scroll in */
+    int pw = (int)((g.cw - 12) * u->scale);
+    /* the newest request is served first: the cards near the screen go in, then those on it, top left last */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int k = s->viewCount - 1; k >= 0; k--) {
+            D2D1_RECT_F r = store_cell(&g, x, y, k);
+            int seen = r.bottom >= u->viewTop - 8 && r.top <= u->h + 8, i = s->view[k];
+            if (seen != pass || r.bottom < u->viewTop - ahead || r.top > u->h + ahead) continue;
+            store_want(i, pw, seen);
+            if (seen) draw_store_card(u, &s->items[i], i, r, g.thumbH);
+        }
+    }
+    int rows = (s->viewCount + g.cols - 1) / g.cols;
+    return y + rows * (g.ch + g.gap) - g.gap;
+}
+
+static float draw_store_skeleton(Ui *u, float x, float y, float w)
+{
+    Theme *t = &u->t;
+    StoreGrid g = store_grid(w);
+    for (int i = 0; i < g.cols * 2; i++) {
+        D2D1_RECT_F r = store_cell(&g, x, y, i);
+        ui_glass(r, 14, 0, 0);
+        ui_rrect(rectf(r.left + 6, r.top + 6, g.cw - 12, g.thumbH), 10, t->chip);
+        ui_rrect(rectf(r.left + 12, r.top + g.thumbH + 18, g.cw * 0.55f, 10), 5, t->chip);
+        ui_rrect(rectf(r.left + 12, r.top + g.thumbH + 38, g.cw * 0.35f, 8), 4, t->chip);
+        ui_rrect(rectf(r.left + 10, r.top + g.thumbH + 58, g.cw - 20, 32), 8, t->chip);
+    }
+    return y + 2 * (g.ch + g.gap) - g.gap;
+}
+
+static float draw_store_panel(Ui *u, float x, float y, float w, wchar_t glyph, D2D1_COLOR_F gc, const wchar_t *title,
+                              const wchar_t *text, int buttonId, const wchar_t *button)
+{
+    Theme *t = &u->t;
+    float textH = ui_text_height(text, u->fWrapC, w * 0.7f), h = 110.0f + textH + 66.0f;   /* grows with the message */
+    ui_glass(rectf(x, y, w, h), 18, 0, 0);
+    ui_icon(glyph, u->fIconL, rectf(x, y + 22, w, 50), gc);
+    float tw = SP_MIN(ui_text_width(title, u->fHeading), w - 24);
+    ui_text(title, u->fHeading, rectf(x + (w - tw) * 0.5f, y + 76, tw + 4, 30), t->text);
+    ui_text(text, u->fWrapC, rectf(x + w * 0.15f, y + 110, w * 0.7f, textH + 4), t->text2);
+    float bw = ui_button_width(button, 0);
+    ui_button(buttonId, rectf(x + (w - bw) * 0.5f, y + 124 + textH, bw, 34), button, 0, BTN_SECONDARY);
+    return y + h;
+}
+
+static void draw_store(Ui *u, float cx, float cw)
+{
+    Theme *t = &u->t;
+    float x = cx + PAD, w = cw - PAD * 2;
+    store_open();
+    const StoreState *s = store_get();
+    static const wchar_t *const captions[SF_COUNT] = { L"Category", L"Resolution", L"Sort by", L"Type", L"Site" };
+    const wchar_t *names[32];
+    int sites = store_filter_names(SF_SOURCE, names, SP_COUNTOF(names)) - 1;
+    wchar_t sub[200];
+    if (s->loading && !s->viewCount) str_printf(sub, SP_COUNTOF(sub), L"Asking %d sites…", sites);
+    else if (!s->query[0]) str_printf(sub, SP_COUNTOF(sub), L"Live wallpapers and pictures from %d sites, copies left out", sites);
+    else str_printf(sub, SP_COUNTOF(sub), L"%d%ls result%ls for '%.60ls' from %d sites", s->viewCount, s->more ? L"+" : L"",
+                    s->viewCount == 1 && !s->more ? L"" : L"s", s->query, sites);
+    draw_title(u, x, L"Store", sub);
+    draw_search(u, rectf(x, 86, w, 38), HIT_ID(HK_STORE_TEXT, 0), HIT_ID(HK_STORE_CLEAR, 0), storep.text,
+                L"Search every site: anime, games, cars, nature…");
+    float fw = (w - 12.0f * (SF_COUNT - 1)) / SF_COUNT;
+    for (int f = 0; f < SF_COUNT; f++) {
+        int n = store_filter_names(f, names, SP_COUNTOF(names)), v = s->filter[f];
+        float fx = x + f * (fw + 12.0f);
+        ui_text(captions[f], u->fSmall, rectf(fx + 2, 134, fw - 4, 18), t->text2);
+        draw_choice(u, HIT_ID(HK_STORE_FILTER, f), rectf(fx, 154, fw, 36), v >= 0 && v < n ? names[v] : L"");
+    }
+
+    float top = 204;
+    top += draw_notice(u, x, top, w);
+    D2D1_RECT_F view = { cx, top, cx + cw, u->h };
+    u->viewTop = top;
+    u->viewH = u->h - top;
+    ui_push_clip(view);
+    float y = top + 6 - u->scroll[PAGE_STORE], end = y;
+    int filtered = s->filter[SF_CATEGORY] || s->filter[SF_RES] || s->filter[SF_KIND] || s->filter[SF_SOURCE];
+    if (s->viewCount) {
+        y = end = draw_store_grid(u, s, x, y, w);
+        if (s->loading) {
+            ui_text(L"Loading more wallpapers…", u->fCenter, rectf(x, y + 16, w, 24), t->text3);
+            y += 44;
+        }
+    } else if (s->loading || s->more) {
+        y = draw_store_skeleton(u, x, y, w);
+    } else if (s->failed) {
+        y = draw_store_panel(u, x, y, w, GL_ERROR, t->danger, L"Couldn't reach the wallpaper sites", s->error,
+                             HIT_ID(HK_STORE_RETRY, 0), L"Try again");
+    } else if (s->query[0]) {
+        wchar_t title[160];
+        str_printf(title, SP_COUNTOF(title), L"No wallpapers found for '%.50ls'", s->query);
+        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, title,
+                             filtered ? L"Nothing matches it with these filters. Try fewer filters or another word."
+                                      : L"Try another word: a game, an anime, a car or a colour.",
+                             HIT_ID(HK_STORE_CLEAR, 1), L"Clear search");
+    } else if (filtered) {
+        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, L"Nothing matches these filters",
+                             L"Every site was asked. Try fewer filters.", HIT_ID(HK_STORE_CLEAR, 2), L"Reset filters");
+    } else {
+        y = draw_store_panel(u, x, y, w, GL_STORE, t->text3, L"Nothing to show yet",
+                             L"The sites listed no wallpapers. Try again in a moment.", HIT_ID(HK_STORE_RETRY, 0), L"Try again");
+    }
+    y += 28;
+    ui_pop_clip();
+    finish_scroll(u, PAGE_STORE, y, top);
+    draw_scrollbar(u, view, PAGE_STORE);
+    if (end < u->h + u->viewH * 1.5f) store_more();   /* the next pages are in before the end is reached */
+}
+
+/* a filter's choices in a menu under its field (Customise's choice fields do the same) */
+static void store_filter_menu(int which)
+{
+    Ui *u = g_ui;
+    const wchar_t *names[32];
+    int n = store_filter_names(which, names, SP_COUNTOF(names)), cur = store_get()->filter[which];
+    HMENU m = n > 0 ? CreatePopupMenu() : NULL;
+    if (!m) return;
+    for (int i = 0; i < n; i++) AppendMenuW(m, MF_STRING | (i == cur ? MF_CHECKED : 0), (UINT_PTR)i + 1, names[i]);
+    D2D1_RECT_F r = hit_rect(HIT_ID(HK_STORE_FILTER, which));
+    POINT p = { (LONG)(r.left * u->scale), (LONG)((r.bottom + 4.0f) * u->scale) };
+    ClientToScreen(u->hwnd, &p);
+    UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, u->hwnd, NULL);
+    DestroyMenu(m);
+    if (cmd && (int)cmd - 1 != cur) {
+        store_set_filter(which, (int)cmd - 1);
+        u->scrollTarget[PAGE_STORE] = u->scroll[PAGE_STORE] = 0.0f;
+    }
+}
+
+/* the Download button's tooltip: what the page offers, or how to stop it */
+static const wchar_t *store_dl_tip(int i)
+{
+    static wchar_t tip[200];
+    const StoreState *s = store_get();
+    if (i < 0 || i >= s->count) return NULL;
+    int st = store_dl_state(i, NULL);
+    if (st == STOREDL_RUNNING || st == STOREDL_WAIT) return L"Click to cancel";
+    const StoreItem *it = &s->items[i];
+    if (st == STOREDL_SITE) {
+        str_printf(tip, SP_COUNTOF(tip), L"%ls hands its files out only on its own page: this opens it in your browser",
+                   store_source_name(it->source));
+        return tip;
+    }
+    if (!it->varCount) return NULL;
+    str_copy(tip, SP_COUNTOF(tip), L"Available:");
+    for (int k = 0; k < it->varCount; k++) {
+        wchar_t one[48];
+        str_printf(one, SP_COUNTOF(one), L"%ls %d × %d%ls", k ? L"," : L"", it->var[k].w, it->var[k].h,
+                   strcmp(it->var[k].key, "gif") == 0 ? L" GIF" : L"");
+        str_cat(tip, SP_COUNTOF(tip), one);
+    }
+    return tip;
 }
 
 /* ================================================================ displays */
@@ -1264,7 +1558,7 @@ int pages_text_key(UINT vk, int ctrl, int shift)
     Ui *u = g_ui;
     if (!u->textFocus) return 0;
     int kind = HIT_KIND(u->textFocus);
-    int url = kind == HK_URL_TEXT, search = kind == HK_SEARCH;
+    int url = kind == HK_URL_TEXT, search = kind == HK_SEARCH, store = kind == HK_STORE_TEXT;
     if (te_key(vk, ctrl, shift)) return 1;
     if (vk == VK_ESCAPE) {
         if (te_has_sel()) {              /* the first Escape just drops the selection */
@@ -1279,10 +1573,21 @@ int pages_text_key(UINT vk, int ctrl, int shift)
             }
             return 0;                    /* nothing to clear: the shell closes the search */
         }
-        pages_text_end(url);             /* the link field keeps what was typed and closes; the rename cancels */
+        if (store && storep.text[0]) {   /* empty it, keep the focus, and list the latest again */
+            te_close();
+            storep.text[0] = 0;
+            te_open(storep.text, SP_COUNTOF(storep.text), 0, 0, NULL, store_query_changed);
+            pages_store_timer();
+            return 1;
+        }
+        pages_text_end(url || store);    /* the link field keeps what was typed and closes; the rename cancels */
         if (url) urlp.open = 0;
     } else if (vk == VK_RETURN) {
         if (search) return 1;
+        if (store) {                     /* without waiting for the pause */
+            pages_store_timer();
+            return 1;
+        }
         pages_text_end(1);
         if (url) url_go();
     } else if (vk == VK_TAB) {
@@ -1296,14 +1601,14 @@ void pages_text_end(int commit)
 {
     Ui *u = g_ui;
     int id = u->textFocus;
-    int search = id && HIT_KIND(id) == HK_SEARCH;
+    int search = id && (HIT_KIND(id) == HK_SEARCH || HIT_KIND(id) == HK_STORE_TEXT);   /* live buffers */
     u->textFocus = 0;
     te_close();
     if (search) {
         u->searchFocus = 0;
         KillTimer(u->hwnd, TM_CARET);
     }
-    if (commit && id) edit_commit(id);
+    if (commit && id && !search) edit_commit(id);
     ui_invalidate();
 }
 
@@ -1496,7 +1801,8 @@ static float draw_look_section(Ui *u, float x, float y, float w, const Wallpaper
     int web = e->type == WP_HTML;
     y = section(u, x, y, L"LOOK & COLOUR");
     const int rows[] = { SL_BRIGHT, SL_CONTRAST, SL_SAT, SL_HUE, SL_GAMMA };
-    float tintH = DISC_R * 2.0f + 40.0f, footH = 52.0f;
+    /* the tint band fits the wheel and the column beside it: title, two sliders, the swatch row */
+    float tintH = SP_MAX(DISC_R * 2.0f + 40.0f, 22.0f + 44.0f + LOOK_ROW * 2.0f + 22.0f + 18.0f), footH = 52.0f;
     float card = (float)SP_COUNTOF(rows) * LOOK_ROW + 8.0f + tintH + footH;
     ui_glass(rectf(x, y, w, card), 14, 0, 0);
 
@@ -1655,22 +1961,6 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     depth_get(&st);
     int cool = (e->flags & WPFLAG_DEPTH) != 0, mine = !st.id[0] || str_ieq(st.id, e->id);
     int busy = st.busy && mine, failed = !st.busy && st.failed && st.text[0] && mine;
-    const float h = 100.0f;
-    y = section(u, x, y, L"MAKE WALLPAPER COOLER");
-    ui_glass(rectf(x, y, w, h), 14, 0, 0);
-    const wchar_t *label = busy ? L"Cancel" : cool ? L"Use plain image" : L"Make wallpaper cooler";
-    wchar_t icon = busy ? GL_CLOSE : cool ? GL_PHOTO : GL_SPEED;
-    float bw = ui_button_width(label, icon);
-    ui_button(HIT_ID(HK_COOL, busy ? 2 : cool ? 1 : 0), rectf(x + w - 18 - bw, y + 14, bw, 36), label, icon,
-              busy ? BTN_SECONDARY : cool ? BTN_GHOST : BTN_PRIMARY);
-    ui_text(cool ? L"Interactive depth is on" : L"Interactive depth", u->fBodyB, rectf(x + 18, y + 16, w - 54 - bw, 22), t->text);
-    if (busy) {
-        D2D1_RECT_F bar = rectf(x + 18, y + 72, w - 36, 4);
-        ui_text(st.text, u->fSmall, rectf(x + 18, y + 46, w - 36, 18), t->text2);
-        ui_rrect(bar, 2, t->track);
-        if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
-        return y + h + 26.0f;
-    }
     const wchar_t *note;
     if (failed) note = st.text;
     else if (st.busy) note = L"Another wallpaper is being made cooler. Try again when it has finished.";
@@ -1678,7 +1968,24 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
                                                 : L"Mouse interaction is off in Settings, so only Auto move animates it. Depth strength and Auto move are below.";
     else if (depth_ready()) note = L"Adds real depth to this picture so it follows your mouse. The AI model runs on whichever is quicker here, your GPU or your CPU.";
     else note = L"Adds real depth to this picture so it follows your mouse. Needs the Depth Anything V2 AI model, downloaded once (about 110 MB).";
-    ui_text(note, u->fWrap, rectf(x + 18, y + 46, w - 36, 44), failed ? t->danger : t->text2);
+    /* the text starts below the button and the card grows with it, so neither clips */
+    float noteH = busy ? 0.0f : ui_text_height(note, u->fWrap, w - 36), h = busy ? 102.0f : SP_MAX(96.0f, 60.0f + noteH + 18.0f);
+    y = section(u, x, y, L"MAKE WALLPAPER COOLER");
+    ui_glass(rectf(x, y, w, h), 14, 0, 0);
+    const wchar_t *label = busy ? L"Cancel" : cool ? L"Use plain image" : L"Make wallpaper cooler";
+    wchar_t icon = busy ? GL_CLOSE : cool ? GL_PHOTO : GL_SPEED;
+    float bw = ui_button_width(label, icon);
+    ui_button(HIT_ID(HK_COOL, busy ? 2 : cool ? 1 : 0), rectf(x + w - 18 - bw, y + 14, bw, 36), label, icon,
+              busy ? BTN_SECONDARY : cool ? BTN_GHOST : BTN_PRIMARY);
+    ui_text(cool ? L"Interactive depth is on" : L"Interactive depth", u->fBodyB, rectf(x + 18, y + 21, w - 54 - bw, 22), t->text);
+    if (busy) {
+        D2D1_RECT_F bar = rectf(x + 18, y + 84, w - 36, 4);
+        ui_text(st.text, u->fSmall, rectf(x + 18, y + 60, w - 36, 18), t->text2);
+        ui_rrect(bar, 2, t->track);
+        if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
+        return y + h + 26.0f;
+    }
+    ui_text(note, u->fWrap, rectf(x + 18, y + 60, w - 36, noteH + 4.0f), failed ? t->danger : t->text2);
     return y + h + 26.0f;
 }
 
@@ -1733,6 +2040,7 @@ void pages_draw(void)
     switch (u->page) {
     case PAGE_DISPLAYS:  draw_displays(u, cx, cw); break;
     case PAGE_CUSTOMIZE: draw_customise(u, cx, cw); break;
+    case PAGE_STORE:     draw_store(u, cx, cw); break;
     case PAGE_SETTINGS:  draw_settings(u, cx, cw); break;
     default:             draw_library(u, cx, cw); break;
     }
@@ -1955,6 +2263,24 @@ void pages_activate(int id, int dbl)
             app_save_config();
         }
         break;
+    case HK_STORE_TEXT:    pages_store_search_open(); break;
+    case HK_STORE_CLEAR:
+        if (data == 2) {                 /* the empty page's Reset filters */
+            store_set_filter(-1, 0);
+            break;
+        }
+        storep.text[0] = 0;
+        pages_store_timer();
+        break;
+    case HK_STORE_FILTER:  store_filter_menu(data); break;
+    case HK_STORE_CARD: {
+        wchar_t url[160];
+        store_page_url(data, url, SP_COUNTOF(url));
+        if (url[0]) shell_open(url);
+        break;
+    }
+    case HK_STORE_DL:      store_download(data); break;
+    case HK_STORE_RETRY:   store_retry(); break;
     case HK_GET_WEBVIEW:   shell_open(L"https://go.microsoft.com/fwlink/p/?LinkId=2124703"); break;
     case HK_LICENSES: {
         wchar_t p[SP_MAX_PATH];
@@ -2065,6 +2391,14 @@ const wchar_t *pages_tooltip(int id)
     switch (HIT_KIND(id)) {
     case HK_URL:           return L"Import URL wallpaper";
     case HK_IMPORT_FOLDER: return HIT_DATA(id) == 0 ? L"Import a wallpaper folder" : NULL;
+    case HK_STORE_CARD: {
+        static wchar_t tip[80];
+        const StoreState *s = store_get();
+        if (HIT_DATA(id) < 0 || HIT_DATA(id) >= s->count) return NULL;
+        str_printf(tip, SP_COUNTOF(tip), L"Open its page on %ls", store_source_name(s->items[HIT_DATA(id)].source));
+        return tip;
+    }
+    case HK_STORE_DL:      return store_dl_tip(HIT_DATA(id));
     default:               return NULL;
     }
 }

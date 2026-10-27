@@ -13,9 +13,9 @@
 void identify_displays(const MonitorInfo *mons, int n);
 
 /* shared WM_TIMER ids between ui_core and the pages */
-enum UiTimer { TM_ANIM = 1, TM_CARET = 2, TM_STATS = 3, TM_THUMBS = 4 };
+enum UiTimer { TM_ANIM = 1, TM_CARET = 2, TM_STATS = 3, TM_THUMBS = 4, TM_STORE = 5 };
 
-enum { PAGE_LIBRARY = 0, PAGE_DISPLAYS = 1, PAGE_CUSTOMIZE = 2, PAGE_SETTINGS = 3, PAGE_COUNT = 4 };
+enum { PAGE_LIBRARY = 0, PAGE_DISPLAYS = 1, PAGE_CUSTOMIZE = 2, PAGE_STORE = 3, PAGE_SETTINGS = 4, PAGE_COUNT = 5 };
 
 enum HitKind {
     HK_NONE = 0, HK_NAV, HK_IMPORT, HK_IMPORT_FOLDER, HK_SEARCH, HK_SEARCH_CLEAR, HK_FILTER, HK_CARD, HK_TARGET,
@@ -25,7 +25,9 @@ enum HitKind {
     HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL, HK_URL, HK_URL_TEXT, HK_URL_MODE, HK_URL_GO, HK_URL_CLOSE,
     HK_NAME,    /* library card name; HK_COOL: data 0 make it, 1 back to the plain image, 2 cancel */
     HK_COOL,
-    HK_DISPMODE, HK_IDENTIFY, HK_SCR_CHOOSE, HK_SCR_PREVIEW, HK_SCR_TIMEOUT, HK_SCR_DISPLAYS, HK_SCR_WINDOWS
+    HK_DISPMODE, HK_IDENTIFY, HK_SCR_CHOOSE, HK_SCR_PREVIEW, HK_SCR_TIMEOUT, HK_SCR_DISPLAYS, HK_SCR_WINDOWS,
+    HK_STORE_TEXT, HK_STORE_CLEAR, HK_STORE_CARD, HK_STORE_DL, HK_STORE_RETRY,  /* Store; data: the item's index */
+    HK_STORE_FILTER                                                             /* data: SF_* */
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -125,6 +127,7 @@ void         ui_line(float x0, float y0, float x1, float y1, float width, D2D1_C
 void         ui_circle(float cx, float cy, float r, D2D1_COLOR_F c);
 void         ui_text(const wchar_t *s, IDWriteTextFormat *f, D2D1_RECT_F r, D2D1_COLOR_F c);
 float        ui_text_width(const wchar_t *s, IDWriteTextFormat *f);
+float        ui_text_height(const wchar_t *s, IDWriteTextFormat *f, float w);   /* wrapped to w */
 void         ui_icon(wchar_t glyph, IDWriteTextFormat *f, D2D1_RECT_F r, D2D1_COLOR_F c);
 void         ui_glass(D2D1_RECT_F r, float radius, int hover, int elevated);
 void         ui_hit(int id, D2D1_RECT_F r, int focusable, int cursor);
@@ -161,6 +164,8 @@ void pages_scroll_into_view(int id);
 void pages_drag(int id, float x, float y, int commit);      /* sliders + colour wheel tracking */
 void pages_customise_reload(void);                         /* Customise values changed elsewhere */
 void pages_search_open(void);                              /* focus + caret in the search box */
+void pages_store_search_open(void);                        /* the same for the Store's search box */
+void pages_store_timer(void);                              /* TM_STORE: typing paused, search the Store */
 int  pages_text_char(wchar_t ch);                           /* 1 consumed: the Customise text field */
 int  pages_text_key(UINT vk, int ctrl, int shift);
 void pages_text_end(int commit);                            /* focus left the field (0: cancel) */
@@ -191,3 +196,5 @@ const wchar_t *pages_tooltip(int id);                       /* tooltip text for 
 #define GL_DOC      0xE8A5
 #define GL_SPEED    0xEC4A
 #define GL_COLOR    0xE2B1     /* palette glyph for the Customise page */
+#define GL_STORE    0xE719
+#define GL_DOWNLOAD 0xE896

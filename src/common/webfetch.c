@@ -7,8 +7,20 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef WINHTTP_OPTION_DECOMPRESSION
+#define WINHTTP_OPTION_DECOMPRESSION        118
+#define WINHTTP_DECOMPRESSION_FLAG_ALL      0x3
+#endif
+#ifndef WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL
+#define WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL 147
+#define WINHTTP_PROTOCOL_FLAG_HTTP2         0x1
+#endif
+
+#define USER_AGENT L"Mozilla/5.0 (compatible; ScreenPlus/" SP_VERSION_W L")"
+
 struct HttpGet {
     HINTERNET session, conn, req;
+    int       shared;     /* session is g_shared: never closed */
     int       status;
     int       ranges;     /* Accept-Ranges: bytes */
     int64_t   length;
@@ -98,11 +110,32 @@ void http_close(HttpGet *g)
     if (!g) return;
     if (g->req) WinHttpCloseHandle(g->req);
     if (g->conn) WinHttpCloseHandle(g->conn);
-    if (g->session) WinHttpCloseHandle(g->session);
+    if (g->session && !g->shared) WinHttpCloseHandle(g->session);
     free(g);
 }
 
-HttpGet *http_open(const wchar_t *url, int allowHttp, wchar_t *err, size_t errCap)
+/* One session for http_open_shared: WinHTTP pools its connections, so later requests skip the TCP and TLS
+ * handshakes, and HTTP/2 runs parallel requests over one connection. */
+static INIT_ONCE g_sharedOnce = INIT_ONCE_STATIC_INIT;
+static HINTERNET g_shared;
+
+static BOOL CALLBACK shared_init(PINIT_ONCE once, PVOID param, PVOID *ctx)
+{
+    (void)once;
+    (void)param;
+    (void)ctx;
+    g_shared = WinHttpOpen(USER_AGENT, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (g_shared) {
+        DWORD v = WINHTTP_PROTOCOL_FLAG_HTTP2;      /* Windows 10 1607+; older ones keep HTTP/1.1 keep-alive */
+        WinHttpSetOption(g_shared, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &v, sizeof v);
+        v = WINHTTP_DECOMPRESSION_FLAG_ALL;         /* gzip pages are a fifth of the size */
+        WinHttpSetOption(g_shared, WINHTTP_OPTION_DECOMPRESSION, &v, sizeof v);
+        WinHttpSetTimeouts(g_shared, 10000, 10000, 15000, 15000);
+    }
+    return TRUE;
+}
+
+static HttpGet *open_get(const wchar_t *url, int allowHttp, int shared, wchar_t *err, size_t errCap)
 {
     URL_COMPONENTS uc;
     ZeroMemory(&uc, sizeof uc);
@@ -132,15 +165,22 @@ HttpGet *http_open(const wchar_t *url, int allowHttp, wchar_t *err, size_t errCa
     if (!object[0]) str_copy(object, plen + 2, L"/");
 
     g->length = -1;
-    g->session = WinHttpOpen(L"Mozilla/5.0 (compatible; ScreenPlus/" SP_VERSION_W L")", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
-                             WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (g->session) {
-        WinHttpSetTimeouts(g->session, 15000, 15000, 30000, 30000);
-        g->conn = WinHttpConnect(g->session, host, uc.nPort, 0);
+    if (shared) {
+        InitOnceExecuteOnce(&g_sharedOnce, shared_init, NULL, NULL);
+        g->session = g_shared;
+        g->shared = 1;
+    } else {
+        g->session = WinHttpOpen(USER_AGENT, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+        if (g->session) WinHttpSetTimeouts(g->session, 15000, 15000, 30000, 30000);
     }
+    if (g->session) g->conn = WinHttpConnect(g->session, host, uc.nPort, 0);
     if (g->conn)   /* default redirect policy: followed, but never from https to http */
         g->req = WinHttpOpenRequest(g->conn, L"GET", object, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                     uc.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0);
+    if (g->req && shared) {
+        DWORD v = WINHTTP_PROTOCOL_FLAG_HTTP2;
+        WinHttpSetOption(g->req, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &v, sizeof v);
+    }
     free(object);
     if (!g->req || !WinHttpSendRequest(g->req, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
         !WinHttpReceiveResponse(g->req, NULL)) {
@@ -169,6 +209,16 @@ HttpGet *http_open(const wchar_t *url, int allowHttp, wchar_t *err, size_t errCa
         g->type[0] = 0;
     }
     return g;
+}
+
+HttpGet *http_open(const wchar_t *url, int allowHttp, wchar_t *err, size_t errCap)
+{
+    return open_get(url, allowHttp, 0, err, errCap);
+}
+
+HttpGet *http_open_shared(const wchar_t *url, wchar_t *err, size_t errCap)
+{
+    return open_get(url, 0, 1, err, errCap);
 }
 
 int            http_status(const HttpGet *g)       { return g->status; }
