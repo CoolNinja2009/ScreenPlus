@@ -504,7 +504,7 @@ static StoreGrid store_grid(float w)
     g.cols = SP_MAX(1, (int)((w + g.gap) / (210 + g.gap)));
     g.cw = (w - g.gap * (g.cols - 1)) / g.cols;
     g.thumbH = (g.cw - 12) * 9.0f / 16.0f;
-    g.ch = g.thumbH + 96;                /* name, resolution, Download */
+    g.ch = g.thumbH + 100;               /* name, resolution, Download, and the button's 10 px inset below it */
     return g;
 }
 
