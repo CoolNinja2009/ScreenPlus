@@ -12,6 +12,10 @@ typedef int (*FetchProgress)(void *ctx, int64_t done, int64_t total);
 /* Sends a GET for an http(s) URL (https only unless allowHttp) and reads the response headers.
  * Redirects are followed (never https -> http). NULL on failure, with err set. */
 HttpGet       *http_open(const wchar_t *url, int allowHttp, wchar_t *err, size_t errCap);
+/* The same (https only) on one process-wide session that keeps connections open between requests, speaks
+ * HTTP/2 where the server does and takes compressed responses (http_length is then the compressed size):
+ * for many small reads from one site, from any number of threads (the Store). */
+HttpGet       *http_open_shared(const wchar_t *url, wchar_t *err, size_t errCap);
 int            http_status(const HttpGet *g);
 int            http_ranges(const HttpGet *g);           /* the server reads byte ranges (streamable) */
 int64_t        http_length(const HttpGet *g);           /* Content-Length, -1 unknown */

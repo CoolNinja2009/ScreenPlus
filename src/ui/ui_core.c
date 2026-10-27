@@ -320,6 +320,19 @@ float ui_text_width(const wchar_t *s, IDWriteTextFormat *f)
     return w;
 }
 
+float ui_text_height(const wchar_t *s, IDWriteTextFormat *f, float w)
+{
+    if (!s || !s[0] || !f) return 0.0f;
+    IDWriteTextLayout *l = NULL;
+    float h = 0.0f;
+    if (SUCCEEDED(g_ui->dw->lpVtbl->CreateTextLayout(g_ui->dw, s, (UINT32)wcslen(s), f, SP_MAX(w, 1.0f), 4096.0f, &l)) && l) {
+        DWRITE_TEXT_METRICS m;
+        if (SUCCEEDED(l->lpVtbl->GetMetrics(l, &m))) h = m.height;
+        l->lpVtbl->Release(l);
+    }
+    return h;
+}
+
 void ui_icon(wchar_t glyph, IDWriteTextFormat *f, D2D1_RECT_F r, D2D1_COLOR_F c)
 {
     wchar_t s[2] = { glyph, 0 };
@@ -878,7 +891,7 @@ static const Hit *hit_find(Ui *u, int id)
 /* Every field that supports typing goes through the text engine (textedit.c). */
 static int is_text_kind(int kind)
 {
-    return kind == HK_SEARCH || kind == HK_URL_TEXT || kind == HK_NAME ||
+    return kind == HK_SEARCH || kind == HK_URL_TEXT || kind == HK_NAME || kind == HK_STORE_TEXT ||
            kind == HK_PTEXT || kind == HK_PVAL || kind == HK_LOOKVAL;
 }
 
@@ -943,6 +956,10 @@ static void on_key(Ui *u, WPARAM vk)
 {
     int ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0;
     if (ctrl && vk == 'F') {
+        if (u->page == PAGE_STORE) {
+            pages_store_search_open();
+            return;
+        }
         u->page = PAGE_LIBRARY;
         u->focus = HIT_ID(HK_SEARCH, 0);
         set_search_focus(u, 1);
@@ -952,7 +969,7 @@ static void on_key(Ui *u, WPARAM vk)
         library_import_dialog(u->hwnd, shift);
         return;
     }
-    if (ctrl && vk >= '1' && vk <= '4') {
+    if (ctrl && vk >= '1' && vk < '1' + PAGE_COUNT) {
         pages_activate(HIT_ID(HK_NAV, (int)(vk - '1')), 0);
         return;
     }
@@ -1179,6 +1196,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_TIMER:
         if (wp == TM_ANIM) anim_step(u);
         else if (wp == TM_THUMBS) thumbs_tick(u);
+        else if (wp == TM_STORE) pages_store_timer();
         else if (wp == TM_CARET) {
             u->caretOn = !u->caretOn;
             ui_invalidate();

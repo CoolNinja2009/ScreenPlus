@@ -156,6 +156,7 @@ void app_exit(void)
     LOGI(L"exit requested");
     url_import_shutdown();
     depth_shutdown();
+    store_shutdown();
     ui_destroy();
     supervisor_stop();
     tray_remove();
@@ -219,6 +220,10 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SP_URLIMPORT:
         url_import_on_event(wp, lp);
+        store_on_import();       /* a queued Store download may start */
+        return 0;
+    case WM_SP_STORE:
+        store_on_event(wp, lp);
         return 0;
     case WM_SP_DEPTH:
         depth_on_event(wp, lp);

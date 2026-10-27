@@ -107,6 +107,10 @@ categories with child tags (`<li class=col-span-2><a href=/tag:games/>Games</a> 
 235x418 (mobile) and 48x48; other sizes work too (640x360 tested). Append `.webp` for WebP.
 `/media/<id>/<poster file>` is the full-size JPEG.
 
+Fetch the `.webp` crops. Browsers request those, so Cloudflare holds them (about 0.1 s, `cf-cache-status: HIT`).
+The `.jpg` crops are mostly misses that the origin resizes (0.4–1.2 s each). Fall back to JPEG only where
+Windows can't decode WebP.
+
 ## URLs without the detail page
 A card gives the id, the file stem and the source `<W>x<H>`, so the preview `/media/<id>/<file>.960x540.mp4`
 and any thumbnail can be built from it directly. Take the stem from the HTML rather than assuming it equals the

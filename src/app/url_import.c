@@ -42,6 +42,7 @@ typedef struct UrlJob {
     int     flags;                  /* RES_STREAM: WPFLAG_* */
     wchar_t thumb[SP_MAX_PATH];     /* RES_STREAM: preview image */
     wchar_t title[SP_NAME_LEN];
+    wchar_t name[SP_NAME_LEN];      /* given by the caller (the Store): the entry's name and the file's */
     wchar_t error[300];
     int     fellBack;               /* RES_PAGE because yt-dlp found no video */
 } UrlJob;
@@ -175,6 +176,15 @@ void url_import_sweep(void)
 /* ---------------------------------------------------------------- direct links */
 
 /* Last path segment of a URL, decoded and made safe as a file name ("" if none). */
+/* in as a file name: characters Windows refuses become '_', and it doesn't end in a dot or a space */
+static void file_safe(const wchar_t *in, wchar_t *out, size_t cap)
+{
+    size_t j = 0;
+    for (const wchar_t *c = in; *c && j + 1 < cap; c++) out[j++] = (*c < 32 || wcschr(L"<>:\"/\\|?*", *c)) ? L'_' : *c;
+    while (j && (out[j - 1] == L'.' || out[j - 1] == L' ')) j--;
+    out[j] = 0;
+}
+
 static void url_leaf(const wchar_t *url, wchar_t *out, size_t cap)
 {
     out[0] = 0;
@@ -187,11 +197,7 @@ static void url_leaf(const wchar_t *url, wchar_t *out, size_t cap)
     str_copyn(path, SP_COUNTOF(path), uc.lpszUrlPath, uc.dwUrlPathLength);
     UrlUnescapeW(path, NULL, NULL, URL_UNESCAPE_INPLACE);
     const wchar_t *leaf = wcsrchr(path, L'/');
-    leaf = leaf ? leaf + 1 : path;
-    size_t j = 0;
-    for (const wchar_t *c = leaf; *c && j + 1 < cap; c++) out[j++] = (*c < 32 || wcschr(L"<>:\"/\\|?*", *c)) ? L'_' : *c;
-    while (j && (out[j - 1] == L'.' || out[j - 1] == L' ')) j--;
-    out[j] = 0;
+    file_safe(leaf ? leaf + 1 : path, out, cap);
 }
 
 /* An image or video Screen+ plays, judged by Content-Type and the link's file extension. */
@@ -262,7 +268,7 @@ static void download_direct(UrlJob *j, HttpGet *g, const wchar_t *stem, const wc
 
 /* ---------------------------------------------------------------- web pages */
 
-static void html_unescape(wchar_t *s)
+void html_unescape(wchar_t *s)
 {
     static const struct { const wchar_t *e; wchar_t c; } k[] = {
         { L"&amp;", L'&' }, { L"&lt;", L'<' }, { L"&gt;", L'>' }, { L"&quot;", L'"' }, { L"&#39;", L'\'' },
@@ -520,7 +526,8 @@ static void run(UrlJob *j)
         url_leaf(j->url, leaf, SP_COUNTOF(leaf));
         if (status >= 200 && status < 300 && j->mode != URLMODE_PAGE &&
             media_ext(http_content_type(g), leaf, ext, SP_COUNTOF(ext))) {
-            path_stem(stem, SP_COUNTOF(stem), leaf);
+            if (j->name[0]) file_safe(j->name, stem, SP_COUNTOF(stem));
+            else path_stem(stem, SP_COUNTOF(stem), leaf);
             if (!stem[0]) str_copy(stem, SP_COUNTOF(stem), L"download");
             str_copy(j->title, SP_COUNTOF(j->title), stem);
             wchar_t probe[24];
@@ -636,10 +643,16 @@ static BOOL normalize_url(const wchar_t *in, wchar_t *out, size_t cap, wchar_t *
 
 BOOL url_import_start(const wchar_t *url, int mode)
 {
+    return url_import_start_titled(url, mode, NULL);
+}
+
+BOOL url_import_start_titled(const wchar_t *url, int mode, const wchar_t *title)
+{
     wchar_t why[160];
     if (g_job) return FALSE;
     UrlJob *j = (UrlJob *)calloc(1, sizeof *j);
     if (!j) return FALSE;
+    if (title) str_copy(j->name, SP_COUNTOF(j->name), title);
     if (!normalize_url(url, j->url, SP_COUNTOF(j->url), why, SP_COUNTOF(why))) {
         free(j);
         AcquireSRWLockExclusive(&g_lock);
@@ -701,7 +714,7 @@ static int add_entry(UrlJob *j, WallpaperType type, int flags, wchar_t *text, si
         str_printf(text, cap, L"'%ls' is already in your library.", e->name);
         return 1;
     }
-    e = config_add(&g_app.cfg, type, j->path, j->title[0] ? j->title : NULL);
+    e = config_add(&g_app.cfg, type, j->path, j->name[0] ? j->name : j->title[0] ? j->title : NULL);
     if (!e) {
         str_copy(text, cap, L"The wallpaper could not be added to the library.");
         return 0;

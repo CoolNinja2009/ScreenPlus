@@ -11,6 +11,7 @@
 #define WM_SP_STATUS        (WM_APP + 62)
 #define WM_SP_URLIMPORT     (WM_APP + 63)   /* wParam 0: progress, 1: job finished (lParam: the job) */
 #define WM_SP_DEPTH         (WM_APP + 64)   /* wParam 0: progress, 1: job finished (lParam: the job) */
+#define WM_SP_STORE         (WM_APP + 65)   /* lParam: a Store worker's result */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
@@ -112,6 +113,8 @@ typedef struct UrlImportState {
     wchar_t text[200];      /* busy: what is happening */
 } UrlImportState;
 BOOL url_import_start(const wchar_t *url, int mode);   /* FALSE: invalid link (state.text says why) or busy */
+BOOL url_import_start_titled(const wchar_t *url, int mode, const wchar_t *title);   /* title: the entry's name (NULL: found) */
+void html_unescape(wchar_t *s);                        /* the usual named entities and apostrophes, in place */
 void url_import_cancel(void);
 void url_import_get(UrlImportState *out);
 void url_import_on_event(WPARAM wp, LPARAM lp);        /* WM_SP_URLIMPORT */
@@ -121,6 +124,53 @@ void url_import_sweep(void);                           /* startup: delete downlo
  * preview). TRUE when a downloaded wallpaper file was deleted. */
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb);
 BOOL url_import_is_download(const wchar_t *path);      /* a file Screen+ downloaded (removed with its entry) */
+
+/* store.c: the Store page's catalogue, MotionBGS live wallpapers (docs/store/motionbgs.md). The UI thread owns
+ * this state; the page reads it through store_get and asks for what is on screen with store_want. */
+#define STORE_VARIANTS 4
+enum { STORE_NONE = 0, STORE_LOADING, STORE_READY, STORE_FAILED };
+enum { STOREDL_IDLE = 0, STOREDL_WAIT, STOREDL_RUNNING, STOREDL_DONE, STOREDL_FAILED };
+typedef struct StoreVariant {
+    wchar_t kind[8];                   /* "4k", "hd", "mhd", "gif": its /dl/<kind>/<id>/ address */
+    int     w, h;
+    float   mb;                        /* size as the page states it (MiB), 0 unknown */
+} StoreVariant;
+typedef struct StoreItem {
+    int          id;                   /* MotionBGS media id, also the download id */
+    wchar_t      slug[96];             /* its page: https://motionbgs.com/<slug> */
+    wchar_t      title[SP_NAME_LEN];
+    wchar_t      poster[128];          /* the poster's file name under /media/<id>/ */
+    wchar_t      badge[8];             /* the site's quality label: "4K", "HD" */
+    int          w, h;                 /* source resolution when the poster's name carries it, else 0 */
+    int          preview, detail;      /* STORE_*: the preview image; the page's download list */
+    int          previewBig;           /* the cached preview is the 546x308 one */
+    int          dl;                   /* STOREDL_IDLE, _WAIT (its page is read first) or _FAILED */
+    StoreVariant var[STORE_VARIANTS];  /* detail STORE_READY: what the page offers */
+    int          varCount;
+} StoreItem;
+typedef struct StoreState {
+    StoreItem *items;
+    int        count;
+    wchar_t    query[96];              /* what is listed: "" the latest wallpapers */
+    int        loading;                /* a page is being read (count 0: the first one) */
+    int        more;                   /* another page exists */
+    int        failed;                 /* the last page read failed: error says why */
+    wchar_t    error[200];
+} StoreState;
+const StoreState *store_get(void);
+void store_open(void);                                 /* the page is shown: the first time, lists the latest */
+BOOL store_search(const wchar_t *query);               /* "" the latest; TRUE: a new listing started */
+void store_more(void);                                 /* the next page, unless one is loading or none is left */
+void store_retry(void);                                /* after a failed page read */
+void store_want(int index, int pixelW, int detail);    /* a card is near the screen: its preview (+ its page's downloads) */
+BOOL store_preview_entry(int index, WallpaperEntry *e);    /* TRUE: preview cached; e stands in for the thumbnail loader */
+const StoreVariant *store_best(const StoreItem *it);   /* the largest video it offers, NULL before its page is read */
+int  store_dl_state(int index, int *percent);          /* STOREDL_*; percent: -1 unknown */
+void store_download(int index);                        /* the best variant into the library (again: cancel) */
+void store_page_url(int index, wchar_t *out, size_t cap);
+void store_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_STORE */
+void store_on_import(void);                            /* after url_import_on_event: the queued download may start */
+void store_shutdown(void);
 
 /* depth.c: "Make wallpaper cooler" turns an image wallpaper into an interactive depth web wallpaper (the
  * entry becomes WP_HTML + WPFLAG_DEPTH). One job at a time; the downloads (ONNX Runtime, model) are only

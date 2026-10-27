@@ -45,6 +45,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/url_import.c` | Link button job on a worker thread: direct downloads, yt-dlp streams/downloads, live pages |
 | `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
+| `src/app/store.c` | Store page: MotionBGS listings, searches and wallpaper pages read on worker threads over one keep-alive session (`http_open_shared`), WebP previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
 | `src/app/startup.c`, `supervisor.c` | HKCU Run entry; engine process lifecycle |
 | `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, vcredist), IPC for the rest |
 | `src/engine/` | `engine.c` (slots, state machine), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c` |
@@ -89,7 +90,7 @@ Renderer details:
   | `config.ini` | Settings and library |
   | `props\<id>.json` | Customise: author property overrides, plus grading under `_screenplus_adjust` |
   | `logs\` | `screenplus.log`, `engine.log`, `capture.log`, `crash\` minidumps |
-  | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails) |
+  | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails), `store\` (Store previews, kept a week) |
   | `WebView2\` | WebView2 user data |
   | `downloads\` | Link imports; deleted with their entry |
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |
