@@ -10,6 +10,13 @@
 #define CONFIG_MAX_ASSIGN 64
 
 typedef enum ThemeMode { THEME_SYSTEM = 0, THEME_LIGHT = 1, THEME_DARK = 2 } ThemeMode;
+/* How the displays share wallpapers. Independent: per-display overrides over the default.
+ * Duplicate: the default on every display (one decoder per video, shared). Span: the default
+ * stretched over the bounding box of all displays, one renderer. Overrides are kept either way. */
+typedef enum DisplayMode { DM_INDEPENDENT = 0, DM_DUPLICATE = 1, DM_SPAN = 2 } DisplayMode;
+/* Screensaver displays: the wallpaper on every display, spanned across them, or on the primary
+ * display only (the others black). */
+typedef enum ScrDisplays { SCRD_ALL = 0, SCRD_SPAN = 1, SCRD_PRIMARY = 2 } ScrDisplays;
 
 /* Colour grading applied to any wallpaper (video/image shaders, web CSS): the Customise
  * panel edits it, <data>\props\<id>.json keeps it under "_screenplus_adjust". */
@@ -84,12 +91,17 @@ typedef struct Settings {
     int       urlImport;      /* link button: import from web links (setup's optional yt-dlp component) */
     int       depthAll;       /* make every image wallpaper interactive (depth.c) when it is applied */
     ThemeMode theme;
+    DisplayMode displayMode;
+    int       scrAudio;       /* screensaver sound (muted by default) */
+    ScrDisplays scrDisplays;
+    int       scrExitOnMouse; /* a mouse move ends the screensaver (keys and clicks always do) */
 } Settings;
 
 typedef struct Config {
     int               schema;
     Settings          s;
     wchar_t           defaultWallpaper[SP_ID_LEN];
+    wchar_t           screensaver[SP_ID_LEN];   /* screensaver wallpaper, "": the desktop's default */
     MonitorAssignment assign[CONFIG_MAX_ASSIGN];
     int               assignCount;
     WallpaperEntry   *items;
@@ -109,11 +121,17 @@ WallpaperEntry *config_find_path(Config *c, const wchar_t *path);
 WallpaperEntry *config_add(Config *c, WallpaperType type, const wchar_t *path, const wchar_t *name);
 BOOL            config_remove(Config *c, const wchar_t *id);
 
-/* Effective wallpaper id for a monitor: per-monitor override, else the default ("" if none). */
+/* Effective wallpaper id for a monitor: per-monitor override (independent mode only), else the
+ * default ("" if none). */
 const wchar_t  *config_assignment(const Config *c, const wchar_t *monitorId);
 BOOL            config_has_override(const Config *c, const wchar_t *monitorId);
 void            config_assign(Config *c, const wchar_t *monitorIdOrNull, const wchar_t *wallpaperId);
 void            config_clear_override(Config *c, const wchar_t *monitorId);
+/* A display moved to another port or dock gets a new id: re-key the one override stored for the same
+ * model whose display isn't connected. ids: the connected displays. Returns how many changed. */
+int             config_adopt_monitors(Config *c, const wchar_t *const *ids, int n);
+/* Screensaver wallpaper id: the chosen one, else the desktop's default ("" if none). */
+const wchar_t  *config_screensaver(const Config *c);
 
 WallpaperType   wallpaper_type_from_path(const wchar_t *path);
 int             wallpaper_is_url(const wchar_t *path);

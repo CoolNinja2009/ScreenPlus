@@ -29,12 +29,19 @@ repository; open only the files a change touches. README.md is the user-facing d
   previews into `cache\previews`.
 - **Depth helper**: `ScreenPlus.exe --depth <image> <dir> [--cpu | --bench | --crashed] [--png]` (`src/app/depth_infer.c`)
   runs the depth model on one picture and exits (0 ok, 2 unreadable picture, 3 ONNX Runtime missing, 4 inference failed).
+- **Screensaver**: `ScreenPlus.scr` (a copy of the exe; `main.c` dispatches on the `.scr` name) or
+  `ScreenPlus.exe --screensaver /s` (Preview). `src/screensaver/screensaver.c` runs the renderers itself (no shell,
+  engine or desktop host): `/s` topmost windows per display (or one spanned), `/p <hwnd>` a child in Screen Saver
+  Settings, `/c` opens the app (`--screensaver-settings`). It posts `SP_MSG_SCREENSAVER` to the engine, which
+  suspends and watches the process. `src/common/scrnsave.c` (app + CLI, no logging) registers it through
+  `HKCU\Control Panel\Desktop\SCRNSAVE.EXE` (8.3 path) and `SystemParametersInfo`; the build and setup ship the `.scr`.
 - **Child processes**: WebView2 browser processes, yt-dlp (+ qjs) for link wallpapers, `tar.exe` once to unpack ONNX Runtime.
 - **IPC** (`src/common/ipc.h`) is WM_COPYDATA:
   - `IPC_ENGINE_HELLO` / `IPC_ENGINE_STATUS`: engine → shell.
   - `IPC_ENGINE_CMD`: shell → engine, `CMD_*`, sent with `supervisor_send`.
   - `IPC_SHELL_CMD`: second instance → shell.
   - `IPC_CLI_REQUEST` / `IPC_CLI_REPLY`: JSON between `ScreenPlus.com` and the shell.
+  - `SP_MSG_SCREENSAVER` (PostMessage, wParam 1/0, lParam pid): screensaver → engine.
 
 ## Source map
 | Path | Contents |
@@ -47,7 +54,10 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/startup.c`, `supervisor.c` | HKCU Run entry; engine process lifecycle |
 | `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, vcredist), IPC for the rest |
-| `src/engine/` | `engine.c` (slots, state machine), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c` |
+| `src/screensaver/screensaver.c` | Screensaver process (see above) |
+| `src/common/scrnsave.c` | Windows screensaver registration, timeout, lock-on-resume, `.scr` sync, Preview launch |
+| `src/ui/identify.c` | Displays page **Identify**: each display's number in its corner |
+| `src/engine/` | `engine.c` (slots, state machine; span = one slot `SP_SPAN_ID` over the bounding box of `E.mons`), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c` |
 | `src/desktop/desktop_host.c` | Hosting behind the icons: Progman (24H2+), WorkerW, or fallback |
 | `src/renderer/renderer.h` | Renderer vtable (set_state, resize, set_audio, paint, describe, destroy, wants, input, feed, on_timer, apply); all calls on the engine window thread |
 | `src/renderer/video/` | `video_renderer.c`, `video_audio.c`, `video_stream.c`, `ffmpeg_thumb.c` (UI thumbnails), `video.hlsl` (NV12/I420/RGB + grading); details below |
@@ -90,6 +100,7 @@ Renderer details:
   | `logs\` | `screenplus.log`, `engine.log`, `capture.log`, `crash\` minidumps |
   | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails) |
   | `WebView2\` | WebView2 user data |
+  | `WebView2-Screensaver\` | The screensaver process's WebView2 profile |
   | `downloads\` | Link imports; deleted with their entry |
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |
   | `depth\` | `ort\onnxruntime.dll`, `model.onnx` (both downloaded on request, pinned in `depth.c`), `<id>\` = a depth wallpaper's page, picture, `depth.png` |
@@ -101,6 +112,10 @@ Renderer details:
     `WPFLAG_SYSINFO`, `WPFLAG_DEPTH` (an image converted by depth.c: `type` html, `path` its page, `thumb` the
     original picture), `WPFLAG_NOCOOL` (the user took it back to plain; the "interactive images" setting skips it).
   - `thumb`.
+- `display_mode` (independent/duplicate/span) is applied inside `config_assignment`/`config_has_override`:
+  overrides only count in independent mode and are kept otherwise. Applying to one display switches to independent.
+  `config_adopt_monitors` (shell, on monitor refresh) re-keys an override to a display of the same model on a new port.
+  `[assignments] screensaver=<id>` is the screensaver wallpaper (`config_screensaver`: else the default).
 - To add a setting:
   1. Add the field to `Settings` in `config.h`.
   2. Add its default, parse and save in `config.c`.
@@ -171,6 +186,11 @@ Renderer details:
 - To test logic without stopping the user's app, compile a scratch harness with `cl`. Link the real `.c`
   files, stub the `app_*`/`ui_*` hooks, and point `SCREENPLUS_DATA_DIR` at a scratch folder.
 - `ScreenPlus.exe --capture-preview <id>` renders an HTML wallpaper offscreen.
+- A scratch engine runs beside the user's app: `SCREENPLUS_DATA_DIR=<scratch> ScreenPlus.exe --engine` (no shell,
+  no mutex; it attaches to the desktop too, so keep runs short; `taskkill /PID` without /F stops it cleanly). Set
+  `pause_on_fullscreen=0`/`pause_when_covered=0` in its config to measure rendering while the user runs a game.
+- The screensaver's `/p` mode can be driven with a hidden WinForms window as parent (pump `DoEvents`); never run
+  `/s` or `screensaver on` on the user's machine without asking: it covers their screens / changes their settings.
 - `docs/media/library.gif` (880×572, 40 frames, 100 ms) is made by running the dev build on demo data,
   capturing with `PrintWindow`, and assembling with Pillow.
 - Shell gotcha: the Bash tool collapses `\\` to `\`. Write scripts that contain backslashes with the Write
@@ -178,8 +198,8 @@ Renderer details:
 
 ## Known gaps (vs Lively)
 - There are no application, Unity or Godot wallpapers; they are reported as unsupported.
-- Missing features: spanning one wallpaper across monitors, per-app pause rules, a screensaver mode, and
-  in-app update notices.
+- Missing features: per-app pause rules and in-app update notices. Web screensavers get no audio, system or
+  track data.
 - Customise skips author property types `button` and `label`. Web grading has no gamma, because CSS has no
   equivalent.
 - Streams need a connection. HLS-only sites can't stream, and content that needs a sign-in is never

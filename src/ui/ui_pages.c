@@ -7,6 +7,8 @@
 #include "../common/json.h"
 #include "../renderer/renderer.h"
 #include "../desktop/desktop_host.h"
+#include "../common/scrnsave.h"
+#include <shellapi.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -24,6 +26,7 @@ static const wchar_t *k_filters[] = { L"All", L"Images", L"Videos", L"HTML", L"R
 static const wchar_t *target_id(void)
 {
     Ui *u = g_ui;
+    if (g_app.cfg.s.displayMode != DM_INDEPENDENT) return NULL;   /* duplicate/span: one wallpaper for all */
     return (u->target >= 0 && u->target < g_app.monCount) ? g_app.mons[u->target].id : NULL;
 }
 
@@ -241,6 +244,8 @@ static float draw_hero(Ui *u, float x, float y, float w)
     float rx = prev.right + 26, rw = card.right - 22 - rx, ry = y + 22;
     wchar_t cap[96];
     if (mid) str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING  ·  DISPLAY %d", g_app.mons[u->target].index);
+    else if (g_app.monCount > 1 && g_app.cfg.s.displayMode == DM_SPAN)
+        str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING  ·  SPANNED ACROSS %d DISPLAYS", g_app.monCount);
     else str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING  ·  %ls", g_app.monCount > 1 ? L"ALL DISPLAYS" : L"DESKTOP");
     ui_text(cap, u->fCaption, rectf(rx, ry, rw, 16), t->text3);
     ry += 20;
@@ -251,7 +256,10 @@ static float draw_hero(Ui *u, float x, float y, float w)
     const IpcMonitorStatus *ms = NULL;
     for (int i = 0; e && i < (g_app.haveStatus ? g_app.status.monitorCount : 0); i++) {
         const IpcMonitorStatus *m = &g_app.status.monitors[i];
-        if (wcscmp(m->wallpaperId, e->id) == 0 && (!mid || str_ieq(m->monitorId, mid))) { ms = m; break; }
+        if (wcscmp(m->wallpaperId, e->id) == 0 && (!mid || str_ieq(m->monitorId, mid) || wcscmp(m->monitorId, SP_SPAN_ID) == 0)) {
+            ms = m;
+            break;
+        }
     }
     float bx = rx;
     if (e) {
@@ -280,7 +288,7 @@ static float draw_hero(Ui *u, float x, float y, float w)
         ui_chip(HIT_ID(HK_TARGET, -1), rectf(cx, ry, cw, 30), L"All displays", u->target < 0);
         cx += cw + 8;
     }
-    for (int i = 0; i < g_app.monCount; i++) {
+    for (int i = 0; i < g_app.monCount && g_app.cfg.s.displayMode == DM_INDEPENDENT; i++) {
         wchar_t lbl[64];
         str_printf(lbl, SP_COUNTOF(lbl), L"%d  %.16ls", g_app.mons[i].index, g_app.mons[i].name);
         float cw = ui_text_width(lbl, u->fCenter) + 28;
@@ -456,11 +464,36 @@ static void draw_library(Ui *u, float cx, float cw)
 
 /* ================================================================ displays */
 
+static void row_label(Ui *u, float x, float y, float w, const wchar_t *label, const wchar_t *desc);
+
+/* Segmented control (Appearance style). data: hit data per option (NULL: its index). */
+static void segmented(Ui *u, float x, float y, int kind, const wchar_t *const *opts, int n, int sel, float segW,
+                      const int *data)
+{
+    Theme *t = &u->t;
+    ui_rrect(rectf(x - 3, y - 3, segW * n + 6, 38), 10, t->chip);
+    for (int i = 0; i < n; i++) {
+        int id = HIT_ID(kind, data ? data[i] : i), on = i == sel;
+        D2D1_RECT_F r = rectf(x + i * segW, y, segW, 32);
+        if (on) {
+            ui_rrect(r, 8, t->dark ? col(0xFFFFFF, 0.14f) : col(0xFFFFFF, 1.0f));
+            ui_rrect_stroke(r, 8, 1, t->border);
+        } else if (ui_is_hot(id)) {
+            ui_rrect(r, 8, col_a(t->chip, t->chip.a * 1.5f));
+        }
+        ui_text(opts[i], u->fCenter, r, on ? t->text : t->text2);
+        ui_hit(id, r, 1, 1);
+        ui_focus_ring(r, 8, id);
+    }
+}
+
 static void draw_layout(Ui *u, float x, float y, float w, float h)
 {
     Theme *t = &u->t;
     ui_glass(rectf(x, y, w, h), 18, 0, 0);
     if (!g_app.monCount) return;
+    int span = g_app.cfg.s.displayMode == DM_SPAN && g_app.monCount > 1;
+    WallpaperEntry *spanE = span ? config_find(&g_app.cfg, app_wallpaper_for(NULL)) : NULL;
     RECT b = g_app.mons[0].rect;
     for (int i = 1; i < g_app.monCount; i++) UnionRect(&b, &b, &g_app.mons[i].rect);
     float bw = (float)(b.right - b.left), bh = (float)(b.bottom - b.top);
@@ -472,7 +505,11 @@ static void draw_layout(Ui *u, float x, float y, float w, float h)
                           ox + (m->rect.right - b.left) * s - 3, oy + (m->rect.bottom - b.top) * s - 3 };
         int id = HIT_ID(HK_MONITOR, i), sel = u->target == i, hot = ui_is_hot(id);
         WallpaperEntry *e = config_find(&g_app.cfg, config_assignment(&g_app.cfg, m->id));
-        if (e) ui_draw_thumb(e, r, 8, 0);
+        if (spanE) {                     /* each display shows its own part of the one picture */
+            ui_push_clip(r);
+            ui_draw_thumb(spanE, rectf(ox, oy, bw * s, bh * s), 0, 1);
+            ui_pop_clip();
+        } else if (e) ui_draw_thumb(e, r, 8, 0);
         else ui_rrect(r, 8, t->chip);
         ui_rrect_stroke(r, 8, sel ? 2.5f : 1.0f, sel ? t->accent : (hot ? t->text3 : t->border));
         wchar_t num[8];
@@ -496,8 +533,23 @@ static void draw_displays(Ui *u, float cx, float cw)
     u->viewH = u->h - top;
     ui_push_clip(view);
     float y = top + 6 - u->scroll[PAGE_DISPLAYS];
+    DisplayMode dm = g_app.cfg.s.displayMode;
     draw_layout(u, x, y, w, 230);
-    y += 230 + 22;
+    if (g_app.monCount) {
+        float bw = ui_button_width(L"Identify", 0);
+        ui_button(HIT_ID(HK_IDENTIFY, 0), rectf(x + w - 14 - bw, y + 12, bw, 32), L"Identify", 0, BTN_SECONDARY);
+    }
+    y += 230 + 14;
+    {
+        static const wchar_t *modes[] = { L"Independent", L"Duplicate", L"Span" };
+        static const wchar_t *descs[] = { L"Each display can have its own wallpaper; the others use the default",
+                                          L"The same wallpaper on every display; a video is decoded once for all",
+                                          L"One wallpaper stretched across all displays as one picture" };
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 3 * 112 - 40, L"Arrangement", descs[dm]);
+        segmented(u, x + w - 18 - 3 * 112, y + 15, HK_DISPMODE, modes, 3, (int)dm, 112, NULL);
+        y += 62 + 22;
+    }
     for (int i = 0; i < g_app.monCount; i++) {
         const MonitorInfo *m = &g_app.mons[i];
         const IpcMonitorStatus *ms = app_monitor_status(m->id);
@@ -514,9 +566,10 @@ static void draw_displays(Ui *u, float cx, float cw)
         ui_text(num, u->fCenter, rectf(x + 17, y + 25, 34, 34), u->target == i ? t->onAccent : t->text);
         ui_text(m->name, u->fBodyB, rectf(x + 66, y + 18, 260, 22), t->text);
         wchar_t det[128];
-        str_printf(det, SP_COUNTOF(det), L"%ld × %ld · %u Hz · %u%%%ls", m->rect.right - m->rect.left,
-                   m->rect.bottom - m->rect.top, m->refreshHz, m->dpi * 100 / 96, m->primary ? L" · Primary" : L"");
-        ui_text(det, u->fSmall, rectf(x + 66, y + 42, 300, 20), t->text2);
+        long mw = m->rect.right - m->rect.left, mh = m->rect.bottom - m->rect.top;
+        str_printf(det, SP_COUNTOF(det), L"%ld × %ld · %ls · %u Hz · %u%%%ls", mw, mh, mw >= mh ? L"Landscape" : L"Portrait",
+                   m->refreshHz, m->dpi * 100 / 96, m->primary ? L" · Primary" : L"");
+        ui_text(det, u->fSmall, rectf(x + 66, y + 42, SP_MAX(260.0f, w * 0.38f - 70), 20), t->text2);
 
         float mx = x + SP_MAX(330.0f, w * 0.38f);
         D2D1_RECT_F th = rectf(mx, y + 18, 85, 48);
@@ -526,14 +579,15 @@ static void draw_displays(Ui *u, float cx, float cw)
         D2D1_COLOR_F sc;
         const wchar_t *sl = state_label(ms, &sc);
         wchar_t st[64];
-        str_printf(st, SP_COUNTOF(st), L"%ls · %ls", sl, override ? L"custom" : L"uses default");
+        str_printf(st, SP_COUNTOF(st), L"%ls · %ls", sl, override ? L"custom" : dm == DM_SPAN && g_app.monCount > 1 ? L"part of the span"
+                                                           : dm == DM_DUPLICATE ? L"duplicated" : L"uses default");
         ui_circle(mx + 103, y + 52, 3.5f, sc);
         ui_text(st, u->fSmall, rectf(mx + 112, y + 42, w * 0.24f, 20), t->text2);
 
         float bx = x + w - 16;
         float b1 = ui_button_width(L"Choose…", 0);
         bx -= b1;
-        ui_button(HIT_ID(HK_CHANGE, i), rectf(bx, y + 25, b1, 34), L"Choose…", 0, BTN_SECONDARY);
+        if (dm == DM_INDEPENDENT) ui_button(HIT_ID(HK_CHANGE, i), rectf(bx, y + 25, b1, 34), L"Choose…", 0, BTN_SECONDARY);
         if (override) {
             float b2 = ui_button_width(L"Use default", 0);
             bx -= b2 + 8;
@@ -611,21 +665,66 @@ static void draw_settings(Ui *u, float cx, float cw)
     row_label(u, x, y, w - 300, L"Appearance", L"Follows Windows by default");
     {
         static const wchar_t *opts[] = { L"System", L"Light", L"Dark" };
-        float segW = 78, sx = x + w - 18 - segW * 3, sy = y + 15;
-        ui_rrect(rectf(sx - 3, sy - 3, segW * 3 + 6, 38), 10, t->chip);
-        for (int i = 0; i < 3; i++) {
-            int id = HIT_ID(HK_THEME, i), sel = (int)s->theme == i;
-            D2D1_RECT_F r = rectf(sx + i * segW, sy, segW, 32);
-            if (sel) {
-                ui_rrect(r, 8, t->dark ? col(0xFFFFFF, 0.14f) : col(0xFFFFFF, 1.0f));
-                ui_rrect_stroke(r, 8, 1, t->border);
-            } else if (ui_is_hot(id)) {
-                ui_rrect(r, 8, col_a(t->chip, t->chip.a * 1.5f));
-            }
-            ui_text(opts[i], u->fCenter, r, sel ? t->text : t->text2);
-            ui_hit(id, r, 1, 1);
-            ui_focus_ring(r, 8, id);
-        }
+        segmented(u, x + w - 18 - 78 * 3, y + 15, HK_THEME, opts, 3, (int)s->theme, 78, NULL);
+    }
+    y += 62 + 26;
+
+    y = section(u, x, y, L"SCREENSAVER");
+    {
+        ScrState st;
+        scr_query(&st);
+        int on = st.ours && st.active;
+        wchar_t d0[160];
+        if (st.policy) str_copy(d0, SP_COUNTOF(d0), L"Your organisation manages the screensaver through Group Policy");
+        else if (on) str_printf(d0, SP_COUNTOF(d0), L"Windows starts it after %d min idle, even when Screen+ is closed", SP_MAX(1, st.timeoutSec / 60));
+        else if (st.active) str_copy(d0, SP_COUNTOF(d0), L"Windows uses another screensaver now");
+        else str_copy(d0, SP_COUNTOF(d0), L"Plays a wallpaper from your library when the PC is idle");
+        int idx[] = { TOG_SCR_ENABLE };
+        const wchar_t *l[] = { L"Use Screen+ as the screensaver" };
+        const wchar_t *d[] = { d0 };
+        int v[] = { on };
+        y = toggle_group(u, x, y, w, idx, l, d, v, 1);
+        y += 10;
+
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        WallpaperEntry *se = config_find(&g_app.cfg, config_screensaver(&g_app.cfg));
+        wchar_t d1[200];
+        if (!se) str_copy(d1, SP_COUNTOF(d1), L"None: a black screen. Choose one from your library");
+        else if (g_app.cfg.screensaver[0]) str_printf(d1, SP_COUNTOF(d1), L"%ls", se->name);
+        else str_printf(d1, SP_COUNTOF(d1), L"%ls (the desktop's)", se->name);
+        float bp = ui_button_width(L"Preview", GL_PLAY), bc = ui_button_width(L"Choose…", 0);
+        row_label(u, x, y, w - bp - bc - 60, L"Wallpaper", d1);
+        ui_button(HIT_ID(HK_SCR_PREVIEW, 0), rectf(x + w - 18 - bp, y + 14, bp, 34), L"Preview", GL_PLAY, BTN_SECONDARY);
+        ui_button(HIT_ID(HK_SCR_CHOOSE, 0), rectf(x + w - 26 - bp - bc, y + 14, bc, 34), L"Choose…", 0, BTN_SECONDARY);
+        y += 62 + 10;
+
+        static const wchar_t *mins[] = { L"1", L"3", L"5", L"10", L"15", L"30" };
+        static const int minv[] = { 1, 3, 5, 10, 15, 30 };
+        int cur = -1;
+        for (int i = 0; i < 6; i++) if (st.timeoutSec == minv[i] * 60) cur = i;
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 6 * 46 - 40, L"Start after (minutes)", L"Time without keyboard or mouse input; a Windows setting");
+        segmented(u, x + w - 18 - 6 * 46, y + 15, HK_SCR_TIMEOUT, mins, 6, cur, 46, minv);
+        y += 62 + 10;
+
+        static const wchar_t *dopts[] = { L"All", L"Span", L"Primary" };
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 3 * 84 - 40, L"Displays", L"Every display, one picture across them, or the main display only");
+        segmented(u, x + w - 18 - 3 * 84, y + 15, HK_SCR_DISPLAYS, dopts, 3, (int)s->scrDisplays, 84, NULL);
+        y += 62 + 10;
+
+        int idx2[] = { TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK };
+        const wchar_t *l2[] = { L"Play sound", L"End on mouse movement", L"Show the sign-in screen on resume" };
+        const wchar_t *d2[] = { L"Video and web screensavers are muted by default",
+                                L"When off, only a key, a click or the mouse wheel ends it",
+                                L"Locks the PC when the screensaver ends; a Windows setting" };
+        int v2[] = { s->scrAudio, s->scrExitOnMouse, st.secure };
+        y = toggle_group(u, x, y, w, idx2, l2, d2, v2, 3);
+        y += 10;
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        float bw = ui_button_width(L"Open", GL_OPEN);
+        row_label(u, x, y, w - bw - 60, L"Windows screensaver settings", L"Screen+ is listed there once it is switched on");
+        ui_button(HIT_ID(HK_SCR_WINDOWS, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Open", GL_OPEN, BTN_SECONDARY);
     }
     y += 62 + 26;
 
@@ -1660,11 +1759,46 @@ static void toggle_setting(int idx)
     case TOG_URL:        s->urlImport = !s->urlImport; break;
     case TOG_DEPTH_ALL:  s->depthAll = !s->depthAll; break;
     case TOG_AUDIO:      app_set_audio(!s->audio); ui_animate(); return;
+    case TOG_SCR_AUDIO:  s->scrAudio = !s->scrAudio; break;
+    case TOG_SCR_MOUSE:  s->scrExitOnMouse = !s->scrExitOnMouse; break;
+    case TOG_SCR_ENABLE:
+    case TOG_SCR_LOCK: {                 /* Windows settings: not in config.ini */
+        ScrState st;
+        scr_query(&st);
+        wchar_t err[200] = L"";
+        if (idx == TOG_SCR_LOCK) scr_set_secure(!st.secure);
+        else if (!scr_enable(!(st.ours && st.active), err, SP_COUNTOF(err))) app_notice(NOTICE_ERROR, L"%ls", err);
+        else if (err[0]) app_notice(NOTICE_WARN, L"%ls", err);
+        ui_animate();
+        return;
+    }
     default: return;
     }
     app_save_config();
     if (idx == TOG_DEPTH_ALL) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download and to start on the current image */
     ui_animate();
+}
+
+/* Screensaver wallpaper: the desktop's, or any wallpaper in the library. */
+static void screensaver_menu(int id)
+{
+    Ui *u = g_ui;
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    AppendMenuW(m, MF_STRING | (!g_app.cfg.screensaver[0] ? MF_CHECKED : 0), 1, L"Same as the desktop");
+    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    for (int i = 0; i < g_app.cfg.count && i < 2000; i++) {
+        const WallpaperEntry *e = &g_app.cfg.items[i];
+        AppendMenuW(m, MF_STRING | (e->missing ? MF_GRAYED : 0) | (wcscmp(e->id, g_app.cfg.screensaver) == 0 ? MF_CHECKED : 0),
+                    (UINT_PTR)i + 2, e->name[0] ? e->name : L"(unnamed)");
+    }
+    D2D1_RECT_F r = hit_rect(id);
+    POINT p = { (LONG)(r.left * u->scale), (LONG)((r.bottom + 4.0f) * u->scale) };
+    ClientToScreen(u->hwnd, &p);
+    UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, u->hwnd, NULL);
+    DestroyMenu(m);
+    if (cmd == 1) app_set_screensaver(L"");
+    else if (cmd >= 2 && (int)cmd - 2 < g_app.cfg.count) app_set_screensaver(g_app.cfg.items[cmd - 2].id);
 }
 
 void pages_activate(int id, int dbl)
@@ -1725,8 +1859,23 @@ void pages_activate(int id, int dbl)
         break;
     case HK_TARGET:
     case HK_MONITOR:
-        u->target = data;
+        u->target = g_app.cfg.s.displayMode == DM_INDEPENDENT ? data : -1;
         break;
+    case HK_DISPMODE:
+        app_set_display_mode(data);
+        u->target = -1;
+        break;
+    case HK_IDENTIFY:      identify_displays(g_app.mons, g_app.monCount); break;
+    case HK_SCR_CHOOSE:    screensaver_menu(id); break;
+    case HK_SCR_PREVIEW:
+        if (!scr_launch(L"/s")) app_notice(NOTICE_ERROR, L"Could not start the screensaver preview.");
+        break;
+    case HK_SCR_TIMEOUT:   scr_set_timeout(data * 60); break;
+    case HK_SCR_DISPLAYS:
+        g_app.cfg.s.scrDisplays = (ScrDisplays)SP_CLAMP(data, SCRD_ALL, SCRD_PRIMARY);
+        app_save_config();
+        break;
+    case HK_SCR_WINDOWS:   ShellExecuteW(NULL, NULL, L"control.exe", L"desk.cpl,,@screensaver", NULL, SW_SHOWNORMAL); break;
     case HK_PLAYPAUSE:     app_set_paused(!g_app.cfg.s.paused); break;
     case HK_AUDIO:         app_set_audio(!g_app.cfg.s.audio); break;
     case HK_RESTART_CURRENT:
@@ -1826,7 +1975,7 @@ void pages_context(int id, int sx, int sy)
     HMENU m = CreatePopupMenu();
     if (!m) return;
     AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 1, L"Apply to all displays");
-    for (int i = 0; i < g_app.monCount && i < 16; i++) {
+    for (int i = 0; i < g_app.monCount && i < 16 && g_app.cfg.s.displayMode == DM_INDEPENDENT; i++) {
         wchar_t l[96];
         str_printf(l, SP_COUNTOF(l), L"Apply to display %d (%.40ls)", g_app.mons[i].index, g_app.mons[i].name);
         AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 100 + (UINT)i, l);
@@ -1834,6 +1983,8 @@ void pages_context(int id, int sx, int sy)
     /* what removing does: a link has no file, a download goes with its entry, anything else stays */
     int link = wallpaper_is_url(e.path), download = url_import_is_download(e.path);
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0) | (wcscmp(g_app.cfg.screensaver, e.id) == 0 ? MF_CHECKED : 0), 4,
+                L"Use as screensaver");
     AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, link ? L"Open link in browser" : L"Show in File Explorer");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, 3, link ? L"Remove from library" : download ? L"Remove from library and delete the download"
@@ -1845,6 +1996,7 @@ void pages_context(int id, int sx, int sy)
     else if (cmd == 2 && link) shell_open(e.path);
     else if (cmd == 2) shell_reveal(e.path);
     else if (cmd == 3) library_remove(e.id);
+    else if (cmd == 4) app_set_screensaver(e.id);
     ui_invalidate();
 }
 

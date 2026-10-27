@@ -9,6 +9,7 @@
 
 [![Latest release](https://img.shields.io/github/v/release/CoolNinja2009/ScreenPlus?style=flat-square&color=0a84ff&label=release)](https://github.com/CoolNinja2009/ScreenPlus/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/CoolNinja2009/ScreenPlus/total?style=flat-square&color=0a84ff)](https://github.com/CoolNinja2009/ScreenPlus/releases)
+[![Code lines](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FCoolNinja2009%2FScreenPlus%2Fmain%2F.github%2Fcode-lines.json&style=flat-square)](https://github.com/CoolNinja2009/ScreenPlus)
 [![Build](https://img.shields.io/github/actions/workflow/status/CoolNinja2009/ScreenPlus/release.yml?style=flat-square&label=build)](https://github.com/CoolNinja2009/ScreenPlus/actions/workflows/release.yml)
 ![Windows 10 and 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4?style=flat-square)
 ![C17, Win32, Direct2D, Direct3D 11](https://img.shields.io/badge/C17-Win32%20%7C%20Direct2D%20%7C%20D3D11-555?style=flat-square)
@@ -31,7 +32,8 @@
 | ⚡ **GPU video decoding** | H.264, HEVC (including 10-bit), VP9, AV1, MPEG-2 and VC-1 decode on the GPU through D3D11VA, with automatic software fallback. |
 | 🧩 **Lively Wallpaper compatible** | Your Lively library is picked up automatically, with saved properties, audio visualisers, system information and now playing (title, artist, album art). Wallpaper Engine web and video projects work too. |
 | ✨ **A library that moves** | Thumbnails play each wallpaper's preview. Web wallpapers that ship none are recorded into a GIF, the same way Lively does it. |
-| 🖥️ **Multi-monitor** | One wallpaper everywhere, or a different one on each display. |
+| 🖥️ **Multi-monitor** | Independent (a wallpaper per display), Duplicate (one everywhere, a video decoded once) or Span (one picture across all displays). Mixed resolutions, portrait screens and hot-plugging are handled. |
+| 🌙 **Screensaver** | Any image, video or web wallpaper becomes the Windows screensaver. Windows starts it after the idle time you choose, even when Screen+ is closed; the desktop wallpaper pauses meanwhile. |
 | 🔋 **Gets out of the way** | Pauses for fullscreen games and videos, covered or locked screens and battery power. A renderer that crashes restarts on its own. |
 | 🖱️ **Interactive** | Web wallpapers can react to the mouse on the desktop. The keyboard is never shared. |
 | 🧊 **Make wallpaper cooler** | Turns any picture into a 3D wallpaper that follows your mouse: the Depth Anything V2 AI model finds the depth on whichever of your GPU (DirectML) and CPU is quicker. A one-time download of about 110 MB, and only when you ask for it. |
@@ -110,9 +112,26 @@ Native-app, Unity, Godot and Wallpaper Engine *scene* projects need their origin
 <summary><b>Displays and pausing</b></summary>
 <br>
 
-- In the library, **All displays** applies a wallpaper everywhere; choose a monitor, or use the **Displays** page, to give each screen its own.
-- Rendering pauses on the display a fullscreen app is on (other displays keep playing), on displays covered by maximised windows, while the PC is locked or the screen is off, and on battery power. Each rule can be switched off in **Settings**.
+- **Displays › Arrangement** picks how your screens share wallpapers:
+  - **Independent**: in the library, **All displays** sets the default and choosing a display (or **Choose…** on the Displays page) gives it its own.
+  - **Duplicate**: the default wallpaper on every display. A video is decoded once and shown on all of them, frame for frame.
+  - **Span**: one wallpaper across the bounding box of all displays, so the picture continues over the monitor edges (cropped to cover, never stretched). One renderer for all displays.
+- The Displays page lists each display's name, resolution, orientation, refresh rate and scaling. **Identify** shows each display's number on it. Per-display choices are kept while you use Duplicate or Span, and come back with Independent.
+- Displays are recognised by their device path, so assignments survive reboots and unplugging. A display plugged into another port or dock gets its wallpaper back when it is the only one of its model without a match. Resolution, scaling, orientation and layout changes are picked up without restarting anything.
+- Rendering pauses on the display a fullscreen app is on (other displays keep playing; in Span the whole picture freezes), on displays covered by maximised windows, while the PC is locked or the screen is off, during the screensaver, and on battery power. Each rule can be switched off in **Settings**.
 - Video and web wallpapers are muted until you turn audio on.
+</details>
+
+<details>
+<summary><b>Screensaver</b></summary>
+<br>
+
+- **Settings › Screensaver › Use Screen+ as the screensaver** makes Screen+ the Windows screensaver for your account; no administrator rights are needed. **Choose…** picks its wallpaper (or right-click one in the library: **Use as screensaver**); by default it is the desktop's.
+- **Start after** sets the Windows idle timeout. **Displays**: the wallpaper on every display, spanned across them, or on the main display only. **Play sound** (off by default), **End on mouse movement** (keys, clicks and the wheel always end it) and **Show the sign-in screen on resume** (a Windows setting).
+- **Preview** runs it now. It is also listed in Windows' Screen Saver Settings, with its small preview and a Settings button that opens this page.
+- How it works: setup installs `ScreenPlus.scr`, a copy of the app that Windows starts after the timeout. It runs the same renderers in its own process (no window manager, tray or engine), one window per display, and quits on input. The desktop wallpaper is suspended while it runs and resumes with its frame intact. Started over a fullscreen app, a game, a presentation or the sign-in screen, it quits at once; it stops drawing while the display is off and freezes on battery when **Pause on battery power** is on.
+- Web screensavers use their own WebView2 profile (`WebView2-Screensaver`). Wallpaper audio, system and track data are not fed to web screensavers.
+- If your organisation sets the screensaver by Group Policy, Windows keeps that one and the page says so. Uninstalling switches the Screen+ screensaver off (only when it is the current one).
 </details>
 
 <details>
@@ -164,7 +183,8 @@ screenplus vcredist [install]                          the Visual C++ runtime th
 screenplus pause | resume | toggle | next | restart | audio [on|off]
 screenplus look [set <key> <value> ... | reset]        brightness contrast saturation hue gamma tint ...
 screenplus props [set <name> <value> | reset]          the wallpaper's own Lively / WE settings
-screenplus settings [set <key> <value>]
+screenplus settings [set <key> <value>]                e.g. settings set display_mode span
+screenplus screensaver [on | off | preview | timeout <min> | lock on|off | use <wallpaper|desktop>]
 screenplus start [--show] | show | hide | stop
 screenplus logs [app|engine] [-n N] [-f]   |   paths   |   path [add|remove]   |   help [command]
 ```
@@ -173,7 +193,9 @@ screenplus logs [app|engine] [-n N] [-f]   |   paths   |   path [add|remove]   |
 Exit codes: 0 ok, 1 command failed, 2 bad usage, 3 Screen+ not running. `screenplus help` lists everything.
 
 ```text
-ScreenPlus.exe [--tray | --show | --pause | --resume | --toggle-pause | --next | --exit]
+ScreenPlus.exe [--tray | --show | --pause | --resume | --toggle-pause | --next | --exit | --screensaver-settings]
+ScreenPlus.exe --screensaver /s           run the screensaver now (Preview)
+ScreenPlus.scr /s | /p <hwnd> | /c        how Windows starts it: full screen, Screen Saver Settings preview, its Settings button
 ```
 
 The executable's own switches also reach the running Screen+; `--next` switches to the next wallpaper.
@@ -191,7 +213,8 @@ uninstall.exe /S                                                      silent uni
 | Location or variable | Purpose |
 | --- | --- |
 | `%LOCALAPPDATA%\ScreenPlus\config.ini` | Settings and library, plain text (previous version kept as `config.bak`) |
-| `%LOCALAPPDATA%\ScreenPlus\logs\` | Logs and crash dumps. Attach them to bug reports |
+| `%LOCALAPPDATA%\ScreenPlus\logs\` | Logs and crash dumps (`screenplus.log`, `engine.log`, `screensaver.log`). Attach them to bug reports |
+| `%LOCALAPPDATA%\ScreenPlus\WebView2-Screensaver\` | The web screensaver's browser profile, safe to delete |
 | `%LOCALAPPDATA%\ScreenPlus\cache\previews\` | Recorded web previews, safe to delete |
 | `%LOCALAPPDATA%\ScreenPlus\downloads\` | Wallpapers saved from links, deleted with their library entry |
 | `%LOCALAPPDATA%\ScreenPlus\tools\` | yt-dlp and QuickJS-NG (`screenplus tools remove` deletes them) |
@@ -231,9 +254,9 @@ Every push to `main` that changes the app is built by [GitHub Actions](.github/w
 - [x] Installer with default, clean and in-place update
 - [x] Wallpapers from links: YouTube streaming, downloads and live pages
 - [x] Customise panel: wallpaper properties and colour grading
-- [ ] Span one wallpaper across all monitors
+- [x] Span one wallpaper across all monitors, or duplicate one on all of them
 - [ ] Pause rules for individual apps
-- [ ] Screensaver mode
+- [x] Screensaver mode
 - [ ] Update notifications inside the app
 
 ## License and credits

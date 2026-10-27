@@ -390,6 +390,7 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File "${STAGE}\${APP_EXE}"
   File "${STAGE}\ScreenPlus.com"                       ; terminal companion: `screenplus <command>`
+  File "${STAGE}\ScreenPlus.scr"                       ; screensaver: a copy of the app Windows starts with /s, /p, /c
   File "${STAGE}\avcodec-*.dll"
   File "${STAGE}\avformat-*.dll"
   File "${STAGE}\avutil-*.dll"
@@ -491,7 +492,10 @@ Section "Uninstall"
 
   nsExec::Exec '"$INSTDIR\ScreenPlus.com" path remove --quiet'
   Pop $0
+  nsExec::Exec '"$INSTDIR\ScreenPlus.com" screensaver off'   ; only when Screen+ is the Windows screensaver
+  Pop $0
   Delete "$INSTDIR\${APP_EXE}"
+  Delete "$INSTDIR\ScreenPlus.scr"
   Delete "$INSTDIR\ScreenPlus.com"
   Delete "$INSTDIR\avcodec-*.dll"
   Delete "$INSTDIR\avformat-*.dll"

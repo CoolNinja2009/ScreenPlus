@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "1.6.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
+set(SCREENPLUS_VERSION "1.7.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
 project(ScreenPlus VERSION ${SCREENPLUS_VERSION} LANGUAGES C)
 
 if(NOT MSVC)
@@ -93,7 +93,8 @@ endforeach()
 set(SOURCES
     src/main.c
     src/common/util.c src/common/log.c src/common/paths.c src/common/json.c src/common/webfetch.c
-    src/common/ytdlp.c
+    src/common/ytdlp.c src/common/scrnsave.c
+    src/screensaver/screensaver.c
     src/settings/config.c
     src/monitor/monitor.c
     src/desktop/desktop_host.c
@@ -107,7 +108,7 @@ set(SOURCES
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
     src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c
     src/tray/tray.c
-    src/ui/ui_core.c src/ui/ui_pages.c src/ui/textedit.c src/ui/thumbs.c
+    src/ui/ui_core.c src/ui/ui_pages.c src/ui/textedit.c src/ui/thumbs.c src/ui/identify.c
     resources/screenplus.rc
 )
 add_executable(ScreenPlus WIN32 ${SOURCES} ${SHADER_HEADERS})
@@ -132,7 +133,7 @@ target_link_libraries(ScreenPlus PRIVATE
 # Terminal companion, shipped as ScreenPlus.com next to ScreenPlus.exe: a terminal resolves
 # `screenplus` to the .com first (PATHEXT order), shortcuts and the startup entry name the .exe.
 add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/json.c src/common/paths.c
-                             src/common/webfetch.c)
+                             src/common/webfetch.c src/common/scrnsave.c)
 set_target_properties(ScreenPlusCli PROPERTIES OUTPUT_NAME ScreenPlus SUFFIX ".com" PDB_NAME ScreenPlusCli)
 target_include_directories(ScreenPlusCli PRIVATE src)
 target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
@@ -154,6 +155,7 @@ target_link_libraries(sysinfo_test PRIVATE pdh advapi32 dxgi dxguid bcrypt shlwa
 # Ship FFmpeg DLLs, licenses and the sample wallpaper next to the executable.
 add_custom_command(TARGET ScreenPlus POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${FFMPEG_DLLS} "$<TARGET_FILE_DIR:ScreenPlus>"
+    COMMAND ${CMAKE_COMMAND} -E copy "$<TARGET_FILE:ScreenPlus>" "$<TARGET_FILE_DIR:ScreenPlus>/ScreenPlus.scr"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/samples" "$<TARGET_FILE_DIR:ScreenPlus>/samples"
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:ScreenPlus>/licenses"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md" "${CMAKE_SOURCE_DIR}/LICENSE"

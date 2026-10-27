@@ -67,6 +67,11 @@ static struct {
     HANDLE        shellProcess, shellWait;
     Slot          *mouseSlot;
     int            mouseButtons;
+    MonitorInfo    mons[SP_MAX_MONITORS];   /* connected displays (a span slot covers them all) */
+    int            monCount;
+    int            screensaver;             /* ScreenPlus.scr is running: everything is hidden */
+    DWORD          scrPid;
+    HANDLE         scrProcess, scrWait;
 } E;
 
 static void apply_states(void);
@@ -88,6 +93,7 @@ static Slot *slot_by_monitor(const wchar_t *id)
     return NULL;
 }
 
+static int slot_is_span(const Slot *s) { return wcscmp(s->mon.id, SP_SPAN_ID) == 0; }
 static int slot_width(const Slot *s)  { return s->mon.rect.right - s->mon.rect.left; }
 static int slot_height(const Slot *s) { return s->mon.rect.bottom - s->mon.rect.top; }
 
@@ -248,10 +254,34 @@ static void resolve_wallpaper(const wchar_t *monitorId, WallpaperEntry *out)
     if (e) *out = *e;
 }
 
+/* Span: one slot over the bounding box of every display (physical pixels, virtual-screen
+ * coordinates), so a single renderer keeps the composition across the monitor edges. */
+static void span_monitor(MonitorInfo *out)
+{
+    *out = E.mons[0];                    /* the primary: dpi, hmon */
+    out->refreshHz = 0;
+    for (int i = 0; i < E.monCount; i++) {
+        UnionRect(&out->rect, &out->rect, &E.mons[i].rect);
+        UnionRect(&out->work, &out->work, &E.mons[i].work);
+        out->refreshHz = SP_MAX(out->refreshHz, E.mons[i].refreshHz);
+    }
+    str_copy(out->id, SP_COUNTOF(out->id), SP_SPAN_ID);
+    str_printf(out->name, SP_COUNTOF(out->name), L"%d displays (span)", E.monCount);
+    out->gdiName[0] = 0;
+    out->index = 1;
+    out->primary = 1;
+}
+
 static void reconcile_slots(void)
 {
     MonitorInfo mons[SP_MAX_MONITORS];
-    int n = monitor_enumerate(mons, SP_MAX_MONITORS);
+    E.monCount = monitor_enumerate(E.mons, SP_MAX_MONITORS);
+    int n = E.monCount;
+    memcpy(mons, E.mons, sizeof(MonitorInfo) * (size_t)n);
+    if (E.cfg.s.displayMode == DM_SPAN && n > 1) {
+        span_monitor(&mons[0]);
+        n = 1;
+    }
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &E.slots[i];
         if (s->used && !monitor_find(mons, n, s->mon.id)) {
@@ -326,6 +356,10 @@ static RenderState desired_state(const Slot *s, int *keepFrame)
 {
     *keepFrame = 0;
     if (E.sleeping || E.displayOff || E.disconnected || (E.locked && E.cfg.s.suspendOnLock)) return RS_SUSPENDED;
+    if (E.screensaver) {                 /* nothing to see; the frame stays for the moment it ends */
+        *keepFrame = 1;
+        return RS_SUSPENDED;
+    }
     if (E.userPaused || (E.cfg.s.pauseOnBattery && (E.onBattery || E.energySaver))) {
         *keepFrame = 1;
         return RS_SUSPENDED;
@@ -366,29 +400,72 @@ static void apply_states(void)
     if (activated) SetTimer(E.ctl, T_WALLPAPER_DATA, 1, NULL);
 }
 
+/* Per display. A span slot is covered only when every display is, and counts a fullscreen app on
+ * any of them (it freezes, keeping its frame on the displays that still show it). */
 static void update_occlusion(void)
 {
-    MonitorInfo mons[SP_MAX_MONITORS];
-    Slot *map[SP_MAX_MONITORS];
-    int n = 0;
-    for (int i = 0; i < SP_MAX_MONITORS; i++) {
-        if (!E.slots[i].used) continue;
-        mons[n] = E.slots[i].mon;
-        map[n++] = &E.slots[i];
-    }
     OcclusionResult o;
-    occlusion_compute(mons, n, &o);
+    occlusion_compute(E.mons, E.monCount, &o);
     int changed = 0, any = 0;
-    for (int i = 0; i < n; i++) {
-        if (map[i]->fullscreen != o.fullscreen[i])
-            LOGI(L"display %d: fullscreen application %ls", map[i]->mon.index, o.fullscreen[i] ? L"detected" : L"closed");
-        if (map[i]->covered != o.covered[i] || map[i]->fullscreen != o.fullscreen[i]) changed = 1;
-        map[i]->covered = o.covered[i];
-        map[i]->fullscreen = o.fullscreen[i];
-        any |= o.fullscreen[i];
+    for (int i = 0; i < E.monCount; i++) any |= o.fullscreen[i];
+    for (int k = 0; k < SP_MAX_MONITORS; k++) {
+        Slot *s = &E.slots[k];
+        if (!s->used) continue;
+        int covered = 0, full = 0;
+        if (slot_is_span(s)) {
+            covered = E.monCount > 0;
+            for (int i = 0; i < E.monCount; i++) { covered &= o.covered[i]; full |= o.fullscreen[i]; }
+        } else {
+            for (int i = 0; i < E.monCount; i++)
+                if (str_ieq(E.mons[i].id, s->mon.id)) { covered = o.covered[i]; full = o.fullscreen[i]; break; }
+        }
+        if (s->fullscreen != full)
+            LOGI(L"display %d: fullscreen application %ls", s->mon.index, full ? L"detected" : L"closed");
+        if (s->covered != covered || s->fullscreen != full) changed = 1;
+        s->covered = covered;
+        s->fullscreen = full;
     }
     E.fullscreen = any;
     if (changed) apply_states();
+}
+
+static void CALLBACK screensaver_exited(void *ctx, BOOLEAN timedOut)
+{
+    (void)timedOut;
+    if (E.ctl) PostMessageW(E.ctl, SP_MSG_SCREENSAVER, 0, (LPARAM)(uintptr_t)ctx);
+}
+
+static void screensaver_unwatch(void)
+{
+    if (E.scrWait) UnregisterWaitEx(E.scrWait, NULL);   /* the callback only posts: no need to wait */
+    if (E.scrProcess) CloseHandle(E.scrProcess);
+    E.scrWait = E.scrProcess = NULL;
+}
+
+/* ScreenPlus.scr started or ended. Watching its process covers a crash or a kill. */
+static void on_screensaver(int started, DWORD pid)
+{
+    if (started) {
+        screensaver_unwatch();
+        E.scrPid = pid;
+        E.scrProcess = OpenProcess(SYNCHRONIZE, FALSE, pid);
+        if (!E.scrProcess ||
+            !RegisterWaitForSingleObject(&E.scrWait, E.scrProcess, screensaver_exited, (void *)(uintptr_t)pid, INFINITE,
+                                         WT_EXECUTEONLYONCE)) {
+            screensaver_unwatch();
+            return;                         /* already gone */
+        }
+        E.screensaver = 1;
+        LOGI(L"screensaver started (pid %lu): suspending wallpapers", pid);
+    } else {
+        if (!E.screensaver || pid != E.scrPid) return;
+        screensaver_unwatch();
+        E.screensaver = 0;
+        LOGI(L"screensaver ended: resuming wallpapers");
+        SetTimer(E.ctl, T_OCCLUSION, 150, NULL);
+    }
+    apply_states();
+    status_dirty();
 }
 
 /* Wallpaper input is intentionally opt-in and restricted to the real desktop
@@ -525,7 +602,8 @@ static void status_send(void)
     st->flags = (E.userPaused ? ENGINE_FLAG_PAUSED : 0) | (E.locked ? ENGINE_FLAG_LOCKED : 0) |
                 (E.onBattery ? ENGINE_FLAG_BATTERY : 0) | (E.fullscreen ? ENGINE_FLAG_FULLSCREEN : 0) |
                 (E.displayOff ? ENGINE_FLAG_DISPLAY_OFF : 0) | (E.safeMode ? ENGINE_FLAG_SAFE_MODE : 0) |
-                (E.webview[0] ? ENGINE_FLAG_WEBVIEW2 : 0) | (E.sleeping ? ENGINE_FLAG_SLEEPING : 0);
+                (E.webview[0] ? ENGINE_FLAG_WEBVIEW2 : 0) | (E.sleeping ? ENGINE_FLAG_SLEEPING : 0) |
+                (E.screensaver ? ENGINE_FLAG_SCREENSAVER : 0);
     str_copy(st->webviewVersion, SP_COUNTOF(st->webviewVersion), E.webview);
     str_copy(st->lastError, SP_COUNTOF(st->lastError), E.lastError);
     int n = 0, active = 0;
@@ -660,6 +738,9 @@ static LRESULT CALLBACK wallpaper_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         EndPaint(h, &ps);
         return 0;
     }
+    case WM_TIMER:                       /* renderer timers (HTML API probes) */
+        if (s && s->r && s->r->vt->on_timer) s->r->vt->on_timer(s->r, wp);
+        return 0;
     case WM_MOUSEACTIVATE:
         return MA_NOACTIVATE;
     case WM_NCHITTEST:
@@ -763,6 +844,9 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     }
     case WM_SP_HOST_LOST:
         SetTimer(h, T_REHOST, 800, NULL);
+        return 0;
+    case SP_MSG_SCREENSAVER:
+        on_screensaver(wp != 0, (DWORD)lp);
         return 0;
     case WM_SP_SHELL_GONE:
         LOGW(L"shell process exited; stopping engine");
@@ -970,6 +1054,8 @@ int engine_main(HINSTANCE inst, HWND shell, int safeMode)
     for (int i = 0; i < E.hookCount; i++) UnhookWinEvent(E.hooks[i]);
     for (int i = 0; i < 3; i++) if (E.pn[i]) UnregisterPowerSettingNotification(E.pn[i]);
     if (E.shellWait) UnregisterWaitEx(E.shellWait, INVALID_HANDLE_VALUE);
+    if (E.scrWait) UnregisterWaitEx(E.scrWait, INVALID_HANDLE_VALUE);
+    if (E.scrProcess) CloseHandle(E.scrProcess);
     if (E.shellProcess) CloseHandle(E.shellProcess);
     desktop_host_refresh(&E.host);
     config_free(&E.cfg);

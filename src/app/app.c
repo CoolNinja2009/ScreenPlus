@@ -4,6 +4,7 @@
 #include "../common/util.h"
 #include "../common/log.h"
 #include "../common/paths.h"
+#include "../common/scrnsave.h"
 #include <shellapi.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -32,14 +33,24 @@ void app_notice(int kind, const wchar_t *fmt, ...)
 void app_refresh_monitors(void)
 {
     g_app.monCount = monitor_enumerate(g_app.mons, SP_MAX_MONITORS);
+    const wchar_t *ids[SP_MAX_MONITORS];
+    for (int i = 0; i < g_app.monCount; i++) ids[i] = g_app.mons[i].id;
+    if (config_adopt_monitors(&g_app.cfg, ids, g_app.monCount)) {
+        LOGI(L"a display came back on another port or dock: its wallpaper follows it");
+        if (g_app.shellWnd) app_save_config();          /* the engine reloads */
+        else config_save(&g_app.cfg, paths_config());   /* startup: the engine isn't running yet */
+    }
 }
 
 const IpcMonitorStatus *app_monitor_status(const wchar_t *monitorId)
 {
     if (!g_app.haveStatus || !monitorId) return NULL;
-    for (int i = 0; i < g_app.status.monitorCount && i < SP_MAX_MONITORS; i++)
+    const IpcMonitorStatus *span = NULL;
+    for (int i = 0; i < g_app.status.monitorCount && i < SP_MAX_MONITORS; i++) {
         if (str_ieq(g_app.status.monitors[i].monitorId, monitorId)) return &g_app.status.monitors[i];
-    return NULL;
+        if (wcscmp(g_app.status.monitors[i].monitorId, SP_SPAN_ID) == 0) span = &g_app.status.monitors[i];
+    }
+    return span;                         /* span mode: one renderer for every display */
 }
 
 const wchar_t *app_engine_state_text(int *severity)
@@ -63,6 +74,7 @@ const wchar_t *app_engine_state_text(int *severity)
     else if (anyRecovering) { sev = 2; t = L"Recovering"; }
     else if (!anyWallpaper) { sev = 1; t = L"No wallpaper"; }
     else if (st->flags & (ENGINE_FLAG_LOCKED | ENGINE_FLAG_SLEEPING | ENGINE_FLAG_DISPLAY_OFF)) { sev = 1; t = L"Suspended"; }
+    else if (st->flags & ENGINE_FLAG_SCREENSAVER) { sev = 1; t = L"Paused for the screensaver"; }
     else if ((st->flags & ENGINE_FLAG_BATTERY) && g_app.cfg.s.pauseOnBattery) { sev = 1; t = L"Paused on battery"; }
     else if ((st->flags & ENGINE_FLAG_FULLSCREEN) && g_app.cfg.s.pauseOnFullscreen && st->activeRenderers == 0) { sev = 1; t = L"Paused for fullscreen app"; }
     else if (st->activeRenderers == 0) { sev = 0; t = L"Idle (desktop covered)"; }
@@ -99,11 +111,33 @@ void app_apply_wallpaper(const wchar_t *wallpaperId, const wchar_t *monitorIdOrN
     WallpaperEntry *e = config_find(&g_app.cfg, wallpaperId);
     if (!e) return;
     e->lastUsed = time_unix_now();
+    if (monitorIdOrNull && g_app.cfg.s.displayMode != DM_INDEPENDENT) {
+        g_app.cfg.s.displayMode = DM_INDEPENDENT;   /* one display on its own: that's independent mode */
+        LOGI(L"display mode: independent");
+    }
     config_assign(&g_app.cfg, monitorIdOrNull, wallpaperId);
     LOGI(L"apply '%ls' (%ls) to %ls", e->name, wallpaper_type_name(e->type), monitorIdOrNull ? monitorIdOrNull : L"all displays");
     if (e->missing) app_notice(NOTICE_WARN, L"'%ls' could not be found at its original location.", e->name);
     app_save_config();
     depth_auto(wallpaperId);        /* "interactive images" setting: an image is cooled in the background */
+}
+
+void app_set_display_mode(int mode)
+{
+    if (mode < DM_INDEPENDENT || mode > DM_SPAN || (int)g_app.cfg.s.displayMode == mode) return;
+    g_app.cfg.s.displayMode = (DisplayMode)mode;
+    LOGI(L"display mode: %ls", mode == DM_SPAN ? L"span" : mode == DM_DUPLICATE ? L"duplicate" : L"independent");
+    app_save_config();
+}
+
+void app_set_screensaver(const wchar_t *wallpaperId)
+{
+    str_copy(g_app.cfg.screensaver, SP_ID_LEN, wallpaperId && config_find(&g_app.cfg, wallpaperId) ? wallpaperId : L"");
+    app_save_config();
+    ScrState st;
+    scr_query(&st);
+    if (!(st.ours && st.active))
+        app_notice(NOTICE_INFO, L"Saved. Switch on Use Screen+ as the screensaver in Settings to let Windows start it.");
 }
 
 void app_set_paused(BOOL paused)
@@ -171,6 +205,7 @@ static void handle_shell_command(uint32_t cmd)
     case CMD_RESUME:         app_set_paused(FALSE); break;
     case CMD_NEXT_WALLPAPER: app_next_wallpaper(); break;
     case CMD_EXIT:           app_exit(); break;
+    case CMD_SHOW_SETTINGS:  ui_show_screensaver(); break;
     default: break;
     }
 }
@@ -320,6 +355,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
         else if (str_ieq(argv[i], L"--toggle-pause")) forward = CMD_TOGGLE_PAUSE;
         else if (str_ieq(argv[i], L"--next")) forward = CMD_NEXT_WALLPAPER;
         else if (str_ieq(argv[i], L"--exit")) forward = CMD_EXIT;
+        else if (str_ieq(argv[i], L"--screensaver-settings")) forward = CMD_SHOW_SETTINGS;
     }
 
     /* Single instance: forward the request to the running shell instead of starting a second engine. */
@@ -359,13 +395,6 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     if (forward == CMD_PAUSE) g_app.cfg.s.paused = 1;
     if (forward == CMD_RESUME) g_app.cfg.s.paused = 0;
     apply_setup_choice();
-    if (loaded) {                     /* only against a library that loaded, never a damaged one */
-        url_import_sweep();
-        depth_sweep();
-    }
-    if (g_app.cfg.s.livelyImport)
-        library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
-    library_check_missing();
     app_refresh_monitors();
 
     WNDCLASSEXW wc = { sizeof wc };
@@ -386,8 +415,18 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     g_app.nativeInitMs = (double)(filetime_now() - g_app.processStart) / 10000.0;
     LOGI(L"native init complete: %.1f ms after process creation", g_app.nativeInitMs);
 
+    /* Library upkeep after the engine is on its way: none of it changes what the desktop shows first. */
+    if (loaded) {                     /* only against a library that loaded, never a damaged one */
+        url_import_sweep();
+        depth_sweep();
+    }
+    if (g_app.cfg.s.livelyImport)
+        library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
+    library_check_missing();
+
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
-    if (!trayOnly && !g_app.cfg.s.launchToTray) app_show_ui();
+    if (forward == CMD_SHOW_SETTINGS) ui_show_screensaver();
+    else if (!trayOnly && !g_app.cfg.s.launchToTray) app_show_ui();
     else if (forward == CMD_NEXT_WALLPAPER) app_next_wallpaper();
 
     MSG m;

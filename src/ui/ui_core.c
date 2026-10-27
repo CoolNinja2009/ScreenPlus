@@ -1240,6 +1240,16 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 
 /* ================================================================ public */
 
+BOOL ui_show_screensaver(void)
+{
+    if (!ui_show() || !g_ui) return FALSE;
+    g_ui->page = PAGE_SETTINGS;
+    g_ui->pageAnim = 0.0f;
+    g_ui->scroll[PAGE_SETTINGS] = g_ui->scrollTarget[PAGE_SETTINGS] = 0.0f;
+    ui_animate();
+    return TRUE;
+}
+
 BOOL ui_show(void)
 {
     if (g_ui) {

@@ -65,6 +65,8 @@ void app_apply_wallpaper(const wchar_t *wallpaperId, const wchar_t *monitorIdOrN
 const wchar_t *app_wallpaper_for(const wchar_t *monitorIdOrNull);
 void app_set_paused(BOOL paused);
 void app_set_audio(BOOL on);
+void app_set_display_mode(int mode);                 /* DisplayMode */
+void app_set_screensaver(const wchar_t *wallpaperId); /* "": the desktop's default */
 void app_next_wallpaper(void);
 void app_restart_renderer(void);
 void app_exit(void);

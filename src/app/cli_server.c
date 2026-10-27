@@ -893,7 +893,12 @@ static void cmd_props(Reply *r, const Req *q)
 
 /* ------------------------------------------------------------------ settings */
 
-enum { SK_BOOL, SK_THEME };
+/* Enumerations: the value is the index of its name. */
+static const wchar_t *const k_themeNames[] = { L"system", L"light", L"dark", NULL };
+static const wchar_t *const k_modeNames[] = { L"independent", L"duplicate", L"span", NULL };
+static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary", NULL };
+enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP };
+static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames };
 static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *desc; } k_settings[] = {
     { L"start_with_windows",  offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
     { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Start in the notification area" },
@@ -910,9 +915,19 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
     { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
+    { L"display_mode",        offsetof(Settings, displayMode),       SK_MODE,  L"Displays: independent, duplicate or span" },
+    { L"screensaver_audio",   offsetof(Settings, scrAudio),          SK_BOOL,  L"Screensaver sound" },
+    { L"screensaver_displays", offsetof(Settings, scrDisplays),      SK_SCRDISP, L"Screensaver on all displays, span or primary" },
+    { L"screensaver_exit_on_mouse", offsetof(Settings, scrExitOnMouse), SK_BOOL, L"A mouse move ends the screensaver" },
 };
 
-static const wchar_t *theme_name(int t) { return t == THEME_LIGHT ? L"light" : t == THEME_DARK ? L"dark" : L"system"; }
+static const wchar_t *setting_text(int kind, int v)
+{
+    const wchar_t *const *names = k_enumNames[kind];
+    if (!names) return v ? L"on" : L"off";
+    for (int i = 0; names[i]; i++) if (i == v) return names[i];
+    return names[0];
+}
 
 static void settings_print(Reply *r)
 {
@@ -920,12 +935,12 @@ static void settings_print(Reply *r)
     sb_puts(&r->data, "{");
     for (size_t i = 0; i < SP_COUNTOF(k_settings); i++) {
         int v = *(int *)((char *)s + k_settings[i].off);
-        const wchar_t *shown = k_settings[i].kind == SK_THEME ? theme_name(v) : v ? L"on" : L"off";
-        say(r, L"  %-20ls %-7ls %ls\n", k_settings[i].key, shown, k_settings[i].desc);
+        const wchar_t *shown = setting_text(k_settings[i].kind, v);
+        say(r, L"  %-26ls %-11ls %ls\n", k_settings[i].key, shown, k_settings[i].desc);
         if (i) sb_puts(&r->data, ",");
         jstr(&r->data, k_settings[i].key);
         sb_puts(&r->data, ":");
-        if (k_settings[i].kind == SK_THEME) jstr(&r->data, shown);
+        if (k_settings[i].kind != SK_BOOL) jstr(&r->data, shown);
         else sb_puts(&r->data, v ? "true" : "false");
     }
     sb_puts(&r->data, "}");
@@ -950,15 +965,19 @@ static void cmd_settings(Reply *r, const Req *q)
         if (!str_ieq(key, k_settings[i].key)) continue;
         int *field = (int *)((char *)s + k_settings[i].off);
         const wchar_t *v = q->argv[3];
-        if (k_settings[i].kind == SK_THEME) {
-            if (str_ieq(v, L"light")) *field = THEME_LIGHT;
-            else if (str_ieq(v, L"dark")) *field = THEME_DARK;
-            else if (str_ieq(v, L"system")) *field = THEME_SYSTEM;
-            else {
-                fail(r, L"theme is system, light or dark.");
+        const wchar_t *const *names = k_enumNames[k_settings[i].kind];
+        if (names) {
+            int idx = -1;
+            for (int k = 0; names[k]; k++) if (str_ieq(v, names[k])) idx = k;
+            if (idx < 0) {
+                fail(r, L"%ls is %ls, %ls or %ls.", k_settings[i].key, names[0], names[1], names[2]);
                 return;
             }
-            app_save_config();
+            if (field == (int *)&s->displayMode) app_set_display_mode(idx);
+            else {
+                *field = idx;
+                app_save_config();
+            }
         } else {
             int on;
             if (!parse_on_off(v, *field, &on)) {
@@ -983,12 +1002,11 @@ static void cmd_settings(Reply *r, const Req *q)
             }
         }
         ui_on_config_changed();
-        say(r, L"%ls = %ls\n", k_settings[i].key,
-            k_settings[i].kind == SK_THEME ? theme_name(*field) : *field ? L"on" : L"off");
+        say(r, L"%ls = %ls\n", k_settings[i].key, setting_text(k_settings[i].kind, *field));
         sb_puts(&r->data, "{");
         jstr(&r->data, k_settings[i].key);
         sb_puts(&r->data, ":");
-        if (k_settings[i].kind == SK_THEME) jstr(&r->data, theme_name(*field));
+        if (k_settings[i].kind != SK_BOOL) jstr(&r->data, setting_text(k_settings[i].kind, *field));
         else sb_puts(&r->data, *field ? "true" : "false");
         sb_puts(&r->data, "}");
         return;
@@ -1038,6 +1056,11 @@ static void run(Reply *r, const Req *q)
     } else if (str_ieq(c, L"show")) {
         app_show_ui();
         say(r, L"Window opened.\n");
+    } else if (str_ieq(c, L"screensaver") && q->argc > 2 && str_ieq(q->argv[1], L"use")) {
+        WallpaperEntry *e = NULL;
+        if (!str_ieq(q->argv[2], L"desktop") && !(e = find_wallpaper(r, q->argv[2]))) return;
+        app_set_screensaver(e ? e->id : L"");
+        say(r, L"Screensaver wallpaper: %ls\n", e ? e->name : L"the desktop's");
     } else if (str_ieq(c, L"hide")) {
         ui_destroy();
         say(r, L"Window closed (Screen+ keeps running in the notification area).\n");

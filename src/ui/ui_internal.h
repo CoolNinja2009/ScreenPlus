@@ -9,6 +9,9 @@
 
 #define UI_MAX_HITS 768
 
+/* identify.c: each display's number in its corner for a moment, like Windows display settings */
+void identify_displays(const MonitorInfo *mons, int n);
+
 /* shared WM_TIMER ids between ui_core and the pages */
 enum UiTimer { TM_ANIM = 1, TM_CARET = 2, TM_STATS = 3, TM_THUMBS = 4 };
 
@@ -21,7 +24,8 @@ enum HitKind {
     HK_SCROLLBAR, HK_SLIDER, HK_DISC, HK_PCHECK, HK_PSLIDER, HK_PDOWN, HK_PCOLOR, HK_PTEXT, HK_RESET_LOOK,
     HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL, HK_URL, HK_URL_TEXT, HK_URL_MODE, HK_URL_GO, HK_URL_CLOSE,
     HK_NAME,    /* library card name; HK_COOL: data 0 make it, 1 back to the plain image, 2 cancel */
-    HK_COOL
+    HK_COOL,
+    HK_DISPMODE, HK_IDENTIFY, HK_SCR_CHOOSE, HK_SCR_PREVIEW, HK_SCR_TIMEOUT, HK_SCR_DISPLAYS, HK_SCR_WINDOWS
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -29,7 +33,8 @@ enum HitKind {
 #define HIT_DATA(id)       ((int)(short)((id) & 0xffff))
 
 enum { TOG_STARTUP, TOG_TRAY, TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY, TOG_AUDIO, TOG_RECOVER,
-       TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_DEPTH_ALL, TOG_COUNT };
+       TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_DEPTH_ALL,
+       TOG_SCR_ENABLE, TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK, TOG_COUNT };
 
 typedef struct Hit {
     int         id;

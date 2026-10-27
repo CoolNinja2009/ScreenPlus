@@ -4,7 +4,7 @@
  * the .com first (PATHEXT order) while shortcuts and the startup entry name the .exe, the same
  * arrangement as devenv.com/devenv.exe. Commands run inside the running app: each one is sent as
  * IPC_CLI_REQUEST and the app's IPC_CLI_REPLY is printed (src/app/cli_server.c). A few work
- * without the app: help, version, start, logs, paths, path, tools, vcredist. No arguments: an interactive prompt.
+ * without the app: help, version, start, logs, paths, path, tools, vcredist, screensaver (but use). No arguments: an interactive prompt.
  *
  * Exit codes: 0 ok, 1 the command failed, 2 bad usage, 3 Screen+ is not running. */
 #include "../common/common.h"
@@ -13,6 +13,7 @@
 #include "../common/json.h"
 #include "../common/paths.h"
 #include "../common/webfetch.h"
+#include "../common/scrnsave.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -308,6 +309,10 @@ static const wchar_t k_help[] =
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"
     L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
     L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
+    L"  screensaver [on | off | preview]       Screen+ as the Windows screensaver\n"
+    L"  screensaver timeout <minutes>          idle time before it starts (a Windows setting)\n"
+    L"  screensaver lock [on | off]            sign-in screen when it ends (a Windows setting)\n"
+    L"  screensaver use <wallpaper | desktop>  its wallpaper (needs the app running)\n"
     L"  ping | version | help [command]\n"
     L"\n"
     L"Options\n"
@@ -457,6 +462,46 @@ static int cmd_tools(const wchar_t *sub)
     }
     err(L"Usage: screenplus tools [status | install | remove]\n");
     return EXIT_USAGE;
+}
+
+/* ---- screensaver: the Windows side works without the app (the uninstaller runs "screensaver off") */
+static int cmd_screensaver(int n, wchar_t **argv)
+{
+    const wchar_t *sub = n > 1 ? argv[1] : L"";
+    wchar_t e[256] = L"";
+    ScrState st;
+    if (str_ieq(sub, L"on") || str_ieq(sub, L"off")) {
+        BOOL on = str_ieq(sub, L"on");
+        if (!scr_enable(on, e, SP_COUNTOF(e))) {
+            err(L"%ls\n", e);
+            return EXIT_FAILED;
+        }
+        if (e[0]) err(L"%ls\n", e);
+    } else if (str_ieq(sub, L"timeout") && n > 2) {
+        int m = _wtoi(argv[2]);
+        if (m < 1 || m > 1440 || !scr_set_timeout(m * 60)) {
+            err(L"Usage: screenplus screensaver timeout <1-1440 minutes>\n");
+            return EXIT_USAGE;
+        }
+    } else if (str_ieq(sub, L"lock") && n > 2 && (str_ieq(argv[2], L"on") || str_ieq(argv[2], L"off"))) {
+        scr_set_secure(str_ieq(argv[2], L"on"));
+    } else if (str_ieq(sub, L"preview")) {
+        if (!scr_launch(L"/s")) {
+            err(L"Could not start ScreenPlus.exe.\n");
+            return EXIT_FAILED;
+        }
+        out(L"Screensaver preview started: press a key to end it.\n");
+        return EXIT_OK;
+    } else if (sub[0] && !str_ieq(sub, L"status")) {
+        err(L"Usage: screenplus screensaver [status | on | off | preview | timeout <minutes> | lock on|off | use <wallpaper>]\n");
+        return EXIT_USAGE;
+    }
+    scr_query(&st);
+    out(L"Screen+ screensaver: %ls\n", st.ours && st.active ? L"on" : st.active ? L"off (Windows uses another one)" : L"off");
+    out(L"Starts after %d s idle; sign-in screen on resume: %ls\n", st.timeoutSec, st.secure ? L"on" : L"off");
+    if (st.current[0]) out(L"SCRNSAVE.EXE = %ls\n", st.current);
+    if (st.policy) out(L"Group Policy sets the screensaver on this PC: Windows may ignore Screen+'s.\n");
+    return EXIT_OK;
 }
 
 /* ---- vcredist: the Microsoft Visual C++ runtime ONNX Runtime needs (setup offers it when it is missing) */
@@ -761,6 +806,7 @@ static int run_command(int argc, wchar_t **in)
     if (str_ieq(c, L"path")) return cmd_path(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"tools")) return cmd_tools(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"vcredist")) return cmd_vcredist(n > 1 ? argv[1] : NULL);
+    if (str_ieq(c, L"screensaver") && !(n > 1 && str_ieq(argv[1], L"use"))) return cmd_screensaver(n, argv);
     if (str_ieq(c, L"watch") || (watch && str_ieq(c, L"status"))) {
         argv[0] = L"status";
         return cmd_watch(1, argv);

@@ -55,6 +55,10 @@ void config_defaults(Config *c)
     c->s.urlImport = 1;
     c->s.depthAll = 0;
     c->s.theme = THEME_SYSTEM;
+    c->s.displayMode = DM_INDEPENDENT;
+    c->s.scrAudio = 0;
+    c->s.scrDisplays = SCRD_ALL;
+    c->s.scrExitOnMouse = 1;
 }
 
 void config_free(Config *c)
@@ -146,6 +150,7 @@ BOOL config_remove(Config *c, const wchar_t *id)
     memmove(&c->items[i], &c->items[i + 1], sizeof(WallpaperEntry) * (size_t)(c->count - i - 1));
     c->count--;
     if (wcscmp(c->defaultWallpaper, removed) == 0) c->defaultWallpaper[0] = 0;
+    if (wcscmp(c->screensaver, removed) == 0) c->screensaver[0] = 0;
     for (int a = 0; a < c->assignCount;) {
         if (wcscmp(c->assign[a].wallpaperId, removed) == 0) {
             c->assign[a] = c->assign[--c->assignCount];
@@ -163,7 +168,7 @@ static int find_assign(const Config *c, const wchar_t *monitorId)
 
 const wchar_t *config_assignment(const Config *c, const wchar_t *monitorId)
 {
-    int a = monitorId ? find_assign(c, monitorId) : -1;
+    int a = monitorId && c->s.displayMode == DM_INDEPENDENT ? find_assign(c, monitorId) : -1;
     if (a >= 0 && config_index_of(c, c->assign[a].wallpaperId) >= 0) return c->assign[a].wallpaperId;
     if (config_index_of(c, c->defaultWallpaper) >= 0) return c->defaultWallpaper;
     return L"";
@@ -171,7 +176,7 @@ const wchar_t *config_assignment(const Config *c, const wchar_t *monitorId)
 
 BOOL config_has_override(const Config *c, const wchar_t *monitorId)
 {
-    return monitorId && find_assign(c, monitorId) >= 0;
+    return monitorId && c->s.displayMode == DM_INDEPENDENT && find_assign(c, monitorId) >= 0;
 }
 
 void config_assign(Config *c, const wchar_t *monitorId, const wchar_t *wallpaperId)
@@ -198,6 +203,44 @@ void config_clear_override(Config *c, const wchar_t *monitorId)
 {
     int a = find_assign(c, monitorId);
     if (a >= 0) c->assign[a] = c->assign[--c->assignCount];
+}
+
+/* \\?\DISPLAY#DEL40F3#5&2b1c&0&UID4352#{...} -> DEL40F3 (the monitor model). */
+static int monitor_model(const wchar_t *id, wchar_t *out, size_t cap)
+{
+    const wchar_t *p = id ? wcsstr(id, L"DISPLAY#") : NULL;
+    const wchar_t *e = p ? wcschr(p + 8, L'#') : NULL;
+    if (!e || e == p + 8 || (size_t)(e - p - 8) >= cap) return 0;
+    wmemcpy(out, p + 8, (size_t)(e - p - 8));
+    out[e - p - 8] = 0;
+    return 1;
+}
+
+int config_adopt_monitors(Config *c, const wchar_t *const *ids, int n)
+{
+    int changed = 0;
+    for (int m = 0; m < n; m++) {
+        wchar_t model[64], other[64];
+        if (find_assign(c, ids[m]) >= 0 || !monitor_model(ids[m], model, SP_COUNTOF(model))) continue;
+        int found = -1, count = 0;
+        for (int a = 0; a < c->assignCount; a++) {
+            if (!monitor_model(c->assign[a].monitorId, other, SP_COUNTOF(other)) || !str_ieq(model, other)) continue;
+            int connected = 0;
+            for (int k = 0; k < n && !connected; k++) connected = str_ieq(ids[k], c->assign[a].monitorId);
+            if (!connected) { found = a; count++; }
+        }
+        if (count == 1) {
+            str_copy(c->assign[found].monitorId, SP_MONID_LEN, ids[m]);
+            changed++;
+        }
+    }
+    return changed;
+}
+
+const wchar_t *config_screensaver(const Config *c)
+{
+    if (config_index_of(c, c->screensaver) >= 0) return c->screensaver;
+    return config_index_of(c, c->defaultWallpaper) >= 0 ? c->defaultWallpaper : L"";
 }
 
 /* ---------------------------------------------------------------- parsing */
@@ -284,6 +327,12 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"lively_auto_import")) s->livelyImport = parse_bool(val, s->livelyImport);
             else if (str_ieq(key, L"url_import")) s->urlImport = parse_bool(val, s->urlImport);
             else if (str_ieq(key, L"interactive_images")) s->depthAll = parse_bool(val, s->depthAll);
+            else if (str_ieq(key, L"display_mode"))
+                s->displayMode = str_ieq(val, L"span") ? DM_SPAN : str_ieq(val, L"duplicate") ? DM_DUPLICATE : DM_INDEPENDENT;
+            else if (str_ieq(key, L"screensaver_audio")) s->scrAudio = parse_bool(val, s->scrAudio);
+            else if (str_ieq(key, L"screensaver_displays"))
+                s->scrDisplays = str_ieq(val, L"span") ? SCRD_SPAN : str_ieq(val, L"primary") ? SCRD_PRIMARY : SCRD_ALL;
+            else if (str_ieq(key, L"screensaver_exit_on_mouse")) s->scrExitOnMouse = parse_bool(val, s->scrExitOnMouse);
             else if (str_ieq(key, L"theme"))
                 s->theme = str_ieq(val, L"light") ? THEME_LIGHT : str_ieq(val, L"dark") ? THEME_DARK : THEME_SYSTEM;
             break;
@@ -291,6 +340,7 @@ static int parse_text(Config *c, wchar_t *text)
         case SEC_ASSIGN:
             if (!valid_id(val)) break;
             if (str_ieq(key, L"default")) str_copy(c->defaultWallpaper, SP_ID_LEN, val);
+            else if (str_ieq(key, L"screensaver")) str_copy(c->screensaver, SP_ID_LEN, val);
             else if (c->assignCount < CONFIG_MAX_ASSIGN && wcslen(key) < SP_MONID_LEN) {
                 str_copy(c->assign[c->assignCount].monitorId, SP_MONID_LEN, key);
                 str_copy(c->assign[c->assignCount].wallpaperId, SP_ID_LEN, val);
@@ -319,6 +369,7 @@ static int parse_text(Config *c, wchar_t *text)
 
     /* drop dangling references */
     if (config_index_of(c, c->defaultWallpaper) < 0) c->defaultWallpaper[0] = 0;
+    if (config_index_of(c, c->screensaver) < 0) c->screensaver[0] = 0;
     for (int a = 0; a < c->assignCount;) {
         if (config_index_of(c, c->assign[a].wallpaperId) < 0) c->assign[a] = c->assign[--c->assignCount];
         else a++;
@@ -400,7 +451,9 @@ BOOL config_save(const Config *c, const wchar_t *path)
               s->startWithWindows, s->launchToTray, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
               s->pauseOnBattery, s->audio, s->autoRecover, s->paused, s->htmlMouse, s->htmlAudio, s->livelyImport,
               s->urlImport, s->depthAll,
-              s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system");
+              s->displayMode == DM_SPAN ? "span" : s->displayMode == DM_DUPLICATE ? "duplicate" : "independent",
+              s->scrAudio, s->scrDisplays == SCRD_SPAN ? "span" : s->scrDisplays == SCRD_PRIMARY ? "primary" : "all",
+              s->scrExitOnMouse, s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system");
     sb_puts(&b, "[assignments]\r\n");
     if (c->defaultWallpaper[0]) {
         sb_puts(&b, "default=");

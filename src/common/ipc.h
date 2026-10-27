@@ -6,6 +6,11 @@
 
 #define SP_SHELL_CLASS     L"ScreenPlus.Shell"
 #define SP_ENGINE_CLASS    L"ScreenPlus.Engine"
+/* Span mode: the engine's one slot covering every display reports this monitor id. */
+#define SP_SPAN_ID         L"span"
+/* Screensaver process -> engine window (PostMessage): wParam 1 started / 0 ended, lParam its pid.
+ * The engine also watches the process, so a crash can't leave the desktop suspended. */
+#define SP_MSG_SCREENSAVER (WM_APP + 60)
 #define SP_WALLPAPER_CLASS L"ScreenPlus.Wallpaper"
 #define SP_CLI_CLASS       L"ScreenPlus.Cli"
 #define SP_INSTANCE_MUTEX  L"Local\\ScreenPlus.Instance.v1"
@@ -38,7 +43,8 @@ typedef enum IpcCommandId {
     CMD_PAUSE,
     CMD_RESUME,
     CMD_NEXT_WALLPAPER,
-    CMD_EXIT
+    CMD_EXIT,
+    CMD_SHOW_SETTINGS        /* ScreenPlus.scr /c: the window on its Screensaver settings */
 } IpcCommandId;
 
 typedef struct IpcCommand {
@@ -63,7 +69,8 @@ enum {
     ENGINE_FLAG_DISPLAY_OFF = 0x10,
     ENGINE_FLAG_SAFE_MODE   = 0x20,
     ENGINE_FLAG_WEBVIEW2    = 0x40,
-    ENGINE_FLAG_SLEEPING    = 0x80
+    ENGINE_FLAG_SLEEPING    = 0x80,
+    ENGINE_FLAG_SCREENSAVER = 0x100
 };
 
 typedef struct IpcMonitorStatus {

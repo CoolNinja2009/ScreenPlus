@@ -654,10 +654,16 @@ static HRESULT on_environment(HtmlRenderer *unused, void *hrv, void *envv)
 }
 
 static wchar_t g_captureUdf[SP_MAX_PATH];   /* preview capture process: its own profile */
+static wchar_t g_profileUdf[SP_MAX_PATH];   /* screensaver process: its own profile, normal pacing */
 
 void html_capture_mode(const wchar_t *userDataFolder)
 {
     str_copy(g_captureUdf, SP_COUNTOF(g_captureUdf), userDataFolder);
+}
+
+void html_set_profile(const wchar_t *userDataFolder)
+{
+    str_copy(g_profileUdf, SP_COUNTOF(g_profileUdf), userDataFolder);
 }
 
 static BOOL request_environment(HtmlRenderer *r)
@@ -680,7 +686,7 @@ static BOOL request_environment(HtmlRenderer *r)
                                               L"--disable-background-timer-throttling"
                                             : L"--autoplay-policy=no-user-gesture-required");
     Callback *cb = cb_new(&k_vtHrPtr, &IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler, NULL, on_environment);
-    HRESULT hr = cb ? CreateCoreWebView2EnvironmentWithOptions(NULL, g_captureUdf[0] ? g_captureUdf : paths_webview(), NULL,
+    HRESULT hr = cb ? CreateCoreWebView2EnvironmentWithOptions(NULL, g_captureUdf[0] ? g_captureUdf : g_profileUdf[0] ? g_profileUdf : paths_webview(), NULL,
                                                                (ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler *)cb)
                     : E_OUTOFMEMORY;
     if (cb) cb_release(cb);

@@ -88,6 +88,8 @@ BOOL html_runtime_version(wchar_t *buf, size_t cap);
 void html_shutdown(void);
 /* Preview capture process: own WebView2 profile, pages keep rendering while off-screen. */
 void html_capture_mode(const wchar_t *userDataFolder);
+/* Screensaver process: its own WebView2 profile, so it never depends on the engine's browser. */
+void html_set_profile(const wchar_t *userDataFolder);
 /* Grabs the loaded page as JPEG; the result arrives as WM_SP_HTML_GRAB (receiver releases the stream). */
 BOOL html_grab(Renderer *r);
 
