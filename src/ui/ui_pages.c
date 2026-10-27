@@ -464,6 +464,9 @@ static struct {
     wchar_t text[96];
 } storep;
 
+static D2D1_RECT_F hit_rect(int id);
+static void draw_choice(Ui *u, int id, D2D1_RECT_F r, const wchar_t *text);
+
 static void store_query_changed(void)
 {
     if (g_ui) SetTimer(g_ui->hwnd, TM_STORE, 250, NULL);
@@ -525,11 +528,13 @@ static void draw_store_card(Ui *u, const StoreItem *it, int i, D2D1_RECT_F r, fl
         ui_rrect(th, 10, t->chip);
         if (it->preview == STORE_FAILED) ui_icon(GL_PHOTO, u->fIcon, th, t->text3);
     }
-    if (it->badge[0]) {
-        float bw = ui_text_width(it->badge, u->fCenterS) + 18;
+    {   /* a live wallpaper or a still picture, and its quality */
+        const wchar_t *label = it->badge[0] ? it->badge : it->kind == SKIND_LIVE ? L"LIVE" : L"PHOTO";
+        float bw = ui_text_width(label, u->fCenterS) + 34;
         D2D1_RECT_F b = { th.left + 8, th.bottom - 30, th.left + 8 + bw, th.bottom - 8 };
         ui_rrect(b, 11, col(0x000000, 0.48f));
-        ui_text(it->badge, u->fCenterS, b, col(0xFFFFFF, 0.95f));
+        ui_icon(it->kind == SKIND_LIVE ? GL_VIDEO : GL_PHOTO, u->fIconS, rectf(b.left + 6, b.top, 16, 22), col(0xFFFFFF, 0.95f));
+        ui_text(label, u->fCenterS, rectf(b.left + 20, b.top, bw - 24, 22), col(0xFFFFFF, 0.95f));
     }
     if (hot) {                           /* the preview opens the wallpaper's page */
         ui_circle(th.right - 20, th.top + 20, 14, col(0x000000, 0.48f));
@@ -539,12 +544,17 @@ static void draw_store_card(Ui *u, const StoreItem *it, int i, D2D1_RECT_F r, fl
     ui_focus_ring(th, 10, id);
     ui_text(it->title, u->fBodyB, rectf(r.left + 12, th.bottom + 8, r.right - r.left - 24, 20), t->text);
 
-    wchar_t meta[96];
+    wchar_t meta[128], res[48] = L"";            /* where it is from, and what is known of its file */
     const StoreVariant *v = store_best(it);
-    if (v && v->mb > 0) str_printf(meta, SP_COUNTOF(meta), L"%d × %d · %.1f MB", v->w, v->h, v->mb);
-    else if (v) str_printf(meta, SP_COUNTOF(meta), L"%d × %d", v->w, v->h);
-    else if (it->w > 0) str_printf(meta, SP_COUNTOF(meta), L"%d × %d", it->w, it->h);
-    else str_copy(meta, SP_COUNTOF(meta), it->badge[0] ? it->badge : L"Live wallpaper");
+    int rw = it->w, rh = it->h;
+    float mb = v && v->mb > 0 ? v->mb : it->mb;
+    if (v && (int64_t)v->w * v->h > (int64_t)rw * rh) {
+        rw = v->w;
+        rh = v->h;
+    }
+    if (rw > 0 && mb > 0) str_printf(res, SP_COUNTOF(res), L" · %d × %d · %.1f MB", rw, rh, mb);
+    else if (rw > 0) str_printf(res, SP_COUNTOF(res), L" · %d × %d", rw, rh);
+    str_printf(meta, SP_COUNTOF(meta), L"%ls%ls", store_source_name(it->source), res);
     ui_text(meta, u->fSmall, rectf(r.left + 12, th.bottom + 28, r.right - r.left - 24, 16), t->text3);
 
     int pct, style = BTN_SECONDARY;
@@ -566,6 +576,10 @@ static void draw_store_card(Ui *u, const StoreItem *it, int i, D2D1_RECT_F r, fl
         str_copy(label, SP_COUNTOF(label), L"Try again");
         icon = GL_REFRESH;
         break;
+    case STOREDL_SITE:                   /* the site hands its files out only on its own page */
+        str_printf(label, SP_COUNTOF(label), L"Open on %ls", store_source_name(it->source));
+        icon = GL_OPEN;
+        break;
     default:
         str_copy(label, SP_COUNTOF(label), L"Download");
         icon = GL_DOWNLOAD;
@@ -582,15 +596,15 @@ static float draw_store_grid(Ui *u, const StoreState *s, float x, float y, float
     int pw = (int)((g.cw - 12) * u->scale);
     /* the newest request is served first: the cards near the screen go in, then those on it, top left last */
     for (int pass = 0; pass < 2; pass++) {
-        for (int i = s->count - 1; i >= 0; i--) {
-            D2D1_RECT_F r = store_cell(&g, x, y, i);
-            int seen = r.bottom >= u->viewTop - 8 && r.top <= u->h + 8;
+        for (int k = s->viewCount - 1; k >= 0; k--) {
+            D2D1_RECT_F r = store_cell(&g, x, y, k);
+            int seen = r.bottom >= u->viewTop - 8 && r.top <= u->h + 8, i = s->view[k];
             if (seen != pass || r.bottom < u->viewTop - ahead || r.top > u->h + ahead) continue;
             store_want(i, pw, seen);
             if (seen) draw_store_card(u, &s->items[i], i, r, g.thumbH);
         }
     }
-    int rows = (s->count + g.cols - 1) / g.cols;
+    int rows = (s->viewCount + g.cols - 1) / g.cols;
     return y + rows * (g.ch + g.gap) - g.gap;
 }
 
@@ -630,54 +644,83 @@ static void draw_store(Ui *u, float cx, float cw)
     float x = cx + PAD, w = cw - PAD * 2;
     store_open();
     const StoreState *s = store_get();
+    static const wchar_t *const captions[SF_COUNT] = { L"Category", L"Resolution", L"Sort by", L"Type", L"Site" };
+    const wchar_t *names[32];
+    int sites = store_filter_names(SF_SOURCE, names, SP_COUNTOF(names)) - 1;
     wchar_t sub[200];
-    if (!s->query[0]) str_copy(sub, SP_COUNTOF(sub), L"The latest live wallpapers from motionbgs.com");
-    else if (s->loading && !s->count) str_printf(sub, SP_COUNTOF(sub), L"Searching motionbgs.com for '%.60ls'…", s->query);
-    else str_printf(sub, SP_COUNTOF(sub), L"%d%ls result%ls for '%.60ls' on motionbgs.com", s->count, s->more ? L"+" : L"",
-                    s->count == 1 && !s->more ? L"" : L"s", s->query);
+    if (s->loading && !s->viewCount) str_printf(sub, SP_COUNTOF(sub), L"Asking %d sites…", sites);
+    else if (!s->query[0]) str_printf(sub, SP_COUNTOF(sub), L"Live wallpapers and pictures from %d sites, copies left out", sites);
+    else str_printf(sub, SP_COUNTOF(sub), L"%d%ls result%ls for '%.60ls' from %d sites", s->viewCount, s->more ? L"+" : L"",
+                    s->viewCount == 1 && !s->more ? L"" : L"s", s->query, sites);
     draw_title(u, x, L"Store", sub);
     draw_search(u, rectf(x, 86, w, 38), HIT_ID(HK_STORE_TEXT, 0), HIT_ID(HK_STORE_CLEAR, 0), storep.text,
-                L"Search MotionBGS: anime, games, cars, nature…");
+                L"Search every site: anime, games, cars, nature…");
+    float fw = (w - 12.0f * (SF_COUNT - 1)) / SF_COUNT;
+    for (int f = 0; f < SF_COUNT; f++) {
+        int n = store_filter_names(f, names, SP_COUNTOF(names)), v = s->filter[f];
+        float fx = x + f * (fw + 12.0f);
+        ui_text(captions[f], u->fSmall, rectf(fx + 2, 134, fw - 4, 18), t->text2);
+        draw_choice(u, HIT_ID(HK_STORE_FILTER, f), rectf(fx, 154, fw, 36), v >= 0 && v < n ? names[v] : L"");
+    }
 
-    float top = 138;
+    float top = 204;
     top += draw_notice(u, x, top, w);
     D2D1_RECT_F view = { cx, top, cx + cw, u->h };
     u->viewTop = top;
     u->viewH = u->h - top;
     ui_push_clip(view);
     float y = top + 6 - u->scroll[PAGE_STORE], end = y;
-    if (s->count) {
+    int filtered = s->filter[SF_CATEGORY] || s->filter[SF_RES] || s->filter[SF_KIND] || s->filter[SF_SOURCE];
+    if (s->viewCount) {
         y = end = draw_store_grid(u, s, x, y, w);
         if (s->loading) {
             ui_text(L"Loading more wallpapers…", u->fCenter, rectf(x, y + 16, w, 24), t->text3);
             y += 44;
-        } else if (s->failed) {
-            wchar_t line[260];
-            str_printf(line, SP_COUNTOF(line), L"Couldn't load more: %ls", s->error);
-            ui_text(line, u->fCenter, rectf(x, y + 16, w, 24), t->danger);
-            float bw = ui_button_width(L"Retry", GL_REFRESH);
-            ui_button(HIT_ID(HK_STORE_RETRY, 0), rectf(x + (w - bw) * 0.5f, y + 46, bw, 32), L"Retry", GL_REFRESH, BTN_SECONDARY);
-            y += 86;
         }
-    } else if (s->loading) {
+    } else if (s->loading || s->more) {
         y = draw_store_skeleton(u, x, y, w);
     } else if (s->failed) {
-        y = draw_store_panel(u, x, y, w, GL_ERROR, t->danger, L"Couldn't reach MotionBGS", s->error,
+        y = draw_store_panel(u, x, y, w, GL_ERROR, t->danger, L"Couldn't reach the wallpaper sites", s->error,
                              HIT_ID(HK_STORE_RETRY, 0), L"Try again");
     } else if (s->query[0]) {
         wchar_t title[160];
         str_printf(title, SP_COUNTOF(title), L"No wallpapers found for '%.50ls'", s->query);
-        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, title, L"Try another word: a game, an anime, a car or a colour.",
+        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, title,
+                             filtered ? L"Nothing matches it with these filters. Try fewer filters or another word."
+                                      : L"Try another word: a game, an anime, a car or a colour.",
                              HIT_ID(HK_STORE_CLEAR, 1), L"Clear search");
+    } else if (filtered) {
+        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, L"Nothing matches these filters",
+                             L"Every site was asked. Try fewer filters.", HIT_ID(HK_STORE_CLEAR, 2), L"Reset filters");
     } else {
         y = draw_store_panel(u, x, y, w, GL_STORE, t->text3, L"Nothing to show yet",
-                             L"MotionBGS listed no wallpapers. Try again in a moment.", HIT_ID(HK_STORE_RETRY, 0), L"Try again");
+                             L"The sites listed no wallpapers. Try again in a moment.", HIT_ID(HK_STORE_RETRY, 0), L"Try again");
     }
     y += 28;
     ui_pop_clip();
     finish_scroll(u, PAGE_STORE, y, top);
     draw_scrollbar(u, view, PAGE_STORE);
-    if (s->count && end < u->h + u->viewH * 1.5f) store_more();   /* the next page is in before the end is reached */
+    if (end < u->h + u->viewH * 1.5f) store_more();   /* the next pages are in before the end is reached */
+}
+
+/* a filter's choices in a menu under its field (Customise's choice fields do the same) */
+static void store_filter_menu(int which)
+{
+    Ui *u = g_ui;
+    const wchar_t *names[32];
+    int n = store_filter_names(which, names, SP_COUNTOF(names)), cur = store_get()->filter[which];
+    HMENU m = n > 0 ? CreatePopupMenu() : NULL;
+    if (!m) return;
+    for (int i = 0; i < n; i++) AppendMenuW(m, MF_STRING | (i == cur ? MF_CHECKED : 0), (UINT_PTR)i + 1, names[i]);
+    D2D1_RECT_F r = hit_rect(HIT_ID(HK_STORE_FILTER, which));
+    POINT p = { (LONG)(r.left * u->scale), (LONG)((r.bottom + 4.0f) * u->scale) };
+    ClientToScreen(u->hwnd, &p);
+    UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, u->hwnd, NULL);
+    DestroyMenu(m);
+    if (cmd && (int)cmd - 1 != cur) {
+        store_set_filter(which, (int)cmd - 1);
+        u->scrollTarget[PAGE_STORE] = u->scroll[PAGE_STORE] = 0.0f;
+    }
 }
 
 /* the Download button's tooltip: what the page offers, or how to stop it */
@@ -689,12 +732,17 @@ static const wchar_t *store_dl_tip(int i)
     int st = store_dl_state(i, NULL);
     if (st == STOREDL_RUNNING || st == STOREDL_WAIT) return L"Click to cancel";
     const StoreItem *it = &s->items[i];
+    if (st == STOREDL_SITE) {
+        str_printf(tip, SP_COUNTOF(tip), L"%ls hands its files out only on its own page: this opens it in your browser",
+                   store_source_name(it->source));
+        return tip;
+    }
     if (!it->varCount) return NULL;
     str_copy(tip, SP_COUNTOF(tip), L"Available:");
     for (int k = 0; k < it->varCount; k++) {
         wchar_t one[48];
         str_printf(one, SP_COUNTOF(one), L"%ls %d × %d%ls", k ? L"," : L"", it->var[k].w, it->var[k].h,
-                   wcscmp(it->var[k].kind, L"gif") == 0 ? L" GIF" : L"");
+                   strcmp(it->var[k].key, "gif") == 0 ? L" GIF" : L"");
         str_cat(tip, SP_COUNTOF(tip), one);
     }
     return tip;
@@ -2066,9 +2114,14 @@ void pages_activate(int id, int dbl)
         break;
     case HK_STORE_TEXT:    pages_store_search_open(); break;
     case HK_STORE_CLEAR:
+        if (data == 2) {                 /* the empty page's Reset filters */
+            store_set_filter(-1, 0);
+            break;
+        }
         storep.text[0] = 0;
         pages_store_timer();
         break;
+    case HK_STORE_FILTER:  store_filter_menu(data); break;
     case HK_STORE_CARD: {
         wchar_t url[160];
         store_page_url(data, url, SP_COUNTOF(url));
@@ -2184,7 +2237,13 @@ const wchar_t *pages_tooltip(int id)
     switch (HIT_KIND(id)) {
     case HK_URL:           return L"Import URL wallpaper";
     case HK_IMPORT_FOLDER: return HIT_DATA(id) == 0 ? L"Import a wallpaper folder" : NULL;
-    case HK_STORE_CARD:    return L"Open its page on motionbgs.com";
+    case HK_STORE_CARD: {
+        static wchar_t tip[80];
+        const StoreState *s = store_get();
+        if (HIT_DATA(id) < 0 || HIT_DATA(id) >= s->count) return NULL;
+        str_printf(tip, SP_COUNTOF(tip), L"Open its page on %ls", store_source_name(s->items[HIT_DATA(id)].source));
+        return tip;
+    }
     case HK_STORE_DL:      return store_dl_tip(HIT_DATA(id));
     default:               return NULL;
     }

@@ -125,48 +125,61 @@ void url_import_sweep(void);                           /* startup: delete downlo
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb);
 BOOL url_import_is_download(const wchar_t *path);      /* a file Screen+ downloaded (removed with its entry) */
 
-/* store.c: the Store page's catalogue, MotionBGS live wallpapers (docs/store/motionbgs.md). The UI thread owns
- * this state; the page reads it through store_get and asks for what is on screen with store_want. */
-#define STORE_VARIANTS 4
+/* store.c + store_sources.c: the Store page's catalogue, live wallpapers and still pictures from several sites in
+ * one feed (docs/store/sources.md). The UI thread owns this state; the page draws the items `view` lists and asks
+ * for what is on screen with store_want. */
+#define STORE_VARIANTS 6
 enum { STORE_NONE = 0, STORE_LOADING, STORE_READY, STORE_FAILED };
-enum { STOREDL_IDLE = 0, STOREDL_WAIT, STOREDL_RUNNING, STOREDL_DONE, STOREDL_FAILED };
+enum { STOREDL_IDLE = 0, STOREDL_WAIT, STOREDL_RUNNING, STOREDL_DONE, STOREDL_FAILED, STOREDL_SITE };   /* SITE: on its page */
+enum { SKIND_LIVE = 1, SKIND_STILL = 2 };
+enum { SF_CATEGORY = 0, SF_RES, SF_SORT, SF_KIND, SF_SOURCE, SF_COUNT };   /* filters; values index store_filter_names */
 typedef struct StoreVariant {
-    wchar_t kind[8];                   /* "4k", "hd", "mhd", "gif": its /dl/<kind>/<id>/ address */
-    int     w, h;
-    float   mb;                        /* size as the page states it (MiB), 0 unknown */
+    char  key[16];                     /* the site's name for this file: "4k", "3840x2160", "mp4" */
+    int   w, h;
+    float mb;                          /* size as the site states it (MiB), 0 unknown */
 } StoreVariant;
 typedef struct StoreItem {
-    int          id;                   /* MotionBGS media id, also the download id */
-    wchar_t      slug[96];             /* its page: https://motionbgs.com/<slug> */
+    int          source, kind;         /* store_source_name(source); SKIND_* */
+    uint32_t     key;                  /* the card's identity: its site and ref */
+    char         ref[128];             /* the site's key for its page (an ASCII path or id) */
+    char         media[192];           /* the site's key for its preview */
+    char         extra[32];            /* another key some sites need (MotionBGS's media id, Wallhaven's file type) */
     wchar_t      title[SP_NAME_LEN];
-    wchar_t      poster[128];          /* the poster's file name under /media/<id>/ */
     wchar_t      badge[8];             /* the site's quality label: "4K", "HD" */
-    int          w, h;                 /* source resolution when the poster's name carries it, else 0 */
-    int          preview, detail;      /* STORE_*: the preview image; the page's download list */
-    int          previewBig;           /* the cached preview is the 546x308 one */
-    int          dl;                   /* STOREDL_IDLE, _WAIT (its page is read first) or _FAILED */
-    StoreVariant var[STORE_VARIANTS];  /* detail STORE_READY: what the page offers */
+    int          w, h;                 /* resolution when known, else 0 */
+    float        mb;
+    int          preview, detail, dl;  /* STORE_*: preview, page read; STOREDL_IDLE, _WAIT (page first) or _FAILED */
+    int          previewBig;           /* the preview is the site's larger crop */
+    int          hashed, dupOf;        /* hash: of the preview; dupOf: 1 + index of the better copy it folds into */
+    uint64_t     hash;
+    StoreVariant var[STORE_VARIANTS];  /* the files it comes in */
     int          varCount;
 } StoreItem;
 typedef struct StoreState {
     StoreItem *items;
     int        count;
-    wchar_t    query[96];              /* what is listed: "" the latest wallpapers */
-    int        loading;                /* a page is being read (count 0: the first one) */
-    int        more;                   /* another page exists */
-    int        failed;                 /* the last page read failed: error says why */
+    int       *view;                   /* indexes of the items shown, in order: copies and filtered ones left out */
+    int        viewCount;
+    wchar_t    query[96];              /* "" the latest */
+    int        filter[SF_COUNT];
+    int        loading;                /* pages are being read (viewCount 0: the first ones) */
+    int        more;                   /* a site has another page */
+    int        failed;                 /* nothing came and every site failed: error says why */
     wchar_t    error[200];
 } StoreState;
 const StoreState *store_get(void);
+const wchar_t *store_source_name(int source);
+int  store_filter_names(int which, const wchar_t **names, int cap);   /* SF_*: the choices filter[which] indexes */
+void store_set_filter(int which, int value);           /* lists again; which < 0: every filter back to its first choice */
 void store_open(void);                                 /* the page is shown: the first time, lists the latest */
 BOOL store_search(const wchar_t *query);               /* "" the latest; TRUE: a new listing started */
-void store_more(void);                                 /* the next page, unless one is loading or none is left */
-void store_retry(void);                                /* after a failed page read */
-void store_want(int index, int pixelW, int detail);    /* a card is near the screen: its preview (+ its page's downloads) */
+void store_more(void);                                 /* the next pages, unless some are loading or none are left */
+void store_retry(void);                                /* after failed page reads */
+void store_want(int index, int pixelW, int detail);    /* a card is near the screen: its preview (+ its page) */
 BOOL store_preview_entry(int index, WallpaperEntry *e);    /* TRUE: preview cached; e stands in for the thumbnail loader */
-const StoreVariant *store_best(const StoreItem *it);   /* the largest video it offers, NULL before its page is read */
+const StoreVariant *store_best(const StoreItem *it);   /* the largest file it comes in, NULL before its page is read */
 int  store_dl_state(int index, int *percent);          /* STOREDL_*; percent: -1 unknown */
-void store_download(int index);                        /* the best variant into the library (again: cancel) */
+void store_download(int index);                        /* the best file into the library (again: cancel); _SITE: its page */
 void store_page_url(int index, wchar_t *out, size_t cap);
 void store_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_STORE */
 void store_on_import(void);                            /* after url_import_on_event: the queued download may start */

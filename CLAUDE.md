@@ -45,7 +45,8 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/url_import.c` | Link button job on a worker thread: direct downloads, yt-dlp streams/downloads, live pages |
 | `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
-| `src/app/store.c` | Store page: MotionBGS listings, searches and wallpaper pages read on worker threads over one keep-alive session (`http_open_shared`), WebP previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
+| `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
+| `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, backiee, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
 | `src/app/startup.c`, `supervisor.c` | HKCU Run entry; engine process lifecycle |
 | `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, vcredist), IPC for the rest |
 | `src/engine/` | `engine.c` (slots, state machine), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c` |
@@ -61,7 +62,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/common/` | `util` (bounded `str_*`, paths, UTF-8, StrBuf), `log`, `paths` (data dirs), `json` (small DOM), `ipc.h`, `webfetch` (WinHTTP + pinned tool install + the Visual C++ runtime check/installer; the CLI uses it too), `ytdlp` (run/resolve yt-dlp, stream address cache) |
 | `installer/screenplus.nsi` | Per-user NSIS installer: install type page and an optional-features page (link tools) |
 | `resources/` | Icon, `.rc`, manifest (comctl32 v6, PerMonitorV2) |
-| `docs/store/` | Store sources (branch `store`): one file per site with its endpoints and parse anchors |
+| `docs/store/` | Store sources (branch `store`): `sources.md` maps every site, `motionbgs.md` in detail, `sites-without-one-click-download.md` why some open their page |
 
 Renderer details:
 - **Video**: one D3D11 swapchain per display and one `VideoSource` per path, shared across displays. Decode

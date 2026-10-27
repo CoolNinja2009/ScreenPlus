@@ -22,7 +22,8 @@ enum HitKind {
     HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL, HK_URL, HK_URL_TEXT, HK_URL_MODE, HK_URL_GO, HK_URL_CLOSE,
     HK_NAME,    /* library card name; HK_COOL: data 0 make it, 1 back to the plain image, 2 cancel */
     HK_COOL,
-    HK_STORE_TEXT, HK_STORE_CLEAR, HK_STORE_CARD, HK_STORE_DL, HK_STORE_RETRY   /* Store; data: the card's index */
+    HK_STORE_TEXT, HK_STORE_CLEAR, HK_STORE_CARD, HK_STORE_DL, HK_STORE_RETRY,  /* Store; data: the item's index */
+    HK_STORE_FILTER                                                             /* data: SF_* */
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
