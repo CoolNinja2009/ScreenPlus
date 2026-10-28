@@ -17,7 +17,7 @@
 ; Optional feature "Sample wallpapers" (default installation; on unless /NOSAMPLES): setup bundles only Aurora and
 ; runs `ScreenPlus.com samples install`, which downloads this release's ScreenPlus-<version>-samples.zip from GitHub
 ; (~35 MB, size and SHA-256 pinned at build time) into $INSTDIR\samples, so this installer stays small; the app adds
-; them to the library on its next start. An update ("keep") refreshes samples downloaded before, when they changed.
+; them to the library on its next start. An update ("keep") neither offers nor changes them.
 ; Prerequisite of "Make wallpaper cooler" (ONNX Runtime): the Microsoft Visual C++ 2015-2022 runtime (x64) 14.44 or
 ; newer. When it is missing or older, the Optional Features page offers it (ticked); setup then runs
 ; `ScreenPlus.com vcredist install`, which downloads Microsoft's installer (SHA-256 verified) and runs it; Windows
@@ -369,7 +369,7 @@ Function OptionsPage
     Abort
   ${EndIf}
   StrCpy $1 0                   ; top of the next option, in dialog units
-  ${If} $InstMode == "default"  ; an update keeps (and refreshes) the samples it has; a clean installation has none
+  ${If} $InstMode == "default"  ; not offered on an update or a clean installation
     ${NSD_CreateCheckbox} 0 0 100% 12u "&Sample wallpapers (recommended)"
     Pop $hSamples
     ${NSD_CreateLabel} 13u 13u -13u 16u "Downloads the other sample wallpapers from GitHub now: about 35 MB, verified by SHA-256. Aurora is always included."
@@ -509,14 +509,8 @@ SectionEnd
 
 ; Optional: the sample wallpapers besides Aurora, downloaded from this release on GitHub (not embedded).
 Section "-Samples"
-  StrCpy $0 0
-  ${If} $InstMode == "default"
-    StrCpy $0 $OptSamples
-  ${ElseIf} $InstMode == "keep"
-  ${AndIf} ${FileExists} "$INSTDIR\samples\download.sha256"   ; downloaded before: refreshed when it changed
-    StrCpy $0 1
-  ${EndIf}
-  ${If} $0 == 1
+  ${If} $InstMode == "default"                        ; never on an update: it leaves the samples as they are
+  ${AndIf} $OptSamples == 1
     DetailPrint "Downloading the sample wallpapers (from this release on GitHub, SHA-256 verified)..."
     nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" samples install'
     Pop $0

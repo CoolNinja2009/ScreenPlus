@@ -466,10 +466,10 @@ static int cmd_tools(const wchar_t *sub)
     return EXIT_USAGE;
 }
 
-/* ---- samples: the sample wallpapers besides Aurora, setup's optional download (ticked by default). This
- * release's ScreenPlus-<version>-samples.zip, pinned by size and SHA-256 when it was built (CMakeLists.txt),
- * is unpacked into <program>\samples with Windows' tar.exe; download.sha256 there lets an update skip it when
- * it is unchanged. The app adds them to a new library itself (library_add_samples). */
+/* ---- samples: the sample wallpapers besides Aurora, setup's optional download (default installations only,
+ * ticked by default). This release's ScreenPlus-<version>-samples.zip, pinned by size and SHA-256 when it was
+ * built (CMakeLists.txt), is unpacked into <program>\samples with Windows' tar.exe; download.sha256 there makes
+ * a second run skip it. The app adds them to a new library itself (library_add_samples). */
 static const UrlTool k_samples = {
     L"samples.zip", L"the sample wallpapers",
     L"https://github.com/CoolNinja2009/ScreenPlus/releases/download/v" SP_VERSION_W L"/ScreenPlus-" SP_VERSION_W
