@@ -57,6 +57,26 @@ Microsoft's own installer from <https://aka.ms/vs/17/release/vc_redist.x64.exe> 
 `cc0ff0eb1dc3f5188ae6300faef32bf5beeba4bdd6e8e445a9184072096b713b`, signed by Microsoft Corporation) and runs it
 after Windows' administrator prompt. It is never bundled; its own license terms apply.
 
+## Sample wallpapers (`samples\`: the portable zip, and setup's optional download)
+
+Aurora and Singularity are Screen+'s own. The others are Lively Wallpaper packages by the authors below; each
+folder keeps its own license file and its source link (`LivelyInfo.json`).
+
+| Folder | Wallpaper | Author | License |
+| --- | --- | --- | --- |
+| `0wj1biqk.f41` | Fluids | Pavel Dobryakov (Lively port: rocksdanister) | MIT |
+| `4yvhquwl.pcv` | Simple System | rocksdanister | MIT |
+| `abqqpcp4.hv3` | Rain | rocksdanister | CC BY-NC-SA 3.0 |
+| `iqdvd4pt.jyo` | Triangles & Light | Maksim Surguy | MIT |
+| `lgz4xpht.sjn` | The Hill | Yoichi Kobayashi | MIT |
+| `mylulkt4.dn1` | Living Room | rocksdanister | MIT |
+| `nps35xrp.5eh` | Medusae | Jay Weeks | Artistic License 2.0 |
+| `ptpcxvcd.hlz` | Periodic Table | Mike Golus | MIT |
+| `rtnm43pj.wyl` | Parallax.js | Matthew Wagerfield | MIT |
+| `spfaevge.qza` | Music Tunnel | rocksdanister | MIT |
+| `xn0quq52.bq2` | Matrix Rain Customizable | parambirs, khuong | none stated (see its `README.md`) |
+| `zmijuhra.1n3` | Music TV (LQ) | rocksdanister | MIT |
+
 ## Windows SDK / system components
 
 Direct3D 11, DXGI, Direct2D, DirectWrite, WIC, WASAPI, DWM and the Segoe fonts are part of

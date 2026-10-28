@@ -331,7 +331,7 @@ BOOL urltools_present(void)
 }
 
 /* Downloads t into dest (through dest.download); nothing is kept that isn't the pinned file. */
-static BOOL fetch_pinned(const UrlTool *t, const wchar_t *dest, FetchProgress cb, void *ctx, wchar_t *err, size_t errCap)
+BOOL fetch_pinned(const UrlTool *t, const wchar_t *dest, FetchProgress cb, void *ctx, wchar_t *err, size_t errCap)
 {
     wchar_t part[SP_MAX_PATH], why[200];
     char hex[65] = "";

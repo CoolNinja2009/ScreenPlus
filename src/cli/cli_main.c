@@ -4,7 +4,7 @@
  * the .com first (PATHEXT order) while shortcuts and the startup entry name the .exe, the same
  * arrangement as devenv.com/devenv.exe. Commands run inside the running app: each one is sent as
  * IPC_CLI_REQUEST and the app's IPC_CLI_REPLY is printed (src/app/cli_server.c). A few work
- * without the app: help, version, start, logs, paths, path, tools, vcredist, screensaver (but use). No arguments: an interactive prompt.
+ * without the app: help, version, start, logs, paths, path, tools, samples, vcredist, screensaver (but use). No arguments: an interactive prompt.
  *
  * Exit codes: 0 ok, 1 the command failed, 2 bad usage, 3 Screen+ is not running. */
 #include "../common/common.h"
@@ -17,6 +17,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 enum { EXIT_OK = 0, EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_NOT_RUNNING = 3 };
 
@@ -308,6 +309,7 @@ static const wchar_t k_help[] =
     L"  paths                                  where Screen+ keeps its data, config and logs\n"
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"
     L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
+    L"  samples install                        the sample wallpapers besides Aurora (setup's optional download)\n"
     L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
     L"  screensaver [on | off | preview]       Screen+ as the Windows screensaver\n"
     L"  screensaver timeout <minutes>          idle time before it starts (a Windows setting)\n"
@@ -462,6 +464,69 @@ static int cmd_tools(const wchar_t *sub)
     }
     err(L"Usage: screenplus tools [status | install | remove]\n");
     return EXIT_USAGE;
+}
+
+/* ---- samples: the sample wallpapers besides Aurora, setup's optional download (ticked by default). This
+ * release's ScreenPlus-<version>-samples.zip, pinned by size and SHA-256 when it was built (CMakeLists.txt),
+ * is unpacked into <program>\samples with Windows' tar.exe; download.sha256 there lets an update skip it when
+ * it is unchanged. The app adds them to a new library itself (library_add_samples). */
+static const UrlTool k_samples = {
+    L"samples.zip", L"the sample wallpapers",
+    L"https://github.com/CoolNinja2009/ScreenPlus/releases/download/v" SP_VERSION_W L"/ScreenPlus-" SP_VERSION_W
+    L"-samples.zip",
+    SP_SAMPLES_SHA256, SP_SAMPLES_SIZE
+};
+
+static int cmd_samples(const wchar_t *sub)
+{
+    if (!sub || !str_ieq(sub, L"install")) {
+        err(L"Usage: screenplus samples install\n");
+        return EXIT_USAGE;
+    }
+    wchar_t dir[SP_MAX_PATH], zip[SP_MAX_PATH], mark[SP_MAX_PATH], tar[SP_MAX_PATH], cmd[4 * SP_MAX_PATH], e[320];
+    path_join(dir, SP_COUNTOF(dir), paths_exe_dir(), L"samples");
+    path_join(zip, SP_COUNTOF(zip), dir, k_samples.file);
+    path_join(mark, SP_COUNTOF(mark), dir, L"download.sha256");
+    char have[65] = "";
+    FILE *f = _wfopen(mark, L"rb");
+    if (f) {
+        have[fread(have, 1, 64, f)] = 0;
+        fclose(f);
+    }
+    if (!strcmp(have, k_samples.sha256)) {
+        out(L"The sample wallpapers are up to date.\n");
+        return EXIT_OK;
+    }
+    int last = -1;
+    out(L"Downloading the sample wallpapers (about %d MB, SHA-256 verified)...\n", (int)((k_samples.size + 500000) / 1000000));
+    if (!dir_create_recursive(dir) || !fetch_pinned(&k_samples, zip, tools_progress, &last, e, SP_COUNTOF(e))) {
+        err(L"%ls%ls%ls\n", c_red(), e[0] ? e : L"Could not create the samples folder.", c_off());
+        return EXIT_FAILED;
+    }
+    GetSystemDirectoryW(tar, SP_COUNTOF(tar));
+    path_join(tar, SP_COUNTOF(tar), tar, L"tar.exe");
+    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" -xf \"%ls\" -C \"%ls\"", tar, zip, dir);
+    STARTUPINFOW si = { sizeof si };
+    PROCESS_INFORMATION pi;
+    DWORD code = 1;
+    if (CreateProcessW(tar, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, dir, &si, &pi)) {
+        if (WaitForSingleObject(pi.hProcess, 300000) == WAIT_OBJECT_0) GetExitCodeProcess(pi.hProcess, &code);
+        CloseHandle(pi.hThread);
+        CloseHandle(pi.hProcess);
+    }
+    DeleteFileW(zip);
+    if (code != 0) {
+        err(L"%lsThe sample wallpapers could not be unpacked (Windows' tar.exe is needed).%ls\n", c_red(), c_off());
+        return EXIT_FAILED;
+    }
+    f = _wfopen(mark, L"wb");
+    if (f) {
+        fputs(k_samples.sha256, f);
+        fclose(f);
+    }
+    out(L"Ready: the sample wallpapers are in %ls\n"
+        L"A new library gets them by itself; to add them to yours: screenplus import \"%ls\"\n", dir, dir);
+    return EXIT_OK;
 }
 
 /* ---- screensaver: the Windows side works without the app (the uninstaller runs "screensaver off") */
@@ -805,6 +870,7 @@ static int run_command(int argc, wchar_t **in)
     if (str_ieq(c, L"paths")) return cmd_paths();
     if (str_ieq(c, L"path")) return cmd_path(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"tools")) return cmd_tools(n > 1 ? argv[1] : NULL);
+    if (str_ieq(c, L"samples")) return cmd_samples(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"vcredist")) return cmd_vcredist(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"screensaver") && !(n > 1 && str_ieq(argv[1], L"use"))) return cmd_screensaver(n, argv);
     if (str_ieq(c, L"watch") || (watch && str_ieq(c, L"status"))) {

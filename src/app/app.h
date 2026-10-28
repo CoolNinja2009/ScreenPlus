@@ -99,6 +99,7 @@ int  library_import(const wchar_t *const *paths, int count, BOOL applyFirst);
 void library_import_dialog(HWND owner, BOOL folder);
 void library_import_lively(void);
 int  library_auto_import_lively(void); /* silent startup discovery; returns newly-added entries */
+int  library_add_samples(void);        /* the bundled samples\ wallpapers, silently; returns newly-added entries */
 void library_import_wallpaper_engine(void);
 void library_remove(const wchar_t *id);
 void library_check_missing(void);

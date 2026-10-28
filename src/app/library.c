@@ -86,6 +86,19 @@ static int add_file(const wchar_t *path, ImportStats *st)
 
 /* ---------------------------------------------------------------- packages */
 
+/* Lively's own library and Screen+'s samples hold the same packages under the same folder names
+ * (0wj1biqk.f41...), so a package folder already in the library is a duplicate wherever it lives. */
+static BOOL lively_known(const wchar_t *folder)
+{
+    const wchar_t *name = path_filename(folder);
+    if (!name[0]) return FALSE;
+    wchar_t seg[SP_MAX_PATH];
+    str_printf(seg, SP_COUNTOF(seg), L"\\%ls\\", name);
+    for (int i = 0; i < g_app.cfg.count; i++)
+        if (g_app.cfg.items[i].format == WPF_LIVELY && str_icontains(g_app.cfg.items[i].path, seg)) return TRUE;
+    return FALSE;
+}
+
 /* Lively Wallpaper package: <folder>\LivelyInfo.json. Returns 1 if the folder is a Lively package. */
 static int import_lively_package(const wchar_t *folder, ImportStats *st)
 {
@@ -145,7 +158,8 @@ static int import_lively_package(const wchar_t *folder, ImportStats *st)
         st->bad++;
         return 1;
     }
-    add_entry(t, target, title, WPF_LIVELY, flags, thumb, st);
+    if (lively_known(folder)) st->dup++;
+    else add_entry(t, target, title, WPF_LIVELY, flags, thumb, st);
     return 1;
 }
 
@@ -365,6 +379,30 @@ int library_auto_import_lively(void)
             LOGI(L"library: automatically added %d Lively wallpaper%ls (%d already known, %d unsupported, %d unreadable)",
                  st.added, st.added == 1 ? L"" : L"s", st.dup, st.unsupported, st.bad);
     }
+    return st.added;
+}
+
+/* The wallpapers in <exe>\samples: Aurora (always bundled) and the others (in the portable zip, or downloaded by
+ * setup: `screenplus samples install`), Lively packages or folders with an HTML entry. Added silently on the
+ * first run and by setup's default installation; Aurora goes first. */
+int library_add_samples(void)
+{
+    wchar_t root[SP_MAX_PATH], sub[SP_MAX_PATH], entry[SP_MAX_PATH];
+    path_join(root, SP_COUNTOF(root), paths_exe_dir(), L"samples");
+    path_join(sub, SP_COUNTOF(sub), root, L"Aurora");
+    ImportStats st = { 0 };
+    if (library_html_entry(sub, entry, SP_COUNTOF(entry))) add_file(entry, &st);
+    path_join(sub, SP_COUNTOF(sub), root, L"*");
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(sub, &fd);
+    if (h == INVALID_HANDLE_VALUE) return st.added;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || fd.cFileName[0] == L'.') continue;
+        path_join(sub, SP_COUNTOF(sub), root, fd.cFileName);
+        if (!import_package(sub, &st) && library_html_entry(sub, entry, SP_COUNTOF(entry))) add_file(entry, &st);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    if (st.added) LOGI(L"library: added %d sample wallpaper%ls", st.added, st.added == 1 ? L"" : L"s");
     return st.added;
 }
 

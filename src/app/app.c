@@ -299,13 +299,8 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 
 static void first_run(void)
 {
-    /* Seed the library with the bundled sample so the app is useful immediately. */
-    wchar_t sample[SP_MAX_PATH];
-    path_join(sample, SP_COUNTOF(sample), paths_exe_dir(), L"samples\\Aurora\\index.html");
-    if (file_exists(sample)) {
-        WallpaperEntry *e = config_add(&g_app.cfg, WP_HTML, sample, L"Aurora");
-        if (e) LOGI(L"first run: added sample wallpaper");
-    }
+    /* Seed the library with the bundled samples so the app is useful immediately. */
+    library_add_samples();
     config_save(&g_app.cfg, paths_config());
 }
 
@@ -330,6 +325,7 @@ static void apply_setup_choice(void)
             g_app.cfg.defaultWallpaper[0] = 0;
             g_app.cfg.s.livelyImport = 0;
         } else {
+            library_add_samples();     /* also over an older install: the samples setup just downloaded */
             g_app.cfg.s.livelyImport = 1;
         }
         config_save(&g_app.cfg, paths_config());

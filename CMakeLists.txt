@@ -131,6 +131,37 @@ target_link_libraries(ScreenPlus PRIVATE
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
     d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp)
 
+# Sample wallpapers besides Aurora: setup bundles only Aurora and, when "Sample wallpapers" is ticked, runs
+# `screenplus samples install`, which downloads this release's ScreenPlus-<version>-samples.zip (CI uploads it),
+# pinned by the size and SHA-256 below. Packed at configure time, which reruns when a sample file changes.
+file(GLOB_RECURSE SAMPLE_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/samples/*")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SAMPLE_FILES})
+file(GLOB SAMPLE_DIRS RELATIVE "${CMAKE_SOURCE_DIR}/samples" "${CMAKE_SOURCE_DIR}/samples/*")
+list(REMOVE_ITEM SAMPLE_DIRS Aurora)
+list(SORT SAMPLE_DIRS)
+set(SAMPLES_ZIP "${CMAKE_BINARY_DIR}/ScreenPlus-${PROJECT_VERSION}-samples.zip")
+string(SHA256 SAMPLES_LIST "${SAMPLE_FILES}")
+set(SAMPLES_PACK OFF)
+if(NOT EXISTS "${SAMPLES_ZIP}" OR NOT SAMPLES_LIST STREQUAL "${SAMPLES_PACKED_LIST}")
+    set(SAMPLES_PACK ON)
+endif()
+foreach(f IN LISTS SAMPLE_FILES)
+    if("${f}" IS_NEWER_THAN "${SAMPLES_ZIP}")
+        set(SAMPLES_PACK ON)
+    endif()
+endforeach()
+if(SAMPLES_PACK)   # only when a sample changed: the zip isn't byte-reproducible (libarchive records access times)
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E tar cf "${SAMPLES_ZIP}" --format=zip "--mtime=2000-01-01 00:00:00 UTC"
+                            -- ${SAMPLE_DIRS}
+                    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/samples" RESULT_VARIABLE SAMPLES_RC)
+    if(SAMPLES_RC)
+        message(FATAL_ERROR "Could not pack the sample wallpapers into ${SAMPLES_ZIP}")
+    endif()
+    set(SAMPLES_PACKED_LIST "${SAMPLES_LIST}" CACHE INTERNAL "")
+endif()
+file(SHA256 "${SAMPLES_ZIP}" SAMPLES_SHA256)
+file(SIZE "${SAMPLES_ZIP}" SAMPLES_SIZE)
+
 # Terminal companion, shipped as ScreenPlus.com next to ScreenPlus.exe: a terminal resolves
 # `screenplus` to the .com first (PATHEXT order), shortcuts and the startup entry name the .exe.
 add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/json.c src/common/paths.c
@@ -138,7 +169,8 @@ add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/jso
 set_target_properties(ScreenPlusCli PROPERTIES OUTPUT_NAME ScreenPlus SUFFIX ".com" PDB_NAME ScreenPlusCli)
 target_include_directories(ScreenPlusCli PRIVATE src)
 target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
-                                                 _CRT_SECURE_NO_WARNINGS SP_VERSION_STR="${PROJECT_VERSION}")
+                                                 _CRT_SECURE_NO_WARNINGS SP_VERSION_STR="${PROJECT_VERSION}"
+                                                 SP_SAMPLES_SIZE=${SAMPLES_SIZE} SP_SAMPLES_SHA256="${SAMPLES_SHA256}")
 target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /wd4221 /wd4100)
 target_link_options(ScreenPlusCli PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /INCREMENTAL:NO)
 target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 advapi32 bcrypt winhttp)

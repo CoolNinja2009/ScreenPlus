@@ -47,6 +47,8 @@ BOOL urltools_present(void);                              /* both files exist (c
 /* Downloads whatever is missing or doesn't match its pinned hash into <data>\tools. */
 BOOL urltools_install(FetchProgress cb, void *ctx, wchar_t *err, size_t errCap);
 void urltools_remove(void);                               /* deletes <data>\tools */
+/* Downloads t->url into dest (through dest.download); nothing is kept that isn't the pinned file. */
+BOOL fetch_pinned(const UrlTool *t, const wchar_t *dest, FetchProgress cb, void *ctx, wchar_t *err, size_t errCap);
 
 /* The Microsoft Visual C++ 2015-2022 Redistributable (x64). ONNX Runtime ("Make wallpaper cooler") is built
  * with the 14.44 toolset and needs a runtime at least that new. Setup offers it when it is missing or older

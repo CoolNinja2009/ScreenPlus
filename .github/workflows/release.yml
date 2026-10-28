@@ -155,6 +155,7 @@ jobs:
           Copy-Item "$env:SCREENPLUS_DATA_DIR\tools" $stage -Recurse
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item $setup release\
+          Copy-Item "build\ScreenPlus-$v-samples.zip" release\   # setup's optional download (screenplus samples install)
           Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$v-win-x64-portable.zip"
           Get-ChildItem release -File | ForEach-Object {
             "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"

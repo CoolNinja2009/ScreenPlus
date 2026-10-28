@@ -4,16 +4,20 @@
 ;   makensis /DVERSION=1.2.3 /DSTAGE=<folder with ScreenPlus.exe> /DOUTFILE=<setup.exe> installer\screenplus.nsi
 ; STAGE is the build output: ScreenPlus.exe, ScreenPlus.com (terminal), the FFmpeg DLLs, licenses\ and samples\.
 ;
-; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/VCRUN] [/D=<install folder>]   (/D must be last)
+; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/NOSAMPLES] [/VCRUN] [/D=<install folder>]   (/D must be last)
 ; An existing installation is found automatically and updated in place, keeping the library.
 ; Installation types (applied by Screen+ on its next launch via HKCU\Software\ScreenPlus\SetupMode):
-;   default - Aurora sample + automatic import of Lively Wallpaper's library
+;   default - Aurora sample (+ the other samples: optional feature below) + automatic import of Lively Wallpaper's library
 ;   clean   - empty library, no sample, no automatic Lively import
 ;   keep    - update of an existing installation: nothing is changed (SetupMode is not written)
 ; Optional feature "Video import from web links" (on unless /NOURL or turned off before): setup runs
 ; `ScreenPlus.com tools install`, which downloads the pinned yt-dlp + QuickJS-NG releases (~20 MB, SHA-256
 ; verified) into %LOCALAPPDATA%\ScreenPlus\tools, so this installer stays small. Off: the app hides its
 ; link button (HKCU\Software\ScreenPlus\UrlImport = 0) and downloaded tools are removed.
+; Optional feature "Sample wallpapers" (default installation; on unless /NOSAMPLES): setup bundles only Aurora and
+; runs `ScreenPlus.com samples install`, which downloads this release's ScreenPlus-<version>-samples.zip from GitHub
+; (~35 MB, size and SHA-256 pinned at build time) into $INSTDIR\samples, so this installer stays small; the app adds
+; them to the library on its next start. An update ("keep") refreshes samples downloaded before, when they changed.
 ; Prerequisite of "Make wallpaper cooler" (ONNX Runtime): the Microsoft Visual C++ 2015-2022 runtime (x64) 14.44 or
 ; newer. When it is missing or older, the Optional Features page offers it (ticked); setup then runs
 ; `ScreenPlus.com vcredist install`, which downloads Microsoft's installer (SHA-256 verified) and runs it; Windows
@@ -79,6 +83,7 @@ Var InstMode        ; "keep" (update in place) | "default" | "clean"
 Var OptStartup      ; 1 = start with Windows
 Var OptDesktop      ; 1 = desktop shortcut
 Var OptUrl          ; 1 = video import from web links (downloads yt-dlp + QuickJS-NG)
+Var OptSamples      ; 1 = download the other sample wallpapers (default installation)
 Var VcNeeded        ; 1 = the Visual C++ runtime that Make wallpaper cooler needs is missing or too old
 Var OptVc           ; 1 = install it now
 Var Existing        ; folder of an installed Screen+, "" when none was found
@@ -90,6 +95,7 @@ Var hClean
 Var hStartup
 Var hDesktop
 Var hUrl
+Var hSamples
 Var hVc
 
 ; ------------------------------------------------------------------ pages
@@ -205,6 +211,7 @@ Function .onInit
   StrCpy $InstMode "default"
   StrCpy $OptStartup 1
   StrCpy $OptDesktop 1
+  StrCpy $OptSamples 1
   StrCpy $OptUrl 1
   ReadINIStr $0 "$LOCALAPPDATA\ScreenPlus\config.ini" "settings" "url_import"
   ${If} $0 == "0"                                     ; turned off in an earlier installation
@@ -257,6 +264,11 @@ Function .onInit
   ${GetOptions} $R0 "/NOURL" $R1
   ${IfNot} ${Errors}
     StrCpy $OptUrl 0
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $R0 "/NOSAMPLES" $R1
+  ${IfNot} ${Errors}
+    StrCpy $OptSamples 0
   ${EndIf}
   ClearErrors
   ${GetOptions} $R0 "/VCRUN" $R1
@@ -356,17 +368,31 @@ Function OptionsPage
   ${If} $0 == error
     Abort
   ${EndIf}
-  ${NSD_CreateCheckbox} 0 0 100% 12u "&Video import from web links (recommended)"
+  StrCpy $1 0                   ; top of the next option, in dialog units
+  ${If} $InstMode == "default"  ; an update keeps (and refreshes) the samples it has; a clean installation has none
+    ${NSD_CreateCheckbox} 0 0 100% 12u "&Sample wallpapers (recommended)"
+    Pop $hSamples
+    ${NSD_CreateLabel} 13u 13u -13u 16u "Downloads the other sample wallpapers from GitHub now: about 35 MB, verified by SHA-256. Aurora is always included."
+    Pop $0
+    ${If} $OptSamples == 1
+      ${NSD_Check} $hSamples
+    ${EndIf}
+    StrCpy $1 32
+  ${EndIf}
+  ${NSD_CreateCheckbox} 0 $1u 100% 12u "&Video import from web links (recommended)"
   Pop $hUrl
-  ${NSD_CreateLabel} 13u 14u -13u 48u "Adds a link button to the Library for importing videos from YouTube and other sites. Setup downloads yt-dlp and the QuickJS-NG JavaScript runtime now: about 20 MB, official releases, verified by SHA-256.$\r$\n$\r$\nWithout it the link button is hidden; you can turn it on later in Settings."
+  IntOp $2 $1 + 13
+  ${NSD_CreateLabel} 13u $2u -13u 32u "Adds a link button to the Library for importing videos from YouTube and other sites. Setup downloads yt-dlp and QuickJS-NG now (about 20 MB, official releases, verified by SHA-256); without them the button is hidden. You can turn it on later in Settings."
   Pop $0
   ${If} $OptUrl == 1
     ${NSD_Check} $hUrl
   ${EndIf}
   ${If} $VcNeeded == 1                                ; only asked when this PC lacks the runtime
-    ${NSD_CreateCheckbox} 0 66u 100% 12u "Install the &Microsoft Visual C++ runtime (needed by Make wallpaper cooler)"
+    IntOp $2 $1 + 49
+    ${NSD_CreateCheckbox} 0 $2u 100% 12u "Install the &Microsoft Visual C++ runtime (needed by Make wallpaper cooler)"
     Pop $hVc
-    ${NSD_CreateLabel} 13u 80u -13u 46u "The depth AI of Make wallpaper cooler needs the Microsoft Visual C++ Redistributable 14.44 or newer, which this PC doesn't have. Setup downloads it from Microsoft (about 25 MB, SHA-256 verified) and runs its installer; Windows asks for administrator permission. Everything else works without it."
+    IntOp $2 $1 + 62
+    ${NSD_CreateLabel} 13u $2u -13u 46u "The depth AI of Make wallpaper cooler needs the Microsoft Visual C++ Redistributable 14.44 or newer, which this PC doesn't have. Setup downloads it from Microsoft (about 25 MB, SHA-256 verified) and runs its installer; Windows asks for administrator permission. Everything else works without it."
     Pop $0
     ${If} $OptVc == 1
       ${NSD_Check} $hVc
@@ -376,11 +402,22 @@ Function OptionsPage
 FunctionEnd
 
 Function OptionsLeave
+  ${If} $InstMode == "default"
+    ${NSD_GetState} $hSamples $OptSamples
+  ${EndIf}
   ${NSD_GetState} $hUrl $OptUrl
   ${If} $VcNeeded == 1
     ${NSD_GetState} $hVc $OptVc
   ${EndIf}
 FunctionEnd
+
+; samples\ (Aurora and the downloaded Lively packages, with subfolders) goes as a whole; the Aurora check keeps
+; RMDir /r away from an unrelated "samples" folder in a hand-picked install folder.
+!macro RemoveSamples
+  ${If} ${FileExists} "$INSTDIR\samples\Aurora\index.html"
+    RMDir /r "$INSTDIR\samples"
+  ${EndIf}
+!macroend
 
 ; ------------------------------------------------------------------ install
 Section "Install"
@@ -400,16 +437,13 @@ Section "Install"
   File "${STAGE}\licenses\*.*"
 
   ${If} $InstMode == "clean"
-    Delete "$INSTDIR\samples\Aurora\index.html"
-    Delete "$INSTDIR\samples\Aurora\preview.jpg"
-    RMDir "$INSTDIR\samples\Aurora"
-    RMDir "$INSTDIR\samples"
+    !insertmacro RemoveSamples          ; downloaded ones too
   ${ElseIf} $InstMode == "keep"
   ${AndIfNot} ${FileExists} "$INSTDIR\samples\Aurora\index.html"
     ; updating an earlier clean installation: still no sample
   ${Else}
     SetOutPath "$INSTDIR\samples\Aurora"
-    File "${STAGE}\samples\Aurora\*.*"
+    File "${STAGE}\samples\Aurora\*.*"  ; the other samples are an optional download (section -Samples)
   ${EndIf}
 
   SetOutPath "$INSTDIR"
@@ -473,6 +507,25 @@ Section "-UrlImport"
   WriteRegDWORD HKCU "${APP_KEY}" "UrlImport" $OptUrl   ; read once by the app: shows or hides its link button
 SectionEnd
 
+; Optional: the sample wallpapers besides Aurora, downloaded from this release on GitHub (not embedded).
+Section "-Samples"
+  StrCpy $0 0
+  ${If} $InstMode == "default"
+    StrCpy $0 $OptSamples
+  ${ElseIf} $InstMode == "keep"
+  ${AndIf} ${FileExists} "$INSTDIR\samples\download.sha256"   ; downloaded before: refreshed when it changed
+    StrCpy $0 1
+  ${EndIf}
+  ${If} $0 == 1
+    DetailPrint "Downloading the sample wallpapers (from this release on GitHub, SHA-256 verified)..."
+    nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" samples install'
+    Pop $0
+    ${If} $0 != 0
+      DetailPrint "Not downloaded now (Aurora is installed); get the others later with: screenplus samples install"
+    ${EndIf}
+  ${EndIf}
+SectionEnd
+
 ; Optional prerequisite of Make wallpaper cooler: Microsoft's Visual C++ runtime, downloaded here (not embedded).
 Section "-VcRuntime"
   ${If} $OptVc == 1
@@ -507,10 +560,7 @@ Section "Uninstall"
   Delete "$INSTDIR\licenses\COPYING.LGPLv2.1"
   Delete "$INSTDIR\licenses\BUILDINFO.txt"
   RMDir "$INSTDIR\licenses"
-  Delete "$INSTDIR\samples\Aurora\index.html"
-  Delete "$INSTDIR\samples\Aurora\preview.jpg"
-  RMDir "$INSTDIR\samples\Aurora"
-  RMDir "$INSTDIR\samples"
+  !insertmacro RemoveSamples
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
   Delete "$LOCALAPPDATA\ScreenPlus\tools\yt-dlp.exe"     ; downloaded URL-import tools (not user data)
