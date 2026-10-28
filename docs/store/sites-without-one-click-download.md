@@ -54,5 +54,8 @@ download limit, and accounts for unlimited downloads.
 - **backiee:** every picture's page lists 1080p, 4K, 5K and 8K, but only sizes up to the original exist (the
   rest return 404). The Store reads the original size from the page's JSON-LD (`"width"`, `"height"`) and
   downloads the largest real file. The site's own Download button does the same with `data-file-url`.
-- **All six sites sit behind Cloudflare,** but only as a CDN with its passive script: plain requests (curl and
+- **DesktopHut** links the file itself from its Download button (`/files/…`, served by the web server). Its
+  robots.txt bans only `/download/` (the mobile crop job, with a 60 s wait) and `/track-download/` (a counter),
+  which the Store never asks for.
+- **Six sites sit behind Cloudflare** (all but DesktopHut), but only as a CDN with its passive script: plain requests (curl and
   WinHTTP) get the real pages, with no challenge.

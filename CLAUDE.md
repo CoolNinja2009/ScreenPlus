@@ -53,7 +53,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
-| `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, backiee, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
+| `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, backiee, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
 | `src/app/startup.c`, `supervisor.c` | HKCU Run entry; engine process lifecycle |
 | `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, vcredist), IPC for the rest |
 | `src/screensaver/screensaver.c` | Screensaver process (see above) |

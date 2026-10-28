@@ -566,6 +566,138 @@ static void wf_preview(const StoreItem *it, int big, int webp, wchar_t *url, siz
 
 static void wf_page(const StoreItem *it, wchar_t *url, size_t cap) { str_printf(url, cap, WF L"/live-wallpapers/%hs.html", it->ref); }
 
+/* ---------------------------------------------------------------- DesktopHut (desktophut.com, Laravel) */
+
+#define DH L"https://www.desktophut.com"
+static const char *const k_dhCats[CAT_COUNT] = { NULL, "anime-live-wallpapers", "games-live-wallpapers", "nature-live-wallpapers",
+                                                 "cars-motorcycles-live-wallpapers", NULL, "animals-live-wallpapers",
+                                                 "sci-fi-fantasy-live-wallpapers", NULL, "abstract-live-wallpapers",
+                                                 "movies-and-tv-live-wallpapers", NULL, "tech-live-wallpapers", NULL };
+
+static BOOL dh_list(const StoreQuery *q, int page, const char *tag, wchar_t *url, size_t cap)
+{
+    const char *c = q->category ? k_dhCats[q->category] : NULL;
+    wchar_t w[100], e[400], n[24], *ctx = NULL;
+    (void)tag;
+    words(q, c, w, SP_COUNTOF(w));
+    if (w[0]) {                                     /* /search/<words>: a path, where encode()'s '+' stays a plus */
+        encode(w, e, SP_COUNTOF(e));
+        str_copy(url, cap, DH L"/search/");
+        for (const wchar_t *t = wcstok_s(e, L"+", &ctx), *sep = L""; t; t = wcstok_s(NULL, L"+", &ctx), sep = L"%20") {
+            str_cat(url, cap, sep);
+            str_cat(url, cap, t);
+        }
+    } else if (c) {
+        str_printf(url, cap, DH L"/category/%hs", c);
+    } else {
+        str_copy(url, cap, DH L"/");
+    }
+    if (page > 1) {
+        str_printf(n, SP_COUNTOF(n), L"?page=%d", page);
+        str_cat(url, cap, n);
+    }
+    return TRUE;
+}
+
+/* <a href="/<slug>" class="wallpaper-card" …> <img src="https://www.desktophut.com/images/<image>" …> …
+ * <span class="badge-res">3840x2160</span> (or WEB) … <h3 class="card-title">Title</h3> … </a>; ref: slug, media: the
+ * image. A search with nothing (left) to show says "No matches for …" and lists the site's popular ones instead. */
+static void dh_parse(const StoreQuery *q, int page, const char *tag, const char *html, int len, StoreList *out)
+{
+    static const char card[] = "\" class=\"wallpaper-card\"";
+    const char *end = html + len, *p = html, *h1 = after(html, end, "<h1"), *h1e = find(h1, end, "</h1>");
+    (void)q;
+    (void)tag;
+    if (h1e && find(h1, h1e, "No matches for")) return;
+    while ((p = after(p, end, "<a href=\"/")) != NULL) {
+        const char *he = p, *ce;
+        while (he < end && is_slug(*he)) he++;
+        if (he == p || end - he < (ptrdiff_t)sizeof card - 1 || memcmp(he, card, sizeof card - 1)) continue;
+        if (!(ce = find(he, end, "</a>"))) break;
+        const char *m = after(he, ce, "<img src=\"https://www.desktophut.com/images/"), *mv = until(m, ce, '"');
+        const char *t = after(he, ce, "class=\"card-title\">"), *tv = t ? find(t, ce, "</h3>") : NULL;
+        const char *r = after(he, ce, "class=\"badge-res\">");
+        int web = r && ce - r >= 3 && !memcmp(r, "WEB", 3);     /* a web wallpaper's .zip, which Download can't import */
+        StoreItem *it = mv && tv && !web ? add(out) : NULL;
+        if (it) {
+            copy_of(p, he, it->ref, sizeof it->ref);
+            copy_of(m, mv, it->media, sizeof it->media);
+            text_of(t, tv, it->title, SP_COUNTOF(it->title));
+            if (r) res_at(r, ce, &it->w, &it->h);
+            it->kind = SKIND_LIVE;
+            if (it->title[0]) out->count++;
+        }
+        p = ce;
+    }
+    char pat[24];
+    snprintf(pat, sizeof pat, "?page=%d", page + 1);
+    out->more = has_next(html, end, pat);
+}
+
+static BOOL dh_detail_url(const StoreItem *it, wchar_t *url, size_t cap)
+{
+    str_printf(url, cap, DH L"/%hs", it->ref);
+    return TRUE;
+}
+
+/* Its own Download button links the file itself: <a href="https://www.desktophut.com/files/<file>" download=…
+ * id="primaryDownloadBtn" …> … MP4 Video · 3840x2160 · 14.51 MB … </a>. Key: the extension when the file is named
+ * after the card's image (newer uploads), else the file's own name (older ones: "<10 digits>.mp4"). */
+static int dh_detail(const char *html, int len, StoreItem *it)
+{
+    static const char files[] = "<a href=\"https://www.desktophut.com/files/";
+    const char *end = html + len, *f = NULL, *fe = NULL, *te = NULL, *ae = NULL, *z = NULL;
+    for (const char *p = after(html, end, files); p && !f; p = after(p, end, files)) {
+        const char *ve = until(p, end, '"'), *ve2 = until(ve, end, '>');
+        if (ve2 && find(ve, ve2, " id=\"primaryDownloadBtn\"")) {
+            f = p;
+            fe = ve;
+            te = ve2;
+            ae = find(te, end, "</a>");
+        }
+    }
+    it->varCount = 0;
+    if (!f || !ae) return 0;
+    char name[128];
+    const char *stem = strrchr(it->media, '.');
+    if (fe - f >= (ptrdiff_t)sizeof name) return 0;
+    copy_of(f, fe, name, sizeof name);
+    const char *ext = strrchr(name, '.');
+    if (!ext || (strcmp(ext, ".mp4") && strcmp(ext, ".webm")) || strpbrk(name, "/?&% ")) return 0;
+    StoreVariant v;
+    ZeroMemory(&v, sizeof v);
+    if (stem && ext - name == stem - it->media && !memcmp(name, it->media, (size_t)(ext - name))) strcpy_s(v.key, sizeof v.key, ext + 1);
+    else if (strlen(name) < sizeof v.key) strcpy_s(v.key, sizeof v.key, name);
+    else return 0;
+    for (const char *d = te; d < ae && !v.w; d++)
+        if (is_digit(*d) && !is_digit(d[-1]) && res_at(d, ae, &v.w, &v.h)) z = after(d, ae, "\xC2\xB7 ");
+    v.mb = size_mb(z, ae);
+    if (!v.w) {
+        v.w = it->w;
+        v.h = it->h;
+    }
+    it->var[it->varCount++] = v;
+    return 1;
+}
+
+static void dh_preview(const StoreItem *it, int big, int webp, wchar_t *url, size_t cap)
+{
+    (void)big;                                      /* one 480x270 size; WebP, JPEG on older uploads */
+    (void)webp;
+    str_printf(url, cap, DH L"/images/%hs", it->media);
+}
+
+static BOOL dh_file(const StoreItem *it, const StoreVariant *v, wchar_t *url, size_t cap)
+{
+    const char *stem = strrchr(it->media, '.');
+    if (strchr(v->key, '.')) str_printf(url, cap, DH L"/files/%hs", v->key);
+    else if (stem) str_printf(url, cap, DH L"/files/%.*hs.%hs", (int)(stem - it->media), it->media, v->key);
+    else return FALSE;
+    return TRUE;
+}
+
+static void dh_page(const StoreItem *it, wchar_t *url, size_t cap) { str_printf(url, cap, DH L"/%hs", it->ref); }
+
 /* ---------------------------------------------------------------- backiee (backiee.com): still pictures to 8K */
 
 #define BK L"https://backiee.com"
@@ -752,6 +884,7 @@ const StoreSource k_sources[] = {
     { L"Lively", SKIND_LIVE, SR_4K, 1, lw_list, lw_parse, NULL, NULL, lw_preview, lw_file, lw_page },
     { L"MoeWalls", SKIND_LIVE, SR_4K, 0, mw_list, mw_parse, NULL, NULL, mw_preview, NULL, mw_page },
     { L"wallsflow", SKIND_LIVE, SR_4K, 0, wf_list, wf_parse, wf_detail_url, wf_detail, wf_preview, NULL, wf_page },
+    { L"DesktopHut", SKIND_LIVE, SR_4K, 0, dh_list, dh_parse, dh_detail_url, dh_detail, dh_preview, dh_file, dh_page },
     { L"backiee", SKIND_STILL, SR_8K, 0, bk_list, bk_parse, bk_detail_url, bk_detail, bk_preview, bk_file, bk_page },
     { L"Wallhaven", SKIND_STILL, SR_8K, 0, wh_list, wh_parse, NULL, NULL, wh_preview, wh_file, wh_page },
 };
