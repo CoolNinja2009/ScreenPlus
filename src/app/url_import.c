@@ -121,10 +121,19 @@ BOOL url_import_is_download(const wchar_t *path)
     return in_folder(path, paths_downloads());
 }
 
+/* A download is in use as an entry's file, or as the picture behind a depth wallpaper (its `thumb`). */
+static BOOL in_library(const wchar_t *f)
+{
+    if (config_find_path(&g_app.cfg, f)) return TRUE;
+    for (int i = 0; i < g_app.cfg.count; i++)
+        if (str_ieq(g_app.cfg.items[i].thumb, f)) return TRUE;
+    return FALSE;
+}
+
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb)
 {
     wchar_t f[SP_MAX_PATH], streams[SP_MAX_PATH];
-    if (config_find_path(&g_app.cfg, path)) return FALSE;     /* another entry still uses it */
+    if (in_library(path)) return FALSE;                       /* another entry still uses it */
     path_join(streams, SP_COUNTOF(streams), paths_cache(), L"streams");
     if (thumb && in_folder(thumb, streams)) DeleteFileW(thumb);
     if (wallpaper_is_url(path)) {
@@ -148,7 +157,7 @@ void url_import_sweep(void)
         do {
             if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
             path_join(f, SP_COUNTOF(f), paths_downloads(), fd.cFileName);
-            if (!config_find_path(&g_app.cfg, f) && DeleteFileW(f)) n++;   /* removed while it was playing */
+            if (!in_library(f) && DeleteFileW(f)) n++;   /* removed while it was playing */
         } while (FindNextFileW(h, &fd));
         FindClose(h);
     }

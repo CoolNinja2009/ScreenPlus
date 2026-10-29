@@ -1,5 +1,6 @@
 /* "Start with Windows": per-user Run key (no elevation). Task Manager's StartupApproved
- * state is honoured when reading and reset when the user re-enables it from Screen+. */
+ * state is honoured when reading and reset when the user re-enables it from Screen+.
+ * The entry passes --startup, so "Open in the background" decides whether the window opens. */
 #include "app.h"
 #include "../common/util.h"
 #include "../common/log.h"
@@ -27,7 +28,7 @@ BOOL startup_set_enabled(BOOL on)
     LSTATUS st;
     if (on) {
         wchar_t cmd[SP_MAX_PATH + 32];
-        str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --tray", paths_exe());
+        str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --startup", paths_exe());
         st = RegSetKeyValueW(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME, REG_SZ, cmd, (DWORD)((wcslen(cmd) + 1) * sizeof(wchar_t)));
         RegDeleteKeyValueW(HKEY_CURRENT_USER, APPROVED_KEY, VALUE_NAME);
     } else {

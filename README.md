@@ -79,6 +79,12 @@ pass `/VCRUN`.
 Running a newer setup over an old install updates it and keeps your library. Each release also has a portable
 zip, which includes the link tools and all the sample wallpapers.
 
+Installed copies update themselves: **Settings > General > Auto update** (on by default) checks GitHub a few
+minutes after Screen+ starts and then every 12 hours. A newer release's setup is downloaded, checked against the
+SHA-256 GitHub lists for it, and run silently; Screen+ closes for a few seconds and comes back on the new version
+with your library and settings. If the window is open, it waits until you close it. **Check now** (or
+`screenplus update`) looks right away. The portable zip never updates itself.
+
 > [!NOTE]
 > The installer isn't code-signed yet, so SmartScreen will probably warn you the first time.
 > Click **More info**, then **Run anyway**.
@@ -233,6 +239,7 @@ screenplus pause | resume | toggle | next | restart | audio [on|off]
 screenplus look [set <key> <value> ... | reset]   brightness contrast saturation gamma hue tint ...
 screenplus props [set <name> <value> | reset]     the wallpaper's own Lively / WE settings
 screenplus settings [set <key> <value>]           e.g. settings set display_mode span
+screenplus update [check | status]                install a newer release from GitHub now (check: only look)
 screenplus screensaver [on | off | preview | timeout <min> | lock on|off | use <wallpaper|desktop>]
 screenplus tools [install | remove]               yt-dlp + QuickJS-NG for links
 screenplus vcredist [install]                     the Visual C++ runtime for Make wallpaper cooler
@@ -247,6 +254,7 @@ The executables take a few switches too. The app's own ones are passed on to the
 
 ```text
 ScreenPlus.exe [--tray | --show | --pause | --resume | --toggle-pause | --next | --exit | --screensaver-settings]
+ScreenPlus.exe --startup                  how Start with Windows launches it: the window opens unless Open in the background is on
 ScreenPlus.exe --screensaver /s           run the screensaver now (same as Preview)
 ScreenPlus.scr /s | /p <hwnd> | /c        how Windows starts it: fullscreen, settings preview, its Settings button
 
@@ -301,7 +309,6 @@ portable zip and SHA-256 checksums. Pull requests get built but not released.
 ## Not done yet
 
 - Pause rules for specific apps
-- Update notifications inside the app
 
 ## License and credits
 

@@ -1,5 +1,5 @@
 /* Screen+ entry point. One executable, two roles:
- *   ScreenPlus.exe [--tray|--show|--pause|--resume|--toggle-pause|--next|--exit]   shell (UI, tray, supervisor)
+ *   ScreenPlus.exe [--tray|--startup|--show|--pause|--resume|--toggle-pause|--next|--exit]   shell (UI, tray, supervisor)
  *   ScreenPlus.exe --engine --shell=<hwnd> [--safe-mode]                          wallpaper engine (spawned by shell)
  *   ScreenPlus.exe --capture-preview <wallpaper id>                               records an HTML preview (spawned by shell)
  *   ScreenPlus.exe --depth <image> <dir> [--cpu | --bench | --crashed] [--png]    depth map of one image (spawned by shell)

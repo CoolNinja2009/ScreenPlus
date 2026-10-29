@@ -305,6 +305,7 @@ static const wchar_t k_help[] =
     L"  show | hide                            open or close the window\n"
     L"  stop                                   quit Screen+\n"
     L"  settings [set <key> <value>]           app settings, e.g. settings set pause_on_battery off\n"
+    L"  update [check | status]                install a newer release from GitHub now (check: only look)\n"
     L"  logs [app | engine] [-n N] [-f]        recent log lines (both logs by default); -f keeps following\n"
     L"  paths                                  where Screen+ keeps its data, config and logs\n"
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"

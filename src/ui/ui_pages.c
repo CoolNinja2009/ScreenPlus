@@ -949,12 +949,22 @@ static void draw_settings(Ui *u, float cx, float cw)
     {
         int idx[] = { TOG_STARTUP, TOG_TRAY };
         const wchar_t *l[] = { L"Start with Windows", L"Open in the background" };
-        const wchar_t *d[] = { L"Launch Screen+ in the notification area when you sign in",
-                               L"Keep the window closed at startup; wallpapers still load" };
+        const wchar_t *d[] = { L"Launch Screen+ when you sign in",
+                               L"When it starts with Windows, keep the window closed; wallpapers still load" };
         int v[] = { s->startWithWindows, s->launchToTray };
         y = toggle_group(u, x, y, w, idx, l, d, v, 2);
     }
     y += 10;
+    {
+        UpdateState us;
+        update_get(&us);
+        float bw = ui_button_width(L"Check now", GL_REFRESH);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - bw - 120, L"Auto update", us.text);
+        ui_button(HIT_ID(HK_UPDATE_CHECK, 0), rectf(x + w - 82 - bw, y + 14, bw, 34), L"Check now", GL_REFRESH, BTN_SECONDARY);
+        ui_toggle(HIT_ID(HK_TOGGLE, TOG_AUTO_UPDATE), x + w - 62, y + 19, TOG_AUTO_UPDATE, s->autoUpdate);
+    }
+    y += 62 + 10;
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
     row_label(u, x, y, w - 300, L"Appearance", L"Follows Windows by default");
     {
@@ -2069,6 +2079,7 @@ static void toggle_setting(int idx)
     case TOG_AUDIO:      app_set_audio(!s->audio); ui_animate(); return;
     case TOG_SCR_AUDIO:  s->scrAudio = !s->scrAudio; break;
     case TOG_SCR_MOUSE:  s->scrExitOnMouse = !s->scrExitOnMouse; break;
+    case TOG_AUTO_UPDATE: s->autoUpdate = !s->autoUpdate; break;
     case TOG_SCR_ENABLE:
     case TOG_SCR_LOCK: {                 /* Windows settings: not in config.ini */
         ScrState st;
@@ -2084,6 +2095,7 @@ static void toggle_setting(int idx)
     }
     app_save_config();
     if (idx == TOG_DEPTH_ALL) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download and to start on the current image */
+    if (idx == TOG_AUTO_UPDATE) update_schedule(TRUE);  /* on: check in a moment; off: no more checks */
     ui_animate();
 }
 
@@ -2186,6 +2198,7 @@ void pages_activate(int id, int dbl)
         app_save_config();
         break;
     case HK_SCR_WINDOWS:   ShellExecuteW(NULL, NULL, L"control.exe", L"desk.cpl,,@screensaver", NULL, SW_SHOWNORMAL); break;
+    case HK_UPDATE_CHECK:  update_check(TRUE); ui_invalidate(); break;
     case HK_PLAYPAUSE:     app_set_paused(!g_app.cfg.s.paused); break;
     case HK_AUDIO:         app_set_audio(!g_app.cfg.s.audio); break;
     case HK_RESTART_CURRENT:

@@ -95,6 +95,7 @@ typedef struct Settings {
     int       scrAudio;       /* screensaver sound (muted by default) */
     ScrDisplays scrDisplays;
     int       scrExitOnMouse; /* a mouse move ends the screensaver (keys and clicks always do) */
+    int       autoUpdate;     /* check GitHub for a newer release and install it (update.c) */
 } Settings;
 
 typedef struct Config {

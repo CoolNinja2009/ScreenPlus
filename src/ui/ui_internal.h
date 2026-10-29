@@ -27,7 +27,8 @@ enum HitKind {
     HK_COOL,
     HK_DISPMODE, HK_IDENTIFY, HK_SCR_CHOOSE, HK_SCR_PREVIEW, HK_SCR_TIMEOUT, HK_SCR_DISPLAYS, HK_SCR_WINDOWS,
     HK_STORE_TEXT, HK_STORE_CLEAR, HK_STORE_CARD, HK_STORE_DL, HK_STORE_RETRY,  /* Store; data: the item's index */
-    HK_STORE_FILTER                                                             /* data: SF_* */
+    HK_STORE_FILTER,                                                            /* data: SF_* */
+    HK_UPDATE_CHECK
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -36,7 +37,7 @@ enum HitKind {
 
 enum { TOG_STARTUP, TOG_TRAY, TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY, TOG_AUDIO, TOG_RECOVER,
        TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_DEPTH_ALL,
-       TOG_SCR_ENABLE, TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK, TOG_COUNT };
+       TOG_SCR_ENABLE, TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK, TOG_AUTO_UPDATE, TOG_COUNT };
 
 typedef struct Hit {
     int         id;

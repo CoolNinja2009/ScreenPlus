@@ -12,6 +12,8 @@
 #define WM_SP_URLIMPORT     (WM_APP + 63)   /* wParam 0: progress, 1: job finished (lParam: the job) */
 #define WM_SP_DEPTH         (WM_APP + 64)   /* wParam 0: progress, 1: job finished (lParam: the job) */
 #define WM_SP_STORE         (WM_APP + 65)   /* lParam: a Store worker's result */
+#define WM_SP_UPDATE        (WM_APP + 66)   /* wParam 0: progress, 1: check finished (lParam: the job) */
+#define T_SHELL_UPDATE      2               /* shell window timer: the next update check (app.c's own start at 1) */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
@@ -210,5 +212,22 @@ void depth_forget(const WallpaperEntry *e);            /* the entry was removed:
 void depth_sweep(void);                                /* startup: delete generated pages no entry uses */
 void depth_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_DEPTH */
 void depth_shutdown(void);
+
+/* update.c: the "Auto update" setting. Checks GitHub's latest release, downloads a newer installer (size and
+ * SHA-256 as GitHub lists them) and runs it silently; setup updates in place and starts Screen+ again. */
+typedef struct UpdateState {
+    int     busy;
+    int     percent;            /* download, -1: unknown */
+    int     supported;          /* an installed copy (portable and development builds never update) */
+    wchar_t text[200];          /* status line for Settings ("" before the first check) */
+} UpdateState;
+void update_init(void);                                /* shell start: clears old downloads, arms the first check */
+void update_schedule(BOOL soon);                       /* the setting changed: re-arm (soon: check in a few seconds) or stop */
+BOOL update_check(BOOL install);                       /* now; install: a newer release is downloaded and installed */
+void update_get(UpdateState *out);
+void update_on_timer(void);                            /* T_SHELL_UPDATE */
+void update_on_event(WPARAM wp, LPARAM lp);            /* WM_SP_UPDATE */
+void update_on_ui_closed(void);                        /* a ready update waits while the window is open */
+void update_shutdown(void);
 enum { DEPTH_AUTO = 0, DEPTH_CPU = 1, DEPTH_BENCH = 2, DEPTH_CRASHED = 3 };   /* which processor: see depth_infer.c */
 int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng);     /* ScreenPlus.exe --depth */

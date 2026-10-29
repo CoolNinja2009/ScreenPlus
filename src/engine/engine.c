@@ -672,6 +672,9 @@ static void reload_config(void)
     }
     update_occlusion();
     apply_states();
+    /* the spectrum setting may have changed while a page is showing: the data tick looks again
+     * (it stops itself when nothing wants data) */
+    SetTimer(E.ctl, T_WALLPAPER_DATA, 1, NULL);
 }
 
 static void handle_command(const IpcCommand *c)

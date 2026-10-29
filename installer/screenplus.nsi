@@ -4,7 +4,8 @@
 ;   makensis /DVERSION=1.2.3 /DSTAGE=<folder with ScreenPlus.exe> /DOUTFILE=<setup.exe> installer\screenplus.nsi
 ; STAGE is the build output: ScreenPlus.exe, ScreenPlus.com (terminal), the FFmpeg DLLs, licenses\ and samples\.
 ;
-; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/NOSAMPLES] [/VCRUN] [/D=<install folder>]   (/D must be last)
+; Silent install: Setup.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/NOSAMPLES] [/VCRUN] [/UPDATE] [/D=<install folder>]   (/D must be last)
+; /UPDATE is how Screen+'s auto update runs it: Screen+ is started again (in the notification area) afterwards.
 ; An existing installation is found automatically and updated in place, keeping the library.
 ; Installation types (applied by Screen+ on its next launch via HKCU\Software\ScreenPlus\SetupMode):
 ;   default - Aurora sample (+ the other samples: optional feature below) + automatic import of Lively Wallpaper's library
@@ -86,6 +87,7 @@ Var OptUrl          ; 1 = video import from web links (downloads yt-dlp + QuickJ
 Var OptSamples      ; 1 = download the other sample wallpapers (default installation)
 Var VcNeeded        ; 1 = the Visual C++ runtime that Make wallpaper cooler needs is missing or too old
 Var OptVc           ; 1 = install it now
+Var Relaunch        ; 1 = /UPDATE: Screen+'s auto update ran this setup; start Screen+ again afterwards
 Var Existing        ; folder of an installed Screen+, "" when none was found
 Var ExistingVer
 Var WelcomeText
@@ -162,8 +164,9 @@ Function FindExisting
     StrCpy $Existing $0
   ${EndIf}
   ${If} $Existing == ""
-    ReadRegStr $0 HKCU "${RUN_KEY}" "ScreenPlus"          ; "<folder>\ScreenPlus.exe" --tray
+    ReadRegStr $0 HKCU "${RUN_KEY}" "ScreenPlus"          ; "<folder>\ScreenPlus.exe" --startup (older: --tray)
     ${WordReplace} $0 '"' "" "+" $0
+    ${WordReplace} $0 " --startup" "" "+" $0
     ${WordReplace} $0 " --tray" "" "+" $0
     ${GetParent} $0 $0
     ${If} $0 != ""
@@ -274,6 +277,25 @@ Function .onInit
   ${GetOptions} $R0 "/VCRUN" $R1
   ${IfNot} ${Errors}
     StrCpy $OptVc $VcNeeded
+  ${EndIf}
+  ClearErrors
+  ${GetOptions} $R0 "/UPDATE" $R1
+  ${IfNot} ${Errors}
+    StrCpy $Relaunch 1
+  ${EndIf}
+FunctionEnd
+
+; /UPDATE: the app closed itself for this setup, so it is started again whether or not the update worked.
+Function .onInstSuccess
+  ${If} $Relaunch == 1
+    Exec '"$INSTDIR\${APP_EXE}" --tray'
+  ${EndIf}
+FunctionEnd
+
+Function .onInstFailed
+  ${If} $Relaunch == 1
+  ${AndIf} ${FileExists} "$INSTDIR\${APP_EXE}"
+    Exec '"$INSTDIR\${APP_EXE}" --tray'
   ${EndIf}
 FunctionEnd
 
@@ -460,7 +482,7 @@ Section "Install"
   ; Same Run value the app's own "Start with Windows" setting manages.
   DeleteRegValue HKCU "${RUN_KEY}" "Screen+"          ; written by the 1.0.0 setup
   ${If} $OptStartup == 1
-    WriteRegStr HKCU "${RUN_KEY}" "ScreenPlus" '"$INSTDIR\${APP_EXE}" --tray'
+    WriteRegStr HKCU "${RUN_KEY}" "ScreenPlus" '"$INSTDIR\${APP_EXE}" --startup'
     DeleteRegValue HKCU "${APPROVED_KEY}" "ScreenPlus"   ; re-enable if turned off in Task Manager
   ${Else}
     DeleteRegValue HKCU "${RUN_KEY}" "ScreenPlus"

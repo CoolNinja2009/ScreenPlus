@@ -191,6 +191,7 @@ void app_exit(void)
     url_import_shutdown();
     depth_shutdown();
     store_shutdown();
+    update_shutdown();
     ui_destroy();
     supervisor_stop();
     tray_remove();
@@ -263,6 +264,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SP_DEPTH:
         depth_on_event(wp, lp);
         return 0;
+    case WM_SP_UPDATE:
+        update_on_event(wp, lp);
+        return 0;
     case WM_SP_TRAY:
         tray_on_message(wp, lp);
         return 0;
@@ -273,6 +277,8 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == T_ENGINE_RESTART) {
             KillTimer(h, T_ENGINE_RESTART);
             supervisor_on_timer();
+        } else if (wp == T_SHELL_UPDATE) {
+            update_on_timer();
         }
         return 0;
     case WM_DISPLAYCHANGE:
@@ -347,9 +353,10 @@ static void apply_setup_choice(void)
 int app_main(HINSTANCE inst, int argc, wchar_t **argv)
 {
     uint32_t forward = CMD_SHOW_UI;
-    int trayOnly = 0;
+    int trayOnly = 0, signIn = 0;   /* --startup: the Run entry; "Open in the background" decides the window */
     for (int i = 1; i < argc; i++) {
         if (str_ieq(argv[i], L"--tray")) { trayOnly = 1; forward = CMD_NONE; }
+        else if (str_ieq(argv[i], L"--startup")) { signIn = 1; forward = CMD_NONE; }
         else if (str_ieq(argv[i], L"--show")) forward = CMD_SHOW_UI;
         else if (str_ieq(argv[i], L"--pause")) forward = CMD_PAUSE;
         else if (str_ieq(argv[i], L"--resume")) forward = CMD_RESUME;
@@ -427,8 +434,9 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     library_check_missing();
 
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
+    update_init();                  /* "Auto update": the first check a few minutes from now */
     if (forward == CMD_SHOW_SETTINGS) ui_show_screensaver();
-    else if (!trayOnly && !g_app.cfg.s.launchToTray) app_show_ui();
+    else if (!trayOnly && !(signIn && g_app.cfg.s.launchToTray)) app_show_ui();
     else if (forward == CMD_NEXT_WALLPAPER) app_next_wallpaper();
 
     MSG m;

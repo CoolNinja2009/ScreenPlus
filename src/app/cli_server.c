@@ -901,7 +901,7 @@ enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP };
 static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames };
 static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *desc; } k_settings[] = {
     { L"start_with_windows",  offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
-    { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Start in the notification area" },
+    { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Keep the window closed when it starts with Windows" },
     { L"pause_on_fullscreen", offsetof(Settings, pauseOnFullscreen), SK_BOOL,  L"Pause the display a fullscreen app or game is on" },
     { L"pause_when_covered",  offsetof(Settings, pauseWhenCovered),  SK_BOOL,  L"Stop rendering while windows cover the desktop" },
     { L"suspend_on_lock",     offsetof(Settings, suspendOnLock),     SK_BOOL,  L"Suspend while the PC is locked" },
@@ -919,6 +919,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"screensaver_audio",   offsetof(Settings, scrAudio),          SK_BOOL,  L"Screensaver sound" },
     { L"screensaver_displays", offsetof(Settings, scrDisplays),      SK_SCRDISP, L"Screensaver on all displays, span or primary" },
     { L"screensaver_exit_on_mouse", offsetof(Settings, scrExitOnMouse), SK_BOOL, L"A mouse move ends the screensaver" },
+    { L"auto_update",         offsetof(Settings, autoUpdate),        SK_BOOL,  L"Install new Screen+ releases from GitHub automatically" },
 };
 
 static const wchar_t *setting_text(int kind, int v)
@@ -943,6 +944,27 @@ static void settings_print(Reply *r)
         if (k_settings[i].kind != SK_BOOL) jstr(&r->data, shown);
         else sb_puts(&r->data, v ? "true" : "false");
     }
+    sb_puts(&r->data, "}");
+}
+
+/* update: check now and install a newer release; update check: only report it; update status. */
+static void cmd_update(Reply *r, const Req *q)
+{
+    const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
+    if (!sub[0] || str_ieq(sub, L"check")) update_check(!sub[0]);
+    else if (!str_ieq(sub, L"status")) {
+        fail(r, L"Usage: screenplus update [check | status]");
+        return;
+    }
+    UpdateState st;
+    update_get(&st);
+    if (str_istarts(st.text, L"Screen+ ")) say(r, L"%ls\n", st.text);
+    else say(r, L"Screen+ %ls: %ls\n", SP_VERSION_W, st.text);
+    sb_printf(&r->data, "{\"version\":");
+    jstr(&r->data, SP_VERSION_W);
+    sb_printf(&r->data, ",\"busy\":%s,\"autoUpdate\":%s,\"installed\":%s,\"text\":", st.busy ? "true" : "false",
+              g_app.cfg.s.autoUpdate ? "true" : "false", st.supported ? "true" : "false");
+    jstr(&r->data, st.text);
     sb_puts(&r->data, "}");
 }
 
@@ -999,6 +1021,7 @@ static void cmd_settings(Reply *r, const Req *q)
                 *field = on;
                 app_save_config();
                 if (field == &s->depthAll) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download */
+                if (field == &s->autoUpdate) update_schedule(TRUE);
             }
         }
         ui_on_config_changed();
@@ -1073,6 +1096,8 @@ static void run(Reply *r, const Req *q)
         cmd_props(r, q);
     } else if (str_ieq(c, L"settings") || str_ieq(c, L"setting") || str_ieq(c, L"config")) {
         cmd_settings(r, q);
+    } else if (str_ieq(c, L"update")) {
+        cmd_update(r, q);
     } else {
         fail(r, L"Unknown command \"%ls\". See: screenplus help", c);
     }

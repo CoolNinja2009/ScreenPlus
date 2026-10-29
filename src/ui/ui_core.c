@@ -1251,6 +1251,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_CLOSE:
         LOGI(L"ui: window closed (Screen+ keeps running in the notification area)");
         ui_destroy();
+        update_on_ui_closed();       /* a downloaded update was waiting for the window */
         return 0;
     }
     return DefWindowProcW(h, msg, wp, lp);
@@ -1344,6 +1345,8 @@ BOOL ui_show(void)
     UpdateWindow(u->hwnd);
     return TRUE;
 }
+
+BOOL ui_is_open(void) { return g_ui != NULL; }
 
 void ui_destroy(void)
 {

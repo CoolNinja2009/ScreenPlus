@@ -124,12 +124,14 @@ BOOL audio_visualizer_start(void)
     if (!A.quit) { InterlockedExchange(&A.running, 0); return FALSE; }
     A.thread = CreateThread(NULL, 0, capture_thread, NULL, 0, NULL);
     if (!A.thread) { CloseHandle(A.quit); A.quit = NULL; InterlockedExchange(&A.running, 0); return FALSE; }
+    LOGD(L"audio visualizer: capturing system audio");
     return TRUE;
 }
 
 void audio_visualizer_stop(void)
 {
     if (!A.thread) return;
+    LOGD(L"audio visualizer: stopped");
     InterlockedExchange(&A.running, 0);
     SetEvent(A.quit); WaitForSingleObject(A.thread, 1500);
     CloseHandle(A.thread); CloseHandle(A.quit); A.thread = A.quit = NULL;

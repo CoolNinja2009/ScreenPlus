@@ -6,6 +6,7 @@
 BOOL ui_show(void);
 BOOL ui_show_screensaver(void);   /* the window on Settings, where the screensaver section is */
 void ui_destroy(void);
+BOOL ui_is_open(void);
 void ui_on_status(void);          /* engine status / app state changed */
 void ui_on_config_changed(void);  /* library or settings changed */
 void ui_on_customise_changed(void); /* look or wallpaper properties changed elsewhere (CLI) */
