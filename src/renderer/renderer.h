@@ -96,6 +96,9 @@ BOOL html_grab(Renderer *r);
 /* Shared WIC helper: decode (file path or stream), apply EXIF orientation and scale-to-cover
  * into a top-down 32-bpp DIB of exactly w x h. Caller owns the HBITMAP. */
 HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut);
+/* The frame a video starts on, BGRA w x h cover crop (ffmpeg_thumb.c), for the Windows wallpaper still;
+ * the caller frees it with free(). */
+BOOL ffmpeg_first_frame(const wchar_t *path, int w, int h, uint8_t **bgra);
 struct IWICBitmapFrameDecode;
 UINT image_exif_orientation(struct IWICBitmapFrameDecode *frame);   /* 1..8 (1: upright or unknown) */
 int  image_orientation_transform(UINT orientation);                /* WICBitmapTransformOptions that makes it upright */

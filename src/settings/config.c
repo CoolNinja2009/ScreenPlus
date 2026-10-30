@@ -42,6 +42,7 @@ void config_defaults(Config *c)
     c->schema = CONFIG_SCHEMA;
     c->s.startWithWindows = 0;
     c->s.launchToTray = 0;
+    c->s.stillWallpaper = 1;
     c->s.pauseOnFullscreen = 1;
     c->s.pauseWhenCovered = 1;
     c->s.suspendOnLock = 1;
@@ -316,6 +317,7 @@ static int parse_text(Config *c, wchar_t *text)
             Settings *s = &c->s;
             if (str_ieq(key, L"start_with_windows")) s->startWithWindows = parse_bool(val, s->startWithWindows);
             else if (str_ieq(key, L"launch_to_tray")) s->launchToTray = parse_bool(val, s->launchToTray);
+            else if (str_ieq(key, L"still_wallpaper")) s->stillWallpaper = parse_bool(val, s->stillWallpaper);
             else if (str_ieq(key, L"pause_on_fullscreen")) s->pauseOnFullscreen = parse_bool(val, s->pauseOnFullscreen);
             else if (str_ieq(key, L"pause_when_covered")) s->pauseWhenCovered = parse_bool(val, s->pauseWhenCovered);
             else if (str_ieq(key, L"suspend_on_lock")) s->suspendOnLock = parse_bool(val, s->suspendOnLock);
@@ -446,12 +448,12 @@ BOOL config_save(const Config *c, const wchar_t *path)
     const Settings *s = &c->s;
     sb_puts(&b, "; Screen+ configuration. Managed by the application; edit while Screen+ is not running.\r\n");
     sb_printf(&b, "[screenplus]\r\nschema=%d\r\n\r\n", CONFIG_SCHEMA);
-    sb_printf(&b, "[settings]\r\nstart_with_windows=%d\r\nlaunch_to_tray=%d\r\npause_on_fullscreen=%d\r\n"
+    sb_printf(&b, "[settings]\r\nstart_with_windows=%d\r\nlaunch_to_tray=%d\r\nstill_wallpaper=%d\r\npause_on_fullscreen=%d\r\n"
                   "pause_when_covered=%d\r\nsuspend_on_lock=%d\r\npause_on_battery=%d\r\naudio=%d\r\n"
                   "auto_recover=%d\r\npaused=%d\r\nhtml_mouse=%d\r\nhtml_audio=%d\r\nlively_auto_import=%d\r\n"
                   "url_import=%d\r\ninteractive_images=%d\r\ndisplay_mode=%s\r\nscreensaver_audio=%d\r\n"
                   "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\nauto_update=%d\r\ntheme=%s\r\n\r\n",
-              s->startWithWindows, s->launchToTray, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
+              s->startWithWindows, s->launchToTray, s->stillWallpaper, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
               s->pauseOnBattery, s->audio, s->autoRecover, s->paused, s->htmlMouse, s->htmlAudio, s->livelyImport,
               s->urlImport, s->depthAll,
               s->displayMode == DM_SPAN ? "span" : s->displayMode == DM_DUPLICATE ? "duplicate" : "independent",

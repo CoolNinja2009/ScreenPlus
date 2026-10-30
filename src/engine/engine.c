@@ -3,6 +3,7 @@
 #include "audio_visualizer.h"
 #include "now_playing.h"
 #include "sysinfo.h"
+#include "stills.h"
 #include "../common/util.h"
 #include "../common/log.h"
 #include "../common/paths.h"
@@ -19,7 +20,7 @@
 #define WM_SP_HOST_LOST  (WM_APP + 41)
 #define WM_SP_SHELL_GONE (WM_APP + 42)
 
-enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA };
+enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS };
 
 #define MAX_RETRIES 3
 #define SAFETY_MS   2000
@@ -398,6 +399,7 @@ static void apply_states(void)
      * track data. A display that just became active (first frame after start, uncovered, resumed)
      * may want it while another display's wallpaper doesn't: look again. */
     if (activated) SetTimer(E.ctl, T_WALLPAPER_DATA, 1, NULL);
+    if (activated && E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, 3000, NULL);   /* a page grabs once it draws */
 }
 
 /* Per display. A span slot is covered only when every display is, and counts a fullscreen app on
@@ -661,7 +663,7 @@ static void reload_config(void)
     Config fresh;
     ZeroMemory(&fresh, sizeof fresh);
     config_load(&fresh, paths_config());
-    int oldAudio = E.cfg.s.audio;
+    int oldAudio = E.cfg.s.audio, oldStill = E.cfg.s.stillWallpaper;
     config_free(&E.cfg);
     E.cfg = fresh;
     E.userPaused = E.cfg.s.paused;
@@ -670,6 +672,8 @@ static void reload_config(void)
         for (int i = 0; i < SP_MAX_MONITORS; i++)
             if (E.slots[i].used && E.slots[i].r) E.slots[i].r->vt->set_audio(E.slots[i].r, slot_wants_audio(&E.slots[i]));
     }
+    if (oldStill && !E.cfg.s.stillWallpaper) stills_restore();
+    if (E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, oldStill ? 3000 : 500, NULL);   /* a new wallpaper or display */
     update_occlusion();
     apply_states();
     /* the spectrum setting may have changed while a page is showing: the data tick looks again
@@ -710,6 +714,7 @@ static void handle_command(const IpcCommand *c)
         for (int i = 0; i < SP_MAX_MONITORS; i++) {
             Slot *s = &E.slots[i];
             if (s->used && s->r && s->r->vt && s->r->vt->apply) s->r->vt->apply(s->r);
+            if (s->used && E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, 4000, NULL);   /* the look changed */
         }
         break;
     case CMD_SHUTDOWN:
@@ -739,6 +744,12 @@ static LRESULT CALLBACK wallpaper_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         GetClientRect(h, &rc);
         if (!s || !s->r || !s->r->vt->paint(s->r, dc, &rc)) FillRect(dc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
         EndPaint(h, &ps);
+        return 0;
+    }
+    case WM_SP_HTML_GRAB: {              /* a page grabbed for its still (stills_tick) */
+        IStream *st = (IStream *)lp;
+        if (s && st && SUCCEEDED((HRESULT)wp) && E.cfg.s.stillWallpaper) stills_make(&s->mon, &s->wp, st);
+        if (st) IStream_Release(st);
         return 0;
     }
     case WM_TIMER:                       /* renderer timers (HTML API probes) */
@@ -778,6 +789,7 @@ static void handle_render_event(RenderEvent *ev)
             E.firstFrame = filetime_now();
             LOGI(L"first wallpaper visible %.1f ms after engine start", (double)(E.firstFrame - E.processStart) / 10000.0);
         }
+        if (E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, 3000, NULL);
         /* re-push the current state: video re-presents its frame now that the window is visible */
         if (s->r && s->state != RS_RECOVERING) s->r->vt->set_state(s->r, s->state, s->keepFrame > 0);
         apply_states();
@@ -810,6 +822,22 @@ static void on_power_setting(const POWERBROADCAST_SETTING *ps)
     }
     apply_states();
     status_dirty();
+}
+
+/* "Show a still while Screen+ starts" (stills.c): each display whose still is missing gets one, a page
+ * from the live page once it is showing (WM_SP_HTML_GRAB on its window), anything else from its file.
+ * A still that exists is already the Windows wallpaper, so a normal start ends here. */
+static void stills_tick(void)
+{
+    for (int i = 0; i < SP_MAX_MONITORS && E.cfg.s.stillWallpaper && !E.safeMode; i++) {
+        Slot *s = &E.slots[i];
+        wchar_t path[SP_MAX_PATH];
+        if (!s->used || !s->shown || !s->r || s->failed || !stills_path(&s->mon, &s->wp, path, SP_COUNTOF(path)) ||
+            file_exists(path))
+            continue;
+        if (s->wp.type != WP_HTML) stills_make(&s->mon, &s->wp, NULL);
+        else if (s->state == RS_ACTIVE) html_grab(s->r);     /* paused or covered: when it shows again */
+    }
 }
 
 static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
@@ -898,6 +926,10 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case T_WALLPAPER_DATA:
             wallpaper_data_tick();
+            break;
+        case T_STILLS:
+            KillTimer(h, T_STILLS);
+            stills_tick();
             break;
         }
         return 0;

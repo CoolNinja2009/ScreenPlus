@@ -145,7 +145,7 @@ static void scaler_free(Scaler *c)
     free(c->tmp);
 }
 
-static BOOL poster(const char *u, int w, int h, int decoder, uint8_t **out)
+static BOOL poster(const char *u, int w, int h, int decoder, int seek, uint8_t **out)
 {
     AVPacket *pkt = av_packet_alloc();
     AVFrame *fr = av_frame_alloc(), *tmp = av_frame_alloc();
@@ -154,7 +154,7 @@ static BOOL poster(const char *u, int w, int h, int decoder, uint8_t **out)
     BOOL ok = FALSE;
     if (pkt && fr && tmp && src_open(&s, u, decoder)) {
         /* GIF frames build on each other: those start from the beginning */
-        if (s.fmt->duration > 0 && s.dec->codec_id != AV_CODEC_ID_GIF)
+        if (seek && s.fmt->duration > 0 && s.dec->codec_id != AV_CODEC_ID_GIF)
             av_seek_frame(s.fmt, -1, s.fmt->duration / 10, AVSEEK_FLAG_BACKWARD);
         int got = 0;
         for (int n = 0; n < 600 && !got; n++) {
@@ -187,7 +187,18 @@ BOOL ffmpeg_thumbnail(const wchar_t *path, int w, int h, uint8_t **out)
     *out = NULL;
     if (w <= 0 || h <= 0 || !video_ffmpeg_available(NULL, 0)) return FALSE;
     char *u = utf8_from_wide(path, NULL);
-    BOOL ok = u && (poster(u, w, h, 2, out) || poster(u, w, h, 1, out));
+    BOOL ok = u && (poster(u, w, h, 2, 1, out) || poster(u, w, h, 1, 1, out));
+    free(u);
+    return ok;
+}
+
+/* not a tenth in like the library's poster: the still must match the first frame playback shows */
+BOOL ffmpeg_first_frame(const wchar_t *path, int w, int h, uint8_t **out)
+{
+    *out = NULL;
+    if (w <= 0 || h <= 0 || !video_ffmpeg_available(NULL, 0)) return FALSE;
+    char *u = utf8_from_wide(path, NULL);
+    BOOL ok = u && (poster(u, w, h, 2, 0, out) || poster(u, w, h, 1, 0, out));
     free(u);
     return ok;
 }

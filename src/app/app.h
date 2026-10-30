@@ -60,6 +60,7 @@ typedef struct AppState {
 } AppState;
 
 extern AppState g_app;
+extern uint64_t g_mainEntered;   /* main.c */
 
 int  app_main(HINSTANCE inst, int argc, wchar_t **argv);
 

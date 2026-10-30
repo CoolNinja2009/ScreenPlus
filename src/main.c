@@ -14,9 +14,12 @@
 #include <shellapi.h>
 #include <stdlib.h>
 
+uint64_t g_mainEntered;     /* app.c logs how long something held the process before it ran */
+
 int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdLine, int show)
 {
     (void)prev; (void)cmdLine; (void)show;
+    g_mainEntered = filetime_now();
     /* Hardening: DLLs only from the application directory and System32 (no current directory). */
     SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     HeapSetInformation(NULL, HeapEnableTerminationOnCorruption, NULL, 0);

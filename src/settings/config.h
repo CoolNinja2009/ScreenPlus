@@ -78,6 +78,7 @@ typedef struct MonitorAssignment {
 typedef struct Settings {
     int       startWithWindows;
     int       launchToTray;
+    int       stillWallpaper;   /* a still of the wallpaper is the Windows wallpaper (engine/stills.c) */
     int       pauseOnFullscreen;
     int       pauseWhenCovered;
     int       suspendOnLock;

@@ -902,6 +902,7 @@ static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeN
 static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *desc; } k_settings[] = {
     { L"start_with_windows",  offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
     { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Keep the window closed when it starts with Windows" },
+    { L"still_wallpaper",     offsetof(Settings, stillWallpaper),    SK_BOOL,  L"Show a still of the wallpaper while Screen+ starts" },
     { L"pause_on_fullscreen", offsetof(Settings, pauseOnFullscreen), SK_BOOL,  L"Pause the display a fullscreen app or game is on" },
     { L"pause_when_covered",  offsetof(Settings, pauseWhenCovered),  SK_BOOL,  L"Stop rendering while windows cover the desktop" },
     { L"suspend_on_lock",     offsetof(Settings, suspendOnLock),     SK_BOOL,  L"Suspend while the PC is locked" },

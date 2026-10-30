@@ -922,10 +922,10 @@ static void draw_settings(Ui *u, float cx, float cw)
 
     y = section(u, x, y, L"GENERAL");
     {
-        int idx[] = { TOG_STARTUP, TOG_TRAY };
-        const wchar_t *l[] = { L"Start with Windows", L"Start minimised to the tray" };
-        int v[] = { s->startWithWindows, s->launchToTray };
-        y = toggle_group(u, x, y, w, idx, l, NULL, v, 2);
+        int idx[] = { TOG_STARTUP, TOG_TRAY, TOG_STILL };
+        const wchar_t *l[] = { L"Start with Windows", L"Start minimised to the tray", L"Show a still while Screen+ starts" };
+        int v[] = { s->startWithWindows, s->launchToTray, s->stillWallpaper };
+        y = toggle_group(u, x, y, w, idx, l, NULL, v, 3);
     }
     y += 10;
     {
@@ -1959,6 +1959,7 @@ static void toggle_setting(int idx)
         else app_notice(NOTICE_ERROR, L"Could not update the Windows startup entry.");
         break;
     case TOG_TRAY:       s->launchToTray = !s->launchToTray; break;
+    case TOG_STILL:      s->stillWallpaper = !s->stillWallpaper; break;
     case TOG_FULLSCREEN: s->pauseOnFullscreen = !s->pauseOnFullscreen; break;
     case TOG_COVERED:    s->pauseWhenCovered = !s->pauseWhenCovered; break;
     case TOG_LOCK:       s->suspendOnLock = !s->suspendOnLock; break;

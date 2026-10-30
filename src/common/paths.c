@@ -10,10 +10,13 @@ void paths_init(void)
 {
     if (g_root[0]) return;
     PWSTR local = NULL;
-    wchar_t over[SP_MAX_PATH];
+    wchar_t over[SP_MAX_PATH], env[SP_MAX_PATH];
     DWORD on = GetEnvironmentVariableW(L"SCREENPLUS_DATA_DIR", over, SP_COUNTOF(over));   /* portable / test override */
+    DWORD le = GetEnvironmentVariableW(L"LOCALAPPDATA", env, SP_COUNTOF(env));   /* loads no shell DLLs at startup */
     if (on > 0 && on < SP_COUNTOF(over)) {
         str_copy(g_root, SP_COUNTOF(g_root), over);
+    } else if (le > 0 && le < SP_COUNTOF(env) && dir_exists(env)) {
+        path_join(g_root, SP_COUNTOF(g_root), env, SP_APP_ID);
     } else if (SUCCEEDED(SHGetKnownFolderPath(&FOLDERID_LocalAppData, KF_FLAG_CREATE, NULL, &local)) && local) {
         path_join(g_root, SP_COUNTOF(g_root), local, SP_APP_ID);
     } else {

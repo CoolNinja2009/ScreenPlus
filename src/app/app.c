@@ -396,6 +396,13 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     diag_install_crash_handler(L"shell");
     LOGI(L"Screen+ %ls starting (pid %lu, Windows build %lu, data %ls)", SP_VERSION_W, GetCurrentProcessId(),
          windows_build_number(), paths_root());
+    {   /* at sign-in, software that injects itself into every new process can hold this one back */
+        double held = (double)(filetime_now() - g_app.processStart) / 10000.0;
+        if (held > 1000.0)
+            LOGW(L"startup: held %.0f ms before it ran (%.0f ms before main)%ls", held,
+                 (double)(g_mainEntered - g_app.processStart) / 10000.0,
+                 GetModuleHandleW(L"windhawk.dll") ? L"; Windhawk mods are loaded in this process" : L"");
+    }
     HRESULT hrCo = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
     int existed = file_exists(paths_config());

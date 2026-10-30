@@ -100,7 +100,7 @@ set(SOURCES
     src/desktop/desktop_host.c
     src/diagnostics/diag.c
     src/engine/engine.c src/engine/occlusion.c src/engine/audio_visualizer.c src/engine/now_playing.c
-    src/engine/sysinfo.c
+    src/engine/sysinfo.c src/engine/stills.c
     src/renderer/image/image_renderer.c
     src/renderer/video/video_renderer.c src/renderer/video/video_audio.c src/renderer/video/ffmpeg_thumb.c
     src/renderer/video/video_stream.c

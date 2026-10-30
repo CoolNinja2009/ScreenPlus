@@ -62,7 +62,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/screensaver/screensaver.c` | Screensaver process (see above) |
 | `src/common/scrnsave.c` | Windows screensaver registration, timeout, lock-on-resume, `.scr` sync, Preview launch |
 | `src/ui/identify.c` | Displays page **Identify**: each display's number in its corner |
-| `src/engine/` | `engine.c` (slots, state machine; span = one slot `SP_SPAN_ID` over the bounding box of `E.mons`), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c` |
+| `src/engine/` | `engine.c` (slots, state machine; span = one slot `SP_SPAN_ID` over the bounding box of `E.mons`), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c`, `stills.c` (`still_wallpaper`: a still per display, made once per wallpaper/look/size, becomes the Windows wallpaper via `IDesktopWallpaper`; pages via `html_grab`, the rest from the file graded like `video.hlsl`; the user's own wallpaper kept in `original.txt` and restored when the setting goes off) |
 | `src/desktop/desktop_host.c` | Hosting behind the icons: Progman (24H2+), WorkerW, or fallback |
 | `src/renderer/renderer.h` | Renderer vtable (set_state, resize, set_audio, paint, describe, destroy, wants, input, feed, on_timer, apply); all calls on the engine window thread |
 | `src/renderer/video/` | `video_renderer.c`, `video_audio.c`, `video_stream.c`, `ffmpeg_thumb.c` (UI thumbnails), `video.hlsl` (NV12/I420/RGB + grading); details below |
@@ -104,7 +104,7 @@ Renderer details:
   | `config.ini` | Settings and library |
   | `props\<id>.json` | Customise: author property overrides, plus grading under `_screenplus_adjust` |
   | `logs\` | `screenplus.log`, `engine.log`, `capture.log`, `crash\` minidumps |
-  | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails), `store\` (Store previews, kept a week) |
+  | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails), `store\` (Store previews, kept a week), `stills\` (Windows wallpaper stills, `original.txt`) |
   | `WebView2\` | WebView2 user data |
   | `WebView2-Screensaver\` | The screensaver process's WebView2 profile |
   | `downloads\` | Link and Store downloads; deleted with their entry (`library_discard`, never while another entry uses one, e.g. as a depth wallpaper's `thumb`) |
