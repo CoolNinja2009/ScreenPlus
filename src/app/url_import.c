@@ -136,50 +136,21 @@ BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb)
     if (in_library(path)) return FALSE;                       /* another entry still uses it */
     path_join(streams, SP_COUNTOF(streams), paths_cache(), L"streams");
     if (thumb && in_folder(thumb, streams)) DeleteFileW(thumb);
+    BOOL deleted = thumb && in_folder(thumb, paths_downloads()) && !in_library(thumb);   /* a depth wallpaper's picture */
+    if (deleted) library_discard(thumb, FALSE);
     if (wallpaper_is_url(path)) {
         ytdlp_cache_path(path, L".url", f, SP_COUNTOF(f));
         DeleteFileW(f);
-        return FALSE;
+        return deleted;
     }
-    /* if the file is still being played, the next start removes it */
-    return in_folder(path, paths_downloads()) && DeleteFileW(path);
+    if (!in_folder(path, paths_downloads())) return deleted;
+    library_discard(path, FALSE);                             /* still playing: at the next start */
+    return TRUE;
 }
 
 void url_import_sweep(void)
 {
-    wchar_t dir[SP_MAX_PATH], pat[SP_MAX_PATH], f[SP_MAX_PATH], hx[12];
-    WIN32_FIND_DATAW fd;
-    int n = 0;
     clean_partial();
-    path_join(pat, SP_COUNTOF(pat), paths_downloads(), L"*");
-    HANDLE h = FindFirstFileW(pat, &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        do {
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-            path_join(f, SP_COUNTOF(f), paths_downloads(), fd.cFileName);
-            if (!in_library(f) && DeleteFileW(f)) n++;   /* removed while it was playing */
-        } while (FindNextFileW(h, &fd));
-        FindClose(h);
-    }
-    /* stream addresses and previews (cache\streams\<hash of the link>.*) of links no longer in the library */
-    path_join(dir, SP_COUNTOF(dir), paths_cache(), L"streams");
-    path_join(pat, SP_COUNTOF(pat), dir, L"*");
-    h = FindFirstFileW(pat, &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        do {
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-            int used = 0;
-            for (int i = 0; i < g_app.cfg.count && !used; i++) {
-                const WallpaperEntry *e = &g_app.cfg.items[i];
-                str_printf(hx, SP_COUNTOF(hx), L"%08x", hash_fnv1a_w(e->path));
-                used = wallpaper_is_url(e->path) && _wcsnicmp(fd.cFileName, hx, 8) == 0;
-            }
-            path_join(f, SP_COUNTOF(f), dir, fd.cFileName);
-            if (!used && DeleteFileW(f)) n++;
-        } while (FindNextFileW(h, &fd));
-        FindClose(h);
-    }
-    if (n) LOGI(L"url import: deleted %d file%ls of links no longer in the library", n, n == 1 ? L"" : L"s");
 }
 
 /* ---------------------------------------------------------------- direct links */

@@ -126,23 +126,6 @@ static BOOL run_hidden(DepthJob *j, wchar_t *cmd, DWORD timeoutMs, DWORD *code)
     return w == WAIT_OBJECT_0;
 }
 
-static void remove_folder(const wchar_t *dir)
-{
-    wchar_t pat[SP_MAX_PATH], f[SP_MAX_PATH];
-    WIN32_FIND_DATAW fd;
-    path_join(pat, SP_COUNTOF(pat), dir, L"*");
-    HANDLE h = FindFirstFileW(pat, &fd);
-    if (h != INVALID_HANDLE_VALUE) {
-        do {
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-            path_join(f, SP_COUNTOF(f), dir, fd.cFileName);
-            DeleteFileW(f);
-        } while (FindNextFileW(h, &fd));
-        FindClose(h);
-    }
-    RemoveDirectoryW(dir);      /* still in use (the page is open): the next start sweeps it */
-}
-
 /* ---------------------------------------------------------------- downloads */
 
 typedef struct Dl { DepthJob *j; const wchar_t *what; } Dl;
@@ -529,27 +512,8 @@ void depth_revert(const wchar_t *id)
 void depth_forget(const WallpaperEntry *e)
 {
     wchar_t dir[SP_MAX_PATH];
-    if (!(e->flags & WPFLAG_DEPTH)) return;
     in_depth(dir, SP_COUNTOF(dir), e->id);
-    remove_folder(dir);
-}
-
-void depth_sweep(void)
-{
-    wchar_t root[SP_MAX_PATH], pat[SP_MAX_PATH], d[SP_MAX_PATH];
-    WIN32_FIND_DATAW fd;
-    depth_root(root, SP_COUNTOF(root));
-    path_join(pat, SP_COUNTOF(pat), root, L"*");
-    HANDLE h = FindFirstFileW(pat, &fd);
-    if (h == INVALID_HANDLE_VALUE) return;
-    do {
-        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || wcslen(fd.cFileName) != SP_ID_LEN - 1 ||
-            config_find(&g_app.cfg, fd.cFileName))
-            continue;
-        path_join(d, SP_COUNTOF(d), root, fd.cFileName);
-        remove_folder(d);
-    } while (FindNextFileW(h, &fd));
-    FindClose(h);
+    if (dir_exists(dir)) library_discard(dir, TRUE);   /* its page, or the picture "Use plain image" went back to */
 }
 
 void depth_shutdown(void)

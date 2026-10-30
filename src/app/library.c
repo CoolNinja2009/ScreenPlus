@@ -1,8 +1,8 @@
 /* Library management. Imports only what the user explicitly asks for: picked files, the top
  * level of a picked folder, or the wallpaper libraries of Lively Wallpaper / Wallpaper Engine
  * (known locations only, never a drive scan). Entries store paths; wallpaper files are never
- * copied, modified or deleted, except those Screen+ downloaded itself for a web link
- * (<data>\downloads, cache\streams: url_import.c), which are deleted with their entry. */
+ * copied, modified or deleted, except those Screen+ made itself (<data>\downloads, cache\streams:
+ * url_import.c; <data>\depth: depth.c), which are deleted with their entry (library_discard). */
 #include "app.h"
 #include "../ui/ui.h"
 #include "../common/util.h"
@@ -574,4 +574,112 @@ void library_check_missing(void)
 {
     for (int i = 0; i < g_app.cfg.count; i++)
         g_app.cfg.items[i].missing = !wallpaper_source_exists(&g_app.cfg.items[i]);
+}
+
+/* ---------------------------------------------------------------- deleting what Screen+ made */
+
+/* A file or folder Screen+ made for an entry (a link's download, a depth page) goes with the entry. One
+ * still open then (the wallpaper on screen) is listed in pending-delete.txt and retried at the next start.
+ * Nothing is ever deleted for being missing from the library: one that loaded short (an old copy of
+ * config.ini) must not cost the user the wallpapers it doesn't list. */
+static void pending_list(wchar_t *out, size_t cap) { path_join(out, cap, paths_root(), L"pending-delete.txt"); }
+
+static BOOL already_gone(void)
+{
+    DWORD e = GetLastError();
+    return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND;
+}
+
+/* a file, or a folder of files (depth pages have no subfolders) */
+static BOOL delete_now(const wchar_t *path, BOOL folder)
+{
+    if (!folder) return DeleteFileW(path) || already_gone();
+    wchar_t pat[SP_MAX_PATH], f[SP_MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    path_join(pat, SP_COUNTOF(pat), path, L"*");
+    HANDLE h = FindFirstFileW(pat, &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+            path_join(f, SP_COUNTOF(f), path, fd.cFileName);
+            DeleteFileW(f);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    return RemoveDirectoryW(path) || already_gone();
+}
+
+static void pending_add(const wchar_t *path, BOOL folder)
+{
+    wchar_t list[SP_MAX_PATH], line[SP_MAX_PATH + 4];
+    pending_list(list, SP_COUNTOF(list));
+    str_printf(line, SP_COUNTOF(line), L"%ls%ls\n", path, folder ? L"\\" : L"");
+    int n = 0;
+    char *u = utf8_from_wide(line, &n);
+    HANDLE h = CreateFileW(list, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    DWORD written = 0;
+    if (u && h != INVALID_HANDLE_VALUE) WriteFile(h, u, (DWORD)n, &written, NULL);
+    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    free(u);
+}
+
+void library_discard(const wchar_t *path, BOOL folder)
+{
+    if (delete_now(path, folder)) return;
+    pending_add(path, folder);
+    LOGI(L"library: '%ls' is in use; it is deleted at the next start", path);
+}
+
+/* only what Screen+ made: a direct child of <data>\downloads or <data>\depth */
+static BOOL made_here(const wchar_t *path)
+{
+    wchar_t dir[SP_MAX_PATH], depth[SP_MAX_PATH];
+    path_dirname(dir, SP_COUNTOF(dir), path);
+    path_join(depth, SP_COUNTOF(depth), paths_root(), L"depth");
+    return str_ieq(dir, paths_downloads()) || str_ieq(dir, depth);
+}
+
+/* an entry uses it again: its file or picture is path, or lies inside the folder path (named after an entry) */
+static BOOL used_again(const wchar_t *path, BOOL folder)
+{
+    size_t n = wcslen(path);
+    if (folder && config_find(&g_app.cfg, path_filename(path))) return TRUE;
+    for (int i = 0; i < g_app.cfg.count; i++) {
+        const wchar_t *p[2] = { g_app.cfg.items[i].path, g_app.cfg.items[i].thumb };
+        for (int k = 0; k < 2; k++)
+            if (folder ? _wcsnicmp(p[k], path, n) == 0 && p[k][n] == L'\\' : str_ieq(p[k], path)) return TRUE;
+    }
+    return FALSE;
+}
+
+void library_purge(void)
+{
+    wchar_t list[SP_MAX_PATH];
+    pending_list(list, SP_COUNTOF(list));
+    HANDLE h = CreateFileW(list, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h == INVALID_HANDLE_VALUE) return;
+    LARGE_INTEGER size;
+    char *buf = GetFileSizeEx(h, &size) && size.QuadPart < (1 << 20) ? (char *)malloc((size_t)size.QuadPart + 1) : NULL;
+    DWORD got = 0;
+    BOOL ok = buf && ReadFile(h, buf, (DWORD)size.QuadPart, &got, NULL);
+    CloseHandle(h);
+    wchar_t *text = ok ? wide_from_utf8(buf, (int)got) : NULL;
+    free(buf);
+    if (!text) return;
+    DeleteFileW(list);                          /* what still can't go is listed again */
+    int n = 0;
+    for (wchar_t *line = text, *next; *line; line = next) {
+        next = wcschr(line, L'\n');
+        if (next) *next++ = 0;
+        else next = line + wcslen(line);
+        size_t len = wcslen(line);
+        if (len && line[len - 1] == L'\r') line[--len] = 0;
+        BOOL folder = len && line[len - 1] == L'\\';
+        if (folder) line[--len] = 0;
+        if (!len || !made_here(line) || used_again(line, folder)) continue;
+        if (delete_now(line, folder)) n++;
+        else pending_add(line, folder);
+    }
+    free(text);
+    if (n) LOGI(L"library: deleted %d file%ls of removed wallpapers", n, n == 1 ? L"" : L"s");
 }

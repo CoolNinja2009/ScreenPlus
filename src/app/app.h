@@ -106,6 +106,8 @@ int  library_add_samples(void);        /* the bundled samples\ wallpapers, silen
 void library_import_wallpaper_engine(void);
 void library_remove(const wchar_t *id);
 void library_check_missing(void);
+void library_discard(const wchar_t *path, BOOL folder);   /* a removed entry's file or folder: now, or at the next start */
+void library_purge(void);              /* startup: what library_discard couldn't delete then */
 BOOL library_html_entry(const wchar_t *folder, wchar_t *out, size_t cap);
 
 /* url_import.c: import from a web link (the Library's link button), one job at a time */
@@ -125,7 +127,7 @@ void url_import_cancel(void);
 void url_import_get(UrlImportState *out);
 void url_import_on_event(WPARAM wp, LPARAM lp);        /* WM_SP_URLIMPORT */
 void url_import_shutdown(void);
-void url_import_sweep(void);                           /* startup: delete downloads no longer in the library */
+void url_import_sweep(void);                           /* startup: delete half-finished downloads */
 /* An entry was removed: deletes what Screen+ made for it (its download, a stream's cached address and
  * preview). TRUE when a downloaded wallpaper file was deleted. */
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb);
@@ -210,7 +212,6 @@ void depth_revert(const wchar_t *wallpaperId);         /* back to the plain imag
 void depth_auto(const wchar_t *wallpaperId);           /* "interactive images" setting: cool this wallpaper if it is a new image */
 void depth_auto_all(BOOL fetchMissing);                /* the same for every assigned wallpaper; fetchMissing: the user just switched it on */
 void depth_forget(const WallpaperEntry *e);            /* the entry was removed: delete its generated page */
-void depth_sweep(void);                                /* startup: delete generated pages no entry uses */
 void depth_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_DEPTH */
 void depth_shutdown(void);
 

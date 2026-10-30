@@ -107,7 +107,8 @@ Renderer details:
   | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails), `store\` (Store previews, kept a week) |
   | `WebView2\` | WebView2 user data |
   | `WebView2-Screensaver\` | The screensaver process's WebView2 profile |
-  | `downloads\` | Link imports; deleted with their entry (kept while an entry uses one as `thumb`: a depth wallpaper's picture) |
+  | `downloads\` | Link and Store downloads; deleted with their entry (`library_discard`, never while another entry uses one, e.g. as a depth wallpaper's `thumb`) |
+  | `pending-delete.txt` | A removed entry's download or depth folder that was open then; `library_purge` retries it at the next start |
   | `updates\` | Auto update's verified installer; cleared at the next check |
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |
   | `depth\` | `ort\onnxruntime.dll`, `model.onnx` (both downloaded on request, pinned in `depth.c`), `<id>\` = a depth wallpaper's page, picture, `depth.png` |
@@ -195,7 +196,8 @@ Renderer details:
   copy-on-write view of `%LOCALAPPDATA%`: new files land in `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\`
   and shadow the real ones there, while existing real files are still changed and deleted for real. On 2026-10-29
   a Screen+ restarted from the agent loaded a stale private `config.ini` (from 2026-10-25), and its startup sweeps
-  (`url_import_sweep`, `depth_sweep`) deleted real downloads and depth pages that only the real library used. The
+  (`url_import_sweep`, `depth_sweep`) deleted real downloads and depth pages that only the real library used (since
+  1.8.5 nothing is deleted for missing from the loaded library: only removed entries' files, via `pending-delete.txt`). The
   stale copy was renamed to `ScreenPlus.stale-copy-2026-10-25`. A process outside the package (WMI, Task
   Scheduler) is blocked by the auto-mode classifier. HKCU is virtualized the same way (private hive under
   `Packages\Claude_pzs8sxrjxfjjc\SystemAppData\Helium`): agent processes may read a stale `Run\ScreenPlus`, and

@@ -426,10 +426,8 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     scr_sync_binary();
 
     /* Library upkeep after the engine is on its way: none of it changes what the desktop shows first. */
-    if (loaded) {                     /* only against a library that loaded, never a damaged one */
-        url_import_sweep();
-        depth_sweep();
-    }
+    url_import_sweep();               /* half-finished downloads */
+    if (loaded) library_purge();      /* removed entries' files that were in use; never checked against a damaged library */
     if (g_app.cfg.s.livelyImport)
         library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
     library_check_missing();
