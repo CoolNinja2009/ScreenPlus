@@ -225,16 +225,20 @@ Function .onInit
   ${If} ${Silent}
     StrCpy $OptVc 0                                   ; no administrator prompt in an unattended install (/VCRUN asks for it)
   ${EndIf}
-  StrCpy $WelcomeText "Setup will guide you through the installation of ${APP_NAME} ${VERSION}, a lightweight live wallpaper engine for Windows.$\r$\n$\r$\n${APP_NAME} is installed for your account only, so administrator rights are not needed.$\r$\n$\r$\nClick Next to continue."
+  StrCpy $WelcomeText "Setup will install ${APP_NAME} ${VERSION} for your account.$\r$\n$\r$\nClick Next to continue."
 
   Call FindExisting
   ${If} $Existing != ""
     ; Update in place: same folder, keep the library and the current startup / shortcut choices.
     StrCpy $INSTDIR $Existing
     StrCpy $InstMode "keep"
-    ReadRegStr $0 HKCU "${RUN_KEY}" "ScreenPlus"
+    ReadRegStr $0 HKCU "${RUN_KEY}" "ScreenPlus"          ; before 1.8.5: the Run entry
     ${If} $0 == ""
-      StrCpy $OptStartup 0
+      nsExec::Exec '"$Existing\ScreenPlus.com" startup'   ; 1.8.5 on: the logon task (exit code 0 = on)
+      Pop $0
+      ${If} $0 != 0
+        StrCpy $OptStartup 0
+      ${EndIf}
     ${EndIf}
     ${IfNot} ${FileExists} "$DESKTOP\${APP_NAME}.lnk"
       StrCpy $OptDesktop 0
@@ -244,11 +248,11 @@ Function .onInit
       ${If} ${Cmd} `MessageBox MB_YESNO|MB_ICONEXCLAMATION "A newer version of ${APP_NAME} ($ExistingVer) is installed in:$\r$\n$Existing$\r$\n$\r$\nReplace it with the older version ${VERSION}?" /SD IDYES IDNO`
         Abort
       ${EndIf}
-      StrCpy $WelcomeText "Setup will replace ${APP_NAME} $ExistingVer in$\r$\n$Existing$\r$\nwith version ${VERSION}.$\r$\n$\r$\nYour wallpapers, library and settings are kept.$\r$\n$\r$\nClick Next to continue."
+      StrCpy $WelcomeText "Setup will replace ${APP_NAME} $ExistingVer in$\r$\n$Existing$\r$\nwith version ${VERSION}. Your library and settings are kept.$\r$\n$\r$\nClick Next to continue."
     ${ElseIf} $0 == 0
-      StrCpy $WelcomeText "${APP_NAME} ${VERSION} is already installed in$\r$\n$Existing$\r$\n$\r$\nSetup will reinstall it. Your wallpapers, library and settings are kept.$\r$\n$\r$\nClick Next to continue."
+      StrCpy $WelcomeText "${APP_NAME} ${VERSION} is already installed in$\r$\n$Existing$\r$\n$\r$\nSetup will reinstall it. Your library and settings are kept.$\r$\n$\r$\nClick Next to continue."
     ${Else}
-      StrCpy $WelcomeText "Setup found ${APP_NAME} $ExistingVer in$\r$\n$Existing$\r$\n$\r$\nIt will be updated to version ${VERSION}. Your wallpapers, library and settings are kept; ${APP_NAME} is closed during the update.$\r$\n$\r$\nClick Next to continue."
+      StrCpy $WelcomeText "Setup will update ${APP_NAME} $ExistingVer in$\r$\n$Existing$\r$\nto version ${VERSION}. Your library and settings are kept.$\r$\n$\r$\nClick Next to continue."
     ${EndIf}
   ${EndIf}
 
@@ -319,7 +323,7 @@ Function InstallTypePage
     ${NSD_CreateRadioButton} 0 0 100% 12u "&Update and keep my library (recommended)"
     Pop $hKeep
     ${NSD_AddStyle} $hKeep ${WS_GROUP}
-    ${NSD_CreateLabel} 13u 12u -13u 16u "Updates ${APP_NAME} in place. Your wallpapers, library and settings stay exactly as they are."
+    ${NSD_CreateLabel} 13u 12u -13u 16u "Keeps your wallpapers, library and settings."
     Pop $0
     StrCpy $1 30
   ${EndIf}
@@ -330,14 +334,14 @@ Function InstallTypePage
     ${NSD_AddStyle} $hDefault ${WS_GROUP}
   ${EndIf}
   IntOp $2 $1 + 12
-  ${NSD_CreateLabel} 13u $2u -13u 16u "Includes the Aurora sample wallpaper and automatically adds the wallpapers from Lively Wallpaper when it is installed."
+  ${NSD_CreateLabel} 13u $2u -13u 16u "Includes a sample wallpaper and imports your Lively Wallpaper library."
   Pop $0
 
   IntOp $2 $1 + 30
   ${NSD_CreateRadioButton} 0 $2u 100% 12u "&Clean installation"
   Pop $hClean
   IntOp $2 $1 + 42
-  ${NSD_CreateLabel} 13u $2u -13u 16u "Starts with an empty library: no sample wallpaper and no automatic Lively import. You can import wallpapers yourself at any time."
+  ${NSD_CreateLabel} 13u $2u -13u 16u "Starts with an empty library."
   Pop $0
 
   IntOp $2 $1 + 62
@@ -394,7 +398,7 @@ Function OptionsPage
   ${If} $InstMode == "default"  ; not offered on an update or a clean installation
     ${NSD_CreateCheckbox} 0 0 100% 12u "&Sample wallpapers (recommended)"
     Pop $hSamples
-    ${NSD_CreateLabel} 13u 13u -13u 16u "Downloads the other sample wallpapers from GitHub now: about 35 MB, verified by SHA-256. Aurora is always included."
+    ${NSD_CreateLabel} 13u 13u -13u 16u "Downloads more sample wallpapers (about 35 MB)."
     Pop $0
     ${If} $OptSamples == 1
       ${NSD_Check} $hSamples
@@ -404,17 +408,17 @@ Function OptionsPage
   ${NSD_CreateCheckbox} 0 $1u 100% 12u "&Video import from web links (recommended)"
   Pop $hUrl
   IntOp $2 $1 + 13
-  ${NSD_CreateLabel} 13u $2u -13u 32u "Adds a link button to the Library for importing videos from YouTube and other sites. Setup downloads yt-dlp and QuickJS-NG now (about 20 MB, official releases, verified by SHA-256); without them the button is hidden. You can turn it on later in Settings."
+  ${NSD_CreateLabel} 13u $2u -13u 32u "Import videos from YouTube and other sites. Downloads yt-dlp and QuickJS-NG (about 20 MB)."
   Pop $0
   ${If} $OptUrl == 1
     ${NSD_Check} $hUrl
   ${EndIf}
   ${If} $VcNeeded == 1                                ; only asked when this PC lacks the runtime
     IntOp $2 $1 + 49
-    ${NSD_CreateCheckbox} 0 $2u 100% 12u "Install the &Microsoft Visual C++ runtime (needed by Make wallpaper cooler)"
+    ${NSD_CreateCheckbox} 0 $2u 100% 12u "Install the &Microsoft Visual C++ Redistributable"
     Pop $hVc
     IntOp $2 $1 + 62
-    ${NSD_CreateLabel} 13u $2u -13u 46u "The depth AI of Make wallpaper cooler needs the Microsoft Visual C++ Redistributable 14.44 or newer, which this PC doesn't have. Setup downloads it from Microsoft (about 25 MB, SHA-256 verified) and runs its installer; Windows asks for administrator permission. Everything else works without it."
+    ${NSD_CreateLabel} 13u $2u -13u 46u "Needed by Make wallpaper cooler. Downloads about 25 MB from Microsoft; Windows asks for administrator permission."
     Pop $0
     ${If} $OptVc == 1
       ${NSD_Check} $hVc
@@ -479,14 +483,14 @@ Section "Install"
     Delete "$DESKTOP\${APP_NAME}.lnk"
   ${EndIf}
 
-  ; Same Run value the app's own "Start with Windows" setting manages.
+  ; Start with Windows, as the app's own setting does it: a logon task (the Run entry if that fails).
   DeleteRegValue HKCU "${RUN_KEY}" "Screen+"          ; written by the 1.0.0 setup
   ${If} $OptStartup == 1
-    WriteRegStr HKCU "${RUN_KEY}" "ScreenPlus" '"$INSTDIR\${APP_EXE}" --startup'
-    DeleteRegValue HKCU "${APPROVED_KEY}" "ScreenPlus"   ; re-enable if turned off in Task Manager
+    nsExec::Exec '"$INSTDIR\ScreenPlus.com" startup on'
   ${Else}
-    DeleteRegValue HKCU "${RUN_KEY}" "ScreenPlus"
+    nsExec::Exec '"$INSTDIR\ScreenPlus.com" startup off'
   ${EndIf}
+  Pop $0
 
   ${If} $InstMode == "keep"
     DeleteRegValue HKCU "${APP_KEY}" "SetupMode"        ; nothing for the app to change
@@ -516,11 +520,11 @@ SectionEnd
 ; Optional feature: video import from web links. The tools are downloaded here, not embedded.
 Section "-UrlImport"
   ${If} $OptUrl == 1
-    DetailPrint "Downloading yt-dlp and QuickJS-NG (official releases, SHA-256 verified)..."
+    DetailPrint "Downloading yt-dlp and QuickJS-NG..."
     nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" tools install'
     Pop $0
     ${If} $0 != 0
-      DetailPrint "Not downloaded now; ${APP_NAME} gets them the first time you import a video link."
+      DetailPrint "Download failed; ${APP_NAME} tries again when you import a link."
     ${EndIf}
   ${Else}
     nsExec::Exec '"$INSTDIR\ScreenPlus.com" tools remove --quiet'
@@ -533,11 +537,11 @@ SectionEnd
 Section "-Samples"
   ${If} $InstMode == "default"                        ; never on an update: it leaves the samples as they are
   ${AndIf} $OptSamples == 1
-    DetailPrint "Downloading the sample wallpapers (from this release on GitHub, SHA-256 verified)..."
+    DetailPrint "Downloading sample wallpapers..."
     nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" samples install'
     Pop $0
     ${If} $0 != 0
-      DetailPrint "Not downloaded now (Aurora is installed); get the others later with: screenplus samples install"
+      DetailPrint "Download failed. Run screenplus samples install to try again."
     ${EndIf}
   ${EndIf}
 SectionEnd
@@ -545,11 +549,11 @@ SectionEnd
 ; Optional prerequisite of Make wallpaper cooler: Microsoft's Visual C++ runtime, downloaded here (not embedded).
 Section "-VcRuntime"
   ${If} $OptVc == 1
-    DetailPrint "Installing the Microsoft Visual C++ runtime (official download, SHA-256 verified; Windows asks for administrator permission)..."
+    DetailPrint "Installing the Microsoft Visual C++ Redistributable..."
     nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" vcredist install'
     Pop $0
     ${If} $0 != 0
-      DetailPrint "Not installed now. Make wallpaper cooler says what is missing when you use it; or run: screenplus vcredist install"
+      DetailPrint "Not installed. Run screenplus vcredist install to try again."
     ${EndIf}
   ${EndIf}
 SectionEnd
@@ -562,6 +566,8 @@ Section "Uninstall"
   nsExec::Exec '"$INSTDIR\ScreenPlus.com" path remove --quiet'
   Pop $0
   nsExec::Exec '"$INSTDIR\ScreenPlus.com" screensaver off'   ; only when Screen+ is the Windows screensaver
+  Pop $0
+  nsExec::Exec '"$INSTDIR\ScreenPlus.com" startup off'       ; the logon task
   Pop $0
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\ScreenPlus.scr"
@@ -595,7 +601,7 @@ Section "Uninstall"
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "${APP_KEY}"
 
-  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also remove your ${APP_NAME} settings, library list, logs and wallpapers downloaded from web links?$\r$\n$\r$\nYour own wallpaper files are never deleted." /SD IDNO IDNO keep
+  MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also remove your ${APP_NAME} settings, library and downloaded wallpapers?$\r$\n$\r$\nYour own wallpaper files are not deleted." /SD IDNO IDNO keep
     RMDir /r "$LOCALAPPDATA\ScreenPlus"
   keep:
 SectionEnd

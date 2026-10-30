@@ -570,7 +570,7 @@ static void run(UrlJob *j)
         return;
     }
     if (status == 401 || status == 407) {
-        fail(j, L"This link needs a sign-in. Screen+ only imports content that is publicly available.");
+        fail(j, L"This link needs a sign-in.");
         return;
     }
     if (status == 404 || status == 410) {
@@ -621,7 +621,7 @@ static BOOL normalize_url(const wchar_t *in, wchar_t *out, size_t cap, wchar_t *
         return FALSE;
     }
     if ((iswalpha(s[0]) && s[1] == L':' && (s[2] == L'\\' || s[2] == L'/')) || str_istarts(s, L"\\\\")) {
-        str_copy(why, whyCap, L"That is a file on this PC: use Import or the folder button instead.");
+        str_copy(why, whyCap, L"That is a local file. Use Import instead.");
         return FALSE;
     }
     for (wchar_t *c = s; *c; c++) {
@@ -731,8 +731,8 @@ static int add_entry(UrlJob *j, WallpaperType type, int flags, wchar_t *text, si
     e->flags = flags;
     if (j->thumb[0]) str_copy(e->thumb, SP_COUNTOF(e->thumb), j->thumb);
     LOGI(L"url import: added '%ls' (%ls)", e->name, j->path);
-    if (j->result == RES_STREAM) str_printf(text, cap, L"Added '%ls'. It streams in small parts; nothing is saved.", e->name);
-    else if (j->fellBack) str_printf(text, cap, L"Added '%ls' as a live web page (no video was found on it).", e->name);
+    if (j->result == RES_STREAM) str_printf(text, cap, L"Added '%ls' (streaming).", e->name);
+    else if (j->fellBack) str_printf(text, cap, L"Added '%ls' as a web page.", e->name);
     else str_printf(text, cap, L"Added '%ls'.", e->name);
     if (!app_wallpaper_for(NULL)[0]) app_apply_wallpaper(e->id, NULL);
     else app_save_config();

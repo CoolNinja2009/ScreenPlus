@@ -1,40 +1,29 @@
-/* "Start with Windows": per-user Run key (no elevation). Task Manager's StartupApproved
- * state is honoured when reading and reset when the user re-enables it from Screen+.
- * The entry passes --startup, so "Open in the background" decides whether the window opens. */
+/* "Start with Windows" in the app: autostart.c (shared with ScreenPlus.com) registers a Task Scheduler
+ * logon task, or the Run key when it can't; this logs it and keeps the setting in step. The task passes
+ * --startup, so "Start minimised to the tray" decides whether the window opens. */
 #include "app.h"
+#include "../common/autostart.h"
 #include "../common/util.h"
 #include "../common/log.h"
 #include "../common/paths.h"
 
-#define RUN_KEY      L"Software\\Microsoft\\Windows\\CurrentVersion\\Run"
-#define APPROVED_KEY L"Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run"
-#define VALUE_NAME   L"ScreenPlus"
-
-BOOL startup_is_enabled(void)
-{
-    wchar_t v[SP_MAX_PATH + 32];
-    DWORD size = sizeof v;
-    if (RegGetValueW(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME, RRF_RT_REG_SZ, NULL, v, &size) != ERROR_SUCCESS) return FALSE;
-    BYTE approved[12];
-    size = sizeof approved;
-    if (RegGetValueW(HKEY_CURRENT_USER, APPROVED_KEY, VALUE_NAME, RRF_RT_REG_BINARY, NULL, approved, &size) == ERROR_SUCCESS &&
-        size >= 1 && (approved[0] & 1))
-        return FALSE;   /* disabled in Task Manager / Settings */
-    return TRUE;
-}
-
 BOOL startup_set_enabled(BOOL on)
 {
-    LSTATUS st;
-    if (on) {
-        wchar_t cmd[SP_MAX_PATH + 32];
-        str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --startup", paths_exe());
-        st = RegSetKeyValueW(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME, REG_SZ, cmd, (DWORD)((wcslen(cmd) + 1) * sizeof(wchar_t)));
-        RegDeleteKeyValueW(HKEY_CURRENT_USER, APPROVED_KEY, VALUE_NAME);
-    } else {
-        st = RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME);
-        if (st == ERROR_FILE_NOT_FOUND) st = ERROR_SUCCESS;
-    }
-    if (st != ERROR_SUCCESS) LOGW(L"startup: registry update failed (%ld)", (long)st);
-    return st == ERROR_SUCCESS;
+    AutostartKind kind;
+    HRESULT hr;
+    BOOL ok = autostart_set(on, paths_exe(), &kind, &hr);
+    if (on && kind == AUTOSTART_RUN) LOGW(L"startup: logon task not registered (0x%08lX); using the Run key", (unsigned long)hr);
+    else if (!ok) LOGW(L"startup: could not turn it %ls (task 0x%08lX)", on ? L"on" : L"off", (unsigned long)hr);
+    else LOGI(L"startup: %ls", on ? L"logon task registered" : L"off");
+    return ok;
+}
+
+/* Once the wallpaper is up (a Task Scheduler call never delays it): moves a Run entry, from an older
+ * version or setup's fallback, to the logon task, and follows the executable if it moved. */
+void startup_sync(void)
+{
+    wchar_t exe[SP_MAX_PATH];
+    AutostartKind kind = autostart_query(exe, SP_COUNTOF(exe));
+    if (kind == AUTOSTART_RUN || (kind == AUTOSTART_TASK && !str_ieq(exe, paths_exe()))) startup_set_enabled(TRUE);
+    g_app.cfg.s.startWithWindows = kind != AUTOSTART_OFF;
 }

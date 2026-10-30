@@ -14,6 +14,7 @@
 #define WM_SP_STORE         (WM_APP + 65)   /* lParam: a Store worker's result */
 #define WM_SP_UPDATE        (WM_APP + 66)   /* wParam 0: progress, 1: check finished (lParam: the job) */
 #define T_SHELL_UPDATE      2               /* shell window timer: the next update check (app.c's own start at 1) */
+#define T_SHELL_STARTUP     3               /* shell window timer: the Start with Windows check, once after start */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
@@ -93,8 +94,8 @@ void supervisor_sample_stats(void);
 void cli_server_handle(HWND replyTo, const void *request, DWORD size);
 
 /* startup.c */
-BOOL startup_is_enabled(void);
 BOOL startup_set_enabled(BOOL on);
+void startup_sync(void);                               /* T_SHELL_STARTUP */
 
 /* library.c */
 int  library_import(const wchar_t *const *paths, int count, BOOL applyFirst);

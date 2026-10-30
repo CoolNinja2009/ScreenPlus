@@ -1,4 +1,4 @@
-/* Page content: sidebar, Library (hero + grid), Displays, Customise, Store, Settings/Diagnostics.
+/* Page content: sidebar, Library (hero + grid), Displays, Customise, Store, Settings.
  * Immediate-mode: layout is recomputed on every paint (paints only happen on change). */
 #include "ui_internal.h"
 #include "../common/util.h"
@@ -124,23 +124,15 @@ static void draw_sidebar(Ui *u)
     int sev = 0;
     const wchar_t *state = app_engine_state_text(&sev);
     D2D1_COLOR_F dot = sev == 0 ? t->success : sev == 1 ? t->warning : sev == 2 ? t->warning : t->danger;
-    float ch = 112, cy = u->h - ch - 16;
+    float ch = 70, cy = u->h - ch - 16;
     D2D1_RECT_F card = rectf(12, cy, SIDEBAR_W - 24, ch);
     ui_glass(card, 14, 0, 0);
     ui_circle(30, cy + 24, 4.5f, dot);
     ui_text(state, u->fSmallB, rectf(42, cy + 13, SIDEBAR_W - 70, 22), t->text);
-    wchar_t line[128];
-    int mons = g_app.haveStatus ? g_app.status.monitorCount : g_app.monCount;
-    int act = g_app.haveStatus ? g_app.status.activeRenderers : 0;
-    str_printf(line, SP_COUNTOF(line), L"%d display%ls · %d rendering", mons, mons == 1 ? L"" : L"s", act);
-    ui_text(line, u->fSmall, rectf(24, cy + 38, SIDEBAR_W - 48, 18), t->text2);
-    wchar_t mem[32];
+    wchar_t line[128], mem[32];
     fmt_bytes(mem, SP_COUNTOF(mem), g_app.shellMem + g_app.engineMem);
     str_printf(line, SP_COUNTOF(line), L"CPU %.1f%% · RAM %ls", g_app.shellCpu + g_app.engineCpu, mem);
-    ui_text(line, u->fSmall, rectf(24, cy + 58, SIDEBAR_W - 48, 18), t->text2);
-    if (g_app.wallpaperMs > 0) str_printf(line, SP_COUNTOF(line), L"Wallpaper ready in %.0f ms", g_app.wallpaperMs);
-    else str_printf(line, SP_COUNTOF(line), L"Started in %.0f ms", g_app.nativeInitMs);
-    ui_text(line, u->fSmall, rectf(24, cy + 78, SIDEBAR_W - 48, 18), t->text3);
+    ui_text(line, u->fSmall, rectf(24, cy + 38, SIDEBAR_W - 48, 18), t->text2);
 }
 
 /* ================================================================ shared page chrome */
@@ -148,7 +140,7 @@ static void draw_sidebar(Ui *u)
 static void draw_title(Ui *u, float x, const wchar_t *title, const wchar_t *subtitle)
 {
     ui_text(title, u->fTitle, rectf(x, 16, 420, 42), u->t.text);
-    ui_text(subtitle, u->fSmall, rectf(x + 1, 56, 420, 18), u->t.text2);
+    if (subtitle) ui_text(subtitle, u->fSmall, rectf(x + 1, 56, 420, 18), u->t.text2);
 }
 
 static float draw_notice(Ui *u, float x, float y, float w)
@@ -401,7 +393,7 @@ static float draw_grid(Ui *u, float x, float y, float w)
 static float draw_empty(Ui *u, float x, float y, float w, int noResults)
 {
     Theme *t = &u->t;
-    float h = noResults ? 170.0f : 250.0f;
+    float h = 170.0f;
     D2D1_RECT_F r = rectf(x, y, w, h);
     ui_glass(r, 18, 0, 0);
     ui_icon(noResults ? GL_SEARCH : GL_LIBRARY, u->fIconL, rectf(x, y + 22, w, 50), noResults ? t->text3 : t->accent);
@@ -413,13 +405,10 @@ static float draw_empty(Ui *u, float x, float y, float w, int noResults)
         ui_button(HIT_ID(HK_SEARCH_CLEAR, 1), rectf(x + (w - bw) * 0.5f, y + 118, bw, 34), L"Clear search", 0, BTN_SECONDARY);
         return y + h;
     }
-    ui_text(L"For an HTML wallpaper, choose its whole folder — the one containing index.html. Screen+ automatically keeps its CSS, "
-            L"JavaScript, images, fonts and media available. Files stay where they are.",
-            u->fWrapC, rectf(x + w * 0.18f, y + 114, w * 0.64f, 44), t->text2);
     float b1 = ui_button_width(L"Import files", GL_ADD), b2 = ui_button_width(L"Wallpaper folder", GL_FOLDER);
     float bx = x + (w - b1 - b2 - 10) * 0.5f;
-    ui_button(HIT_ID(HK_IMPORT, 1), rectf(bx, y + 178, b1, 36), L"Import files", GL_ADD, BTN_PRIMARY);
-    ui_button(HIT_ID(HK_IMPORT_FOLDER, 1), rectf(bx + b1 + 10, y + 178, b2, 36), L"Wallpaper folder", GL_FOLDER, BTN_SECONDARY);
+    ui_button(HIT_ID(HK_IMPORT, 1), rectf(bx, y + 116, b1, 36), L"Import files", GL_ADD, BTN_PRIMARY);
+    ui_button(HIT_ID(HK_IMPORT_FOLDER, 1), rectf(bx + b1 + 10, y + 116, b2, 36), L"Wallpaper folder", GL_FOLDER, BTN_SECONDARY);
     return y + h;
 }
 
@@ -635,14 +624,15 @@ static float draw_store_panel(Ui *u, float x, float y, float w, wchar_t glyph, D
                               const wchar_t *text, int buttonId, const wchar_t *button)
 {
     Theme *t = &u->t;
-    float textH = ui_text_height(text, u->fWrapC, w * 0.7f), h = 110.0f + textH + 66.0f;   /* grows with the message */
+    /* grows with the message, if there is one */
+    float textH = text ? ui_text_height(text, u->fWrapC, w * 0.7f) + 14.0f : 0.0f, h = 170.0f + textH;
     ui_glass(rectf(x, y, w, h), 18, 0, 0);
     ui_icon(glyph, u->fIconL, rectf(x, y + 22, w, 50), gc);
     float tw = SP_MIN(ui_text_width(title, u->fHeading), w - 24);
     ui_text(title, u->fHeading, rectf(x + (w - tw) * 0.5f, y + 76, tw + 4, 30), t->text);
-    ui_text(text, u->fWrapC, rectf(x + w * 0.15f, y + 110, w * 0.7f, textH + 4), t->text2);
+    if (text) ui_text(text, u->fWrapC, rectf(x + w * 0.15f, y + 110, w * 0.7f, textH), t->text2);
     float bw = ui_button_width(button, 0);
-    ui_button(buttonId, rectf(x + (w - bw) * 0.5f, y + 124 + textH, bw, 34), button, 0, BTN_SECONDARY);
+    ui_button(buttonId, rectf(x + (w - bw) * 0.5f, y + 118 + textH, bw, 34), button, 0, BTN_SECONDARY);
     return y + h;
 }
 
@@ -656,13 +646,13 @@ static void draw_store(Ui *u, float cx, float cw)
     const wchar_t *names[32];
     int sites = store_filter_names(SF_SOURCE, names, SP_COUNTOF(names)) - 1;
     wchar_t sub[200];
-    if (s->loading && !s->viewCount) str_printf(sub, SP_COUNTOF(sub), L"Asking %d sites…", sites);
-    else if (!s->query[0]) str_printf(sub, SP_COUNTOF(sub), L"Live wallpapers and pictures from %d sites, copies left out", sites);
-    else str_printf(sub, SP_COUNTOF(sub), L"%d%ls result%ls for '%.60ls' from %d sites", s->viewCount, s->more ? L"+" : L"",
-                    s->viewCount == 1 && !s->more ? L"" : L"s", s->query, sites);
+    if (s->loading && !s->viewCount) str_copy(sub, SP_COUNTOF(sub), L"Loading…");
+    else if (!s->query[0]) str_printf(sub, SP_COUNTOF(sub), L"Wallpapers from %d sites", sites);
+    else str_printf(sub, SP_COUNTOF(sub), L"%d%ls result%ls for '%.60ls'", s->viewCount, s->more ? L"+" : L"",
+                    s->viewCount == 1 && !s->more ? L"" : L"s", s->query);
     draw_title(u, x, L"Store", sub);
     draw_search(u, rectf(x, 86, w, 38), HIT_ID(HK_STORE_TEXT, 0), HIT_ID(HK_STORE_CLEAR, 0), storep.text,
-                L"Search every site: anime, games, cars, nature…");
+                L"Search wallpapers");
     float fw = (w - 12.0f * (SF_COUNT - 1)) / SF_COUNT;
     for (int f = 0; f < SF_COUNT; f++) {
         int n = store_filter_names(f, names, SP_COUNTOF(names)), v = s->filter[f];
@@ -682,7 +672,7 @@ static void draw_store(Ui *u, float cx, float cw)
     if (s->viewCount) {
         y = end = draw_store_grid(u, s, x, y, w);
         if (s->loading) {
-            ui_text(L"Loading more wallpapers…", u->fCenter, rectf(x, y + 16, w, 24), t->text3);
+            ui_text(L"Loading…", u->fCenter, rectf(x, y + 16, w, 24), t->text3);
             y += 44;
         }
     } else if (s->loading || s->more) {
@@ -692,17 +682,13 @@ static void draw_store(Ui *u, float cx, float cw)
                              HIT_ID(HK_STORE_RETRY, 0), L"Try again");
     } else if (s->query[0]) {
         wchar_t title[160];
-        str_printf(title, SP_COUNTOF(title), L"No wallpapers found for '%.50ls'", s->query);
-        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, title,
-                             filtered ? L"Nothing matches it with these filters. Try fewer filters or another word."
-                                      : L"Try another word: a game, an anime, a car or a colour.",
-                             HIT_ID(HK_STORE_CLEAR, 1), L"Clear search");
+        str_printf(title, SP_COUNTOF(title), L"No results for '%.50ls'", s->query);
+        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, title, NULL, HIT_ID(HK_STORE_CLEAR, 1), L"Clear search");
     } else if (filtered) {
-        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, L"Nothing matches these filters",
-                             L"Every site was asked. Try fewer filters.", HIT_ID(HK_STORE_CLEAR, 2), L"Reset filters");
+        y = draw_store_panel(u, x, y, w, GL_SEARCH, t->text3, L"Nothing matches these filters", NULL,
+                             HIT_ID(HK_STORE_CLEAR, 2), L"Reset filters");
     } else {
-        y = draw_store_panel(u, x, y, w, GL_STORE, t->text3, L"Nothing to show yet",
-                             L"The sites listed no wallpapers. Try again in a moment.", HIT_ID(HK_STORE_RETRY, 0), L"Try again");
+        y = draw_store_panel(u, x, y, w, GL_STORE, t->text3, L"No wallpapers found", NULL, HIT_ID(HK_STORE_RETRY, 0), L"Try again");
     }
     y += 28;
     ui_pop_clip();
@@ -738,13 +724,9 @@ static const wchar_t *store_dl_tip(int i)
     const StoreState *s = store_get();
     if (i < 0 || i >= s->count) return NULL;
     int st = store_dl_state(i, NULL);
-    if (st == STOREDL_RUNNING || st == STOREDL_WAIT) return L"Click to cancel";
+    if (st == STOREDL_RUNNING || st == STOREDL_WAIT) return L"Cancel";
     const StoreItem *it = &s->items[i];
-    if (st == STOREDL_SITE) {
-        str_printf(tip, SP_COUNTOF(tip), L"%ls hands its files out only on its own page: this opens it in your browser",
-                   store_source_name(it->source));
-        return tip;
-    }
+    if (st == STOREDL_SITE) return L"Opens in your browser";
     if (!it->varCount) return NULL;
     str_copy(tip, SP_COUNTOF(tip), L"Available:");
     for (int k = 0; k < it->varCount; k++) {
@@ -819,7 +801,9 @@ static void draw_displays(Ui *u, float cx, float cw)
 {
     Theme *t = &u->t;
     float x = cx + PAD, w = cw - PAD * 2;
-    draw_title(u, x, L"Displays", L"Assign a wallpaper to each display, or use one everywhere");
+    wchar_t sub[32];
+    str_printf(sub, SP_COUNTOF(sub), L"%d display%ls", g_app.monCount, g_app.monCount == 1 ? L"" : L"s");
+    draw_title(u, x, L"Displays", sub);
     float top = 88;
     top += draw_notice(u, x, top, w);
     D2D1_RECT_F view = { cx, top, cx + cw, u->h };
@@ -836,11 +820,8 @@ static void draw_displays(Ui *u, float cx, float cw)
     y += 230 + 14;
     {
         static const wchar_t *modes[] = { L"Independent", L"Duplicate", L"Span" };
-        static const wchar_t *descs[] = { L"Each display can have its own wallpaper; the others use the default",
-                                          L"The same wallpaper on every display; a video is decoded once for all",
-                                          L"One wallpaper stretched across all displays as one picture" };
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        row_label(u, x, y, w - 3 * 112 - 40, L"Arrangement", descs[dm]);
+        row_label(u, x, y, w - 3 * 112 - 40, L"Arrangement", NULL);
         segmented(u, x + w - 18 - 3 * 112, y + 15, HK_DISPMODE, modes, 3, (int)dm, 112, NULL);
         y += 62 + 22;
     }
@@ -861,8 +842,8 @@ static void draw_displays(Ui *u, float cx, float cw)
         ui_text(m->name, u->fBodyB, rectf(x + 66, y + 18, 260, 22), t->text);
         wchar_t det[128];
         long mw = m->rect.right - m->rect.left, mh = m->rect.bottom - m->rect.top;
-        str_printf(det, SP_COUNTOF(det), L"%ld × %ld · %ls · %u Hz · %u%%%ls", mw, mh, mw >= mh ? L"Landscape" : L"Portrait",
-                   m->refreshHz, m->dpi * 100 / 96, m->primary ? L" · Primary" : L"");
+        str_printf(det, SP_COUNTOF(det), L"%ld × %ld · %u Hz · %u%%%ls", mw, mh, m->refreshHz, m->dpi * 100 / 96,
+                   m->primary ? L" · Primary" : L"");
         ui_text(det, u->fSmall, rectf(x + 66, y + 42, SP_MAX(260.0f, w * 0.38f - 70), 20), t->text2);
 
         float mx = x + SP_MAX(330.0f, w * 0.38f);
@@ -907,10 +888,12 @@ static float section(Ui *u, float x, float y, const wchar_t *title)
 
 static void row_label(Ui *u, float x, float y, float w, const wchar_t *label, const wchar_t *desc)
 {
-    ui_text(label, u->fBody, rectf(x + 18, y + 11, w, 20), u->t.text);
+    /* a label alone sits in the middle of its 62 DIP row */
+    ui_text(label, u->fBody, rectf(x + 18, y + (desc ? 11 : 21), w, 20), u->t.text);
     if (desc) ui_text(desc, u->fSmall, rectf(x + 18, y + 32, w, 18), u->t.text2);
 }
 
+/* descs (or any one of them) may be NULL */
 static float toggle_group(Ui *u, float x, float y, float w, const int *idx, const wchar_t *const *labels,
                           const wchar_t *const *descs, const int *values, int n)
 {
@@ -918,25 +901,17 @@ static float toggle_group(Ui *u, float x, float y, float w, const int *idx, cons
     for (int i = 0; i < n; i++) {
         float ry = y + i * 62.0f;
         if (i) ui_line(x + 16, ry, x + w - 16, ry, 1, u->t.separator);
-        row_label(u, x, ry, w - 120, labels[i], descs[i]);
+        row_label(u, x, ry, w - 120, labels[i], descs ? descs[i] : NULL);
         ui_toggle(HIT_ID(HK_TOGGLE, idx[i]), x + w - 62, ry + 19, idx[i], values[i]);
     }
     return y + 62.0f * n;
 }
 
-static float info_row(Ui *u, float x, float y, float w, const wchar_t *k, const wchar_t *v, D2D1_COLOR_F vc)
-{
-    ui_text(k, u->fBody, rectf(x + 18, y, 160, 40), u->t.text2);
-    ui_text(v, u->fBody, rectf(x + 180, y, w - 200, 40), vc);
-    return y + 40;
-}
-
 static void draw_settings(Ui *u, float cx, float cw)
 {
-    Theme *t = &u->t;
     Settings *s = &g_app.cfg.s;
     float x = cx + PAD, w = SP_MIN(cw - PAD * 2, 860.0f);
-    draw_title(u, x, L"Settings", L"Behaviour, performance and diagnostics");
+    draw_title(u, x, L"Settings", NULL);
     float top = 88;
     top += draw_notice(u, x, top, cw - PAD * 2);
     D2D1_RECT_F view = { cx, top, cx + cw, u->h };
@@ -948,11 +923,9 @@ static void draw_settings(Ui *u, float cx, float cw)
     y = section(u, x, y, L"GENERAL");
     {
         int idx[] = { TOG_STARTUP, TOG_TRAY };
-        const wchar_t *l[] = { L"Start with Windows", L"Open in the background" };
-        const wchar_t *d[] = { L"Launch Screen+ when you sign in",
-                               L"When it starts with Windows, keep the window closed; wallpapers still load" };
+        const wchar_t *l[] = { L"Start with Windows", L"Start minimised to the tray" };
         int v[] = { s->startWithWindows, s->launchToTray };
-        y = toggle_group(u, x, y, w, idx, l, d, v, 2);
+        y = toggle_group(u, x, y, w, idx, l, NULL, v, 2);
     }
     y += 10;
     {
@@ -966,7 +939,7 @@ static void draw_settings(Ui *u, float cx, float cw)
     }
     y += 62 + 10;
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-    row_label(u, x, y, w - 300, L"Appearance", L"Follows Windows by default");
+    row_label(u, x, y, w - 300, L"Appearance", NULL);
     {
         static const wchar_t *opts[] = { L"System", L"Light", L"Dark" };
         segmented(u, x + w - 18 - 78 * 3, y + 15, HK_THEME, opts, 3, (int)s->theme, 78, NULL);
@@ -978,24 +951,16 @@ static void draw_settings(Ui *u, float cx, float cw)
         ScrState st;
         scr_query(&st);
         int on = st.ours && st.active;
-        wchar_t d0[160];
-        if (st.policy) str_copy(d0, SP_COUNTOF(d0), L"Your organisation manages the screensaver through Group Policy");
-        else if (on) str_printf(d0, SP_COUNTOF(d0), L"Windows starts it after %d min idle, even when Screen+ is closed", SP_MAX(1, st.timeoutSec / 60));
-        else if (st.active) str_copy(d0, SP_COUNTOF(d0), L"Windows uses another screensaver now");
-        else str_copy(d0, SP_COUNTOF(d0), L"Plays a wallpaper from your library when the PC is idle");
         int idx[] = { TOG_SCR_ENABLE };
         const wchar_t *l[] = { L"Use Screen+ as the screensaver" };
-        const wchar_t *d[] = { d0 };
+        const wchar_t *d[] = { st.policy ? L"Managed by your organisation" : !on && st.active ? L"Another screensaver is in use" : NULL };
         int v[] = { on };
         y = toggle_group(u, x, y, w, idx, l, d, v, 1);
         y += 10;
 
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         WallpaperEntry *se = config_find(&g_app.cfg, config_screensaver(&g_app.cfg));
-        wchar_t d1[200];
-        if (!se) str_copy(d1, SP_COUNTOF(d1), L"None: a black screen. Choose one from your library");
-        else if (g_app.cfg.screensaver[0]) str_printf(d1, SP_COUNTOF(d1), L"%ls", se->name);
-        else str_printf(d1, SP_COUNTOF(d1), L"%ls (the desktop's)", se->name);
+        const wchar_t *d1 = !se ? L"None" : g_app.cfg.screensaver[0] ? se->name : L"Same as the desktop";
         float bp = ui_button_width(L"Preview", GL_PLAY), bc = ui_button_width(L"Choose…", 0);
         row_label(u, x, y, w - bp - bc - 60, L"Wallpaper", d1);
         ui_button(HIT_ID(HK_SCR_PREVIEW, 0), rectf(x + w - 18 - bp, y + 14, bp, 34), L"Preview", GL_PLAY, BTN_SECONDARY);
@@ -1007,27 +972,24 @@ static void draw_settings(Ui *u, float cx, float cw)
         int cur = -1;
         for (int i = 0; i < 6; i++) if (st.timeoutSec == minv[i] * 60) cur = i;
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        row_label(u, x, y, w - 6 * 46 - 40, L"Start after (minutes)", L"Time without keyboard or mouse input; a Windows setting");
+        row_label(u, x, y, w - 6 * 46 - 40, L"Start after (minutes)", NULL);
         segmented(u, x + w - 18 - 6 * 46, y + 15, HK_SCR_TIMEOUT, mins, 6, cur, 46, minv);
         y += 62 + 10;
 
         static const wchar_t *dopts[] = { L"All", L"Span", L"Primary" };
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        row_label(u, x, y, w - 3 * 84 - 40, L"Displays", L"Every display, one picture across them, or the main display only");
+        row_label(u, x, y, w - 3 * 84 - 40, L"Displays", NULL);
         segmented(u, x + w - 18 - 3 * 84, y + 15, HK_SCR_DISPLAYS, dopts, 3, (int)s->scrDisplays, 84, NULL);
         y += 62 + 10;
 
         int idx2[] = { TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK };
         const wchar_t *l2[] = { L"Play sound", L"End on mouse movement", L"Show the sign-in screen on resume" };
-        const wchar_t *d2[] = { L"Video and web screensavers are muted by default",
-                                L"When off, only a key, a click or the mouse wheel ends it",
-                                L"Locks the PC when the screensaver ends; a Windows setting" };
         int v2[] = { s->scrAudio, s->scrExitOnMouse, st.secure };
-        y = toggle_group(u, x, y, w, idx2, l2, d2, v2, 3);
+        y = toggle_group(u, x, y, w, idx2, l2, NULL, v2, 3);
         y += 10;
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         float bw = ui_button_width(L"Open", GL_OPEN);
-        row_label(u, x, y, w - bw - 60, L"Windows screensaver settings", L"Screen+ is listed there once it is switched on");
+        row_label(u, x, y, w - bw - 60, L"Windows screensaver settings", NULL);
         ui_button(HIT_ID(HK_SCR_WINDOWS, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Open", GL_OPEN, BTN_SECONDARY);
     }
     y += 62 + 26;
@@ -1035,14 +997,10 @@ static void draw_settings(Ui *u, float cx, float cw)
     y = section(u, x, y, L"PERFORMANCE");
     {
         int idx[] = { TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY };
-        const wchar_t *l[] = { L"Pause during fullscreen apps", L"Pause hidden wallpapers", L"Suspend while locked",
+        const wchar_t *l[] = { L"Pause during fullscreen apps", L"Pause when covered by windows", L"Pause while locked",
                                L"Pause on battery power" };
-        const wchar_t *d[] = { L"Only the display the game or video is on; others keep playing",
-                               L"Stop rendering on displays covered by maximized or fullscreen windows",
-                               L"Freeze rendering on the lock screen and while the display is off",
-                               L"Also applies when battery saver is on" };
         int v[] = { s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock, s->pauseOnBattery };
-        y = toggle_group(u, x, y, w, idx, l, d, v, 4);
+        y = toggle_group(u, x, y, w, idx, l, NULL, v, 4);
     }
     y += 26;
 
@@ -1050,10 +1008,8 @@ static void draw_settings(Ui *u, float cx, float cw)
     {
         int idx[] = { TOG_AUDIO, TOG_RECOVER };
         const wchar_t *l[] = { L"Play wallpaper audio", L"Restart failed renderers automatically" };
-        const wchar_t *d[] = { L"Video and HTML wallpapers are muted by default (primary display only)",
-                               L"Up to 3 attempts with backoff, then the Windows wallpaper is shown" };
         int v[] = { s->audio, s->autoRecover };
-        y = toggle_group(u, x, y, w, idx, l, d, v, 2);
+        y = toggle_group(u, x, y, w, idx, l, NULL, v, 2);
     }
     y += 10;
     y = section(u, x, y, L"HTML WALLPAPERS");
@@ -1064,93 +1020,41 @@ static void draw_settings(Ui *u, float cx, float cw)
         const wchar_t *l[] = { L"Allow desktop mouse interaction", L"Enable audio-reactive spectrum",
                                L"Import Lively wallpapers automatically", L"Import wallpapers from web links",
                                L"Make image wallpapers interactive" };
-        const wchar_t *d[] = { L"Forwards mouse activity only while the pointer is over the desktop; keyboard is never shared",
-                               L"Captures the default output device only when an HTML wallpaper requests it",
-                               L"Adds newly installed Lively Wallpaper packages each time Screen+ starts",
-                               L"Shows the link button in the Library; video sites use yt-dlp, downloaded once (about 20 MB)",
-                               ds.busy && !ds.id[0] ? ds.text : L"Every image you apply follows the mouse in 3D; downloads about 110 MB once" };
+        const wchar_t *d[] = { NULL, NULL, NULL, NULL, ds.busy && !ds.id[0] ? ds.text : NULL };
         int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport, s->urlImport, s->depthAll };
         y = toggle_group(u, x, y, w, idx, l, d, v, 5);
     }
     y += 26;
-    y = section(u, x, y, L"RENDERER & DIAGNOSTICS");
-    ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+    y = section(u, x, y, L"TROUBLESHOOTING");
     {
-        wchar_t desc[160];
-        if (g_app.engineGaveUp) str_copy(desc, SP_COUNTOF(desc), L"Stopped after repeated failures");
-        else if (g_app.engineProcess)
-            str_printf(desc, SP_COUNTOF(desc), L"Running (pid %lu)%ls · %d restart%ls", g_app.enginePid,
-                       g_app.safeMode ? L" in safe mode" : L"", g_app.engineRestarts, g_app.engineRestarts == 1 ? L"" : L"s");
-        else str_copy(desc, SP_COUNTOF(desc), L"Starting");
-        row_label(u, x, y, w - 220, L"Renderer process", desc);
+        const wchar_t *state = g_app.engineGaveUp ? L"Stopped after repeated failures"
+                             : !g_app.engineProcess ? L"Starting"
+                             : g_app.safeMode ? L"Running in safe mode" : L"Running";
         float bw = ui_button_width(L"Restart renderer", GL_REFRESH);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - bw - 60, L"Renderer", state);
         ui_button(HIT_ID(HK_RESTART_ENGINE, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Restart renderer", GL_REFRESH, BTN_SECONDARY);
+        y += 62 + 10;
+    }
+    if (g_app.haveStatus && !g_app.status.webviewVersion[0]) {    /* web wallpapers can't run without it */
+        float bw = ui_button_width(L"Get WebView2", 0);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - bw - 60, L"WebView2 Runtime", L"Not installed. Web wallpapers need it.");
+        ui_button(HIT_ID(HK_GET_WEBVIEW, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Get WebView2", 0, BTN_SECONDARY);
+        y += 62 + 10;
+    }
+    {
+        float b1 = ui_button_width(L"Open logs", GL_DOC), b2 = ui_button_width(L"Open data folder", GL_FOLDER);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - b1 - b2 - 60, L"Logs and data", NULL);
+        ui_button(HIT_ID(HK_OPEN_DATA, 0), rectf(x + w - 18 - b2, y + 14, b2, 34), L"Open data folder", GL_FOLDER, BTN_SECONDARY);
+        ui_button(HIT_ID(HK_OPEN_LOGS, 0), rectf(x + w - 26 - b2 - b1, y + 14, b1, 34), L"Open logs", GL_DOC, BTN_SECONDARY);
     }
     y += 62 + 26;
 
-    y = section(u, x, y, L"DIAGNOSTICS");
-    {
-        float rows = 7;
-        ui_glass(rectf(x, y, w, rows * 40 + 64), 14, 0, 0);
-        float ry = y + 6;
-        wchar_t v[256], a[32], b[32];
-        str_printf(v, SP_COUNTOF(v), L"Native %.0f ms · UI %ls · Wallpaper %ls", g_app.nativeInitMs,
-                   g_app.uiReadyMs > 0 ? L"" : L"–", g_app.wallpaperMs > 0 ? L"" : L"–");
-        if (g_app.uiReadyMs > 0 || g_app.wallpaperMs > 0) {
-            wchar_t ui[24] = L"–", wp[24] = L"–";
-            if (g_app.uiReadyMs > 0) str_printf(ui, SP_COUNTOF(ui), L"%.0f ms", g_app.uiReadyMs);
-            if (g_app.wallpaperMs > 0) str_printf(wp, SP_COUNTOF(wp), L"%.0f ms", g_app.wallpaperMs);
-            str_printf(v, SP_COUNTOF(v), L"Native %.0f ms · UI %ls · Wallpaper %ls", g_app.nativeInitMs, ui, wp);
-        }
-        ry = info_row(u, x, ry, w, L"Startup", v, t->text);
-        fmt_bytes(a, SP_COUNTOF(a), g_app.shellMem);
-        fmt_bytes(b, SP_COUNTOF(b), g_app.engineMem);
-        str_printf(v, SP_COUNTOF(v), L"Shell %.1f%% CPU, %ls · Renderer %.1f%% CPU, %ls (%d process%ls)", g_app.shellCpu, a,
-                   g_app.engineCpu, b, g_app.engineProcs, g_app.engineProcs == 1 ? L"" : L"es");
-        ry = info_row(u, x, ry, w, L"Resources", v, t->text);
-        str_printf(v, SP_COUNTOF(v), L"%d active renderer%ls · desktop host: %ls",
-                   g_app.haveStatus ? g_app.status.activeRenderers : 0,
-                   g_app.haveStatus && g_app.status.activeRenderers == 1 ? L"" : L"s",
-                   g_app.haveStatus ? desktop_host_mode_name(g_app.status.hostMode) : L"–");
-        ry = info_row(u, x, ry, w, L"Rendering", v, t->text);
-        wchar_t ff[64];
-        video_ffmpeg_version(ff, SP_COUNTOF(ff));
-        str_printf(v, SP_COUNTOF(v), L"%ls · Direct3D 11 · D3D11VA hardware decoding when supported", ff);
-        ry = info_row(u, x, ry, w, L"Video", v, t->text);
-        if (g_app.haveStatus && g_app.status.webviewVersion[0]) {
-            str_printf(v, SP_COUNTOF(v), L"Runtime %ls", g_app.status.webviewVersion);
-            ry = info_row(u, x, ry, w, L"WebView2", v, t->text);
-        } else {
-            ry = info_row(u, x, ry, w, L"WebView2", g_app.haveStatus ? L"Not installed — required for HTML wallpapers" : L"–",
-                          g_app.haveStatus ? t->warning : t->text2);
-            if (g_app.haveStatus) {
-                float bw = ui_button_width(L"Get WebView2", 0);
-                ui_button(HIT_ID(HK_GET_WEBVIEW, 0), rectf(x + w - 18 - bw, ry - 37, bw, 32), L"Get WebView2", 0, BTN_SECONDARY);
-            }
-        }
-        const wchar_t *err = g_app.engineError[0] ? g_app.engineError : (g_app.haveStatus && g_app.status.lastError[0] ? g_app.status.lastError : L"None");
-        ry = info_row(u, x, ry, w, L"Last failure", err, wcscmp(err, L"None") == 0 ? t->text2 : t->danger);
-        {
-            wchar_t flags[160] = L"";
-            uint32_t f = g_app.haveStatus ? g_app.status.flags : 0;
-            str_printf(flags, SP_COUNTOF(flags), L"%ls%ls%ls%ls%ls", f & ENGINE_FLAG_BATTERY ? L"On battery  " : L"On AC power  ",
-                       f & ENGINE_FLAG_FULLSCREEN ? L"· Fullscreen app  " : L"", f & ENGINE_FLAG_LOCKED ? L"· Locked  " : L"",
-                       f & ENGINE_FLAG_DISPLAY_OFF ? L"· Display off  " : L"", f & ENGINE_FLAG_SAFE_MODE ? L"· Safe mode" : L"");
-            ry = info_row(u, x, ry, w, L"Conditions", flags, t->text2);
-        }
-        float bx = x + 18;
-        float b1 = ui_button_width(L"Open logs", GL_DOC);
-        ui_button(HIT_ID(HK_OPEN_LOGS, 0), rectf(bx, ry + 10, b1, 34), L"Open logs", GL_DOC, BTN_SECONDARY);
-        bx += b1 + 8;
-        float b2 = ui_button_width(L"Open data folder", GL_FOLDER);
-        ui_button(HIT_ID(HK_OPEN_DATA, 0), rectf(bx, ry + 10, b2, 34), L"Open data folder", GL_FOLDER, BTN_SECONDARY);
-        y += rows * 40 + 64;
-    }
-    y += 26;
-
     y = section(u, x, y, L"ABOUT");
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-    row_label(u, x, y, w - 240, L"Screen+ " SP_VERSION_W, L"Native C wallpaper engine · Win32, Direct3D 11, FFmpeg, WebView2");
+    row_label(u, x, y, w - 240, L"Screen+ " SP_VERSION_W, NULL);
     {
         float bw = ui_button_width(L"Third-party notices", 0);
         ui_button(HIT_ID(HK_LICENSES, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Third-party notices", 0, BTN_GHOST);
@@ -1711,7 +1615,7 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
     const wchar_t *s = editing ? cus.edit : urlp.url;
     float tx = f.left + 12, avail = f.right - f.left - 24;
     if (!s[0] && !editing) {
-        ui_text(L"Paste a link to a video, an image or a web page", u->fBody, rectf(tx, f.top, avail, 36), t->text3);
+        ui_text(L"Paste a link", u->fBody, rectf(tx, f.top, avail, 36), t->text3);
     } else if (editing) {
         D2D1_RECT_F tr = rectf(tx, f.top + 7, avail, 36 - 14);
         te_set_layout(u->fBody, tr);
@@ -1734,19 +1638,13 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
         return h + 12.0f;
     }
     static const wchar_t *modes[] = { L"Automatic", L"Download", L"Web page" };
-    static const wchar_t *hints[] = {
-        L"Long videos stream in small parts; short ones are saved. Other pages show live.",
-        L"Saves the video or image so it plays offline; long videos take a lot of disk space.",
-        L"Shows the page itself as a live web wallpaper; it needs an internet connection.",
-    };
     float cx = x + 16;
     for (int i = 0; i < (int)SP_COUNTOF(modes); i++) {
         float cw = ui_text_width(modes[i], u->fCenter) + 30;
         ui_chip(HIT_ID(HK_URL_MODE, i), rectf(cx, ry, cw, 28), modes[i], urlp.mode == i);
         cx += cw + 8;
     }
-    int failed = st.failed && st.text[0];
-    ui_text(failed ? st.text : hints[urlp.mode], u->fSmall, rectf(cx + 6, ry, x + w - 22 - cx, 28), failed ? t->danger : t->text3);
+    if (st.failed && st.text[0]) ui_text(st.text, u->fSmall, rectf(cx + 6, ry, x + w - 22 - cx, 28), t->danger);
     return h + 12.0f;
 }
 
@@ -1812,7 +1710,8 @@ static float draw_look_section(Ui *u, float x, float y, float w, const Wallpaper
     y = section(u, x, y, L"LOOK & COLOUR");
     const int rows[] = { SL_BRIGHT, SL_CONTRAST, SL_SAT, SL_HUE, SL_GAMMA };
     /* the tint band fits the wheel and the column beside it: title, two sliders, the swatch row */
-    float tintH = SP_MAX(DISC_R * 2.0f + 40.0f, 22.0f + 44.0f + LOOK_ROW * 2.0f + 22.0f + 18.0f), footH = 52.0f;
+    int resettable = adjust_active(&cus.adj) || cus.adj.tint != adjust_defaults().tint || cus.adj.tintBrightness != 100;
+    float tintH = SP_MAX(DISC_R * 2.0f + 40.0f, 22.0f + 28.0f + LOOK_ROW * 2.0f + 22.0f + 18.0f), footH = resettable ? 52.0f : 0.0f;
     float card = (float)SP_COUNTOF(rows) * LOOK_ROW + 8.0f + tintH + footH;
     ui_glass(rectf(x, y, w, card), 14, 0, 0);
 
@@ -1833,26 +1732,23 @@ static float draw_look_section(Ui *u, float x, float y, float w, const Wallpaper
     float colX = discCx + DISC_R + 30.0f, colW = x + w - 18 - colX;
     float cy = ry + 22.0f;
     ui_text(L"Tint", u->fBodyB, rectf(colX, cy, colW, 20), t->text);
-    ui_text(L"Lifts the dark parts of the wallpaper towards this colour.", u->fSmall, rectf(colX, cy + 20, colW, 18), t->text2);
-    look_slider(u, colX, cy + 44, colW, 96.0f, SL_TINTLIFT, 1);
-    look_slider(u, colX, cy + 44 + LOOK_ROW - 6.0f, colW, 96.0f, SL_TINTV, 1);
+    look_slider(u, colX, cy + 28, colW, 96.0f, SL_TINTLIFT, 1);
+    look_slider(u, colX, cy + 28 + LOOK_ROW - 6.0f, colW, 96.0f, SL_TINTV, 1);
     uint32_t eff = tint_effective();
-    D2D1_RECT_F sw = rectf(colX, cy + 44 + LOOK_ROW * 2.0f - 4.0f, 26, 26);
+    D2D1_RECT_F sw = rectf(colX, cy + 28 + LOOK_ROW * 2.0f - 4.0f, 26, 26);
     ui_rrect(sw, 7, col(eff, 1.0f));
     ui_rrect_stroke(sw, 7, 1, t->border);
     wchar_t hex[16];
     str_printf(hex, SP_COUNTOF(hex), L"#%06X", eff);
     value_field(u, HIT_ID(HK_LOOKVAL, SL_COUNT), hex, colX + 40, 1, sw.top, 26, t->text2);
     ry += tintH;
-    row_separator(u, x, ry, w);
 
-    /* footer: what applies to this wallpaper type + reset */
-    const wchar_t *note = web ? L"Web wallpaper: applied as CSS filters. Gamma is not available for web pages."
-                              : L"Applied on the GPU while the wallpaper plays.";
-    float bw = ui_button_width(L"Reset look", GL_REFRESH);
-    ui_text(note, u->fSmall, rectf(x + 18, ry, w - 54 - bw, footH), t->text3);
-    if (adjust_active(&cus.adj) || cus.adj.tint != adjust_defaults().tint || cus.adj.tintBrightness != 100)
+    /* footer, once something differs from the defaults: reset */
+    if (resettable) {
+        row_separator(u, x, ry, w);
+        float bw = ui_button_width(L"Reset look", GL_REFRESH);
         ui_button(HIT_ID(HK_RESET_LOOK, 0), rectf(x + w - 14 - bw, ry + 10, bw, 32), L"Reset look", GL_REFRESH, BTN_GHOST);
+    }
     return y + card + 26.0f;
 }
 
@@ -1940,7 +1836,7 @@ static float draw_props_section(Ui *u, float x, float y, float w)
     y = section(u, x, y, L"WALLPAPER PROPERTIES");
     if (!cus.props || !cus.propCount) {
         ui_glass(rectf(x, y, w, 56), 14, 0, 0);
-        ui_text(L"This wallpaper has no settings of its own.", u->fSmall, rectf(x + 18, y, w - 36, 56), t->text2);
+        ui_text(L"This wallpaper has no properties.", u->fSmall, rectf(x + 18, y, w - 36, 56), t->text2);
         return y + 56 + 26;
     }
     int anyOverride = 0;
@@ -1957,7 +1853,6 @@ static float draw_props_section(Ui *u, float x, float y, float w)
     if (anyOverride) {
         row_separator(u, x, ry, w);
         float bw = ui_button_width(L"Restore defaults", GL_REFRESH);
-        ui_text(L"Changes apply to the running wallpaper immediately.", u->fSmall, rectf(x + 18, ry, w - 54 - bw, footH), t->text3);
         ui_button(HIT_ID(HK_RESET_PROPS, 0), rectf(x + w - 14 - bw, ry + 10, bw, 32), L"Restore defaults", GL_REFRESH, BTN_GHOST);
     }
     return y + card + 26.0f;
@@ -1971,15 +1866,14 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     depth_get(&st);
     int cool = (e->flags & WPFLAG_DEPTH) != 0, mine = !st.id[0] || str_ieq(st.id, e->id);
     int busy = st.busy && mine, failed = !st.busy && st.failed && st.text[0] && mine;
-    const wchar_t *note;
+    const wchar_t *note = NULL;
     if (failed) note = st.text;
-    else if (st.busy) note = L"Another wallpaper is being made cooler. Try again when it has finished.";
-    else if (cool) note = g_app.cfg.s.htmlMouse ? L"This picture moves with your mouse. Depth strength and Auto move are under Wallpaper properties below."
-                                                : L"Mouse interaction is off in Settings, so only Auto move animates it. Depth strength and Auto move are below.";
-    else if (depth_ready()) note = L"Adds real depth to this picture so it follows your mouse. The AI model runs on whichever is quicker here, your GPU or your CPU.";
-    else note = L"Adds real depth to this picture so it follows your mouse. Needs the Depth Anything V2 AI model, downloaded once (about 110 MB).";
-    /* the text starts below the button and the card grows with it, so neither clips */
-    float noteH = busy ? 0.0f : ui_text_height(note, u->fWrap, w - 36), h = busy ? 102.0f : SP_MAX(96.0f, 60.0f + noteH + 18.0f);
+    else if (st.busy) note = L"Busy with another wallpaper.";
+    else if (cool && !g_app.cfg.s.htmlMouse) note = L"Mouse interaction is off in Settings.";
+    else if (!cool && !depth_ready()) note = L"The first use downloads about 110 MB.";
+    /* the text starts below the button and the card grows with it, so neither clips; no text: one row */
+    float noteH = busy || !note ? 0.0f : ui_text_height(note, u->fWrap, w - 36);
+    float h = busy ? 102.0f : note ? SP_MAX(96.0f, 60.0f + noteH + 18.0f) : 64.0f;
     y = section(u, x, y, L"MAKE WALLPAPER COOLER");
     ui_glass(rectf(x, y, w, h), 14, 0, 0);
     const wchar_t *label = busy ? L"Cancel" : cool ? L"Use plain image" : L"Make wallpaper cooler";
@@ -1995,7 +1889,7 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
         if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
         return y + h + 26.0f;
     }
-    ui_text(note, u->fWrap, rectf(x + 18, y + 60, w - 36, noteH + 4.0f), failed ? t->danger : t->text2);
+    if (note) ui_text(note, u->fWrap, rectf(x + 18, y + 60, w - 36, noteH + 4.0f), failed ? t->danger : t->text2);
     return y + h + 26.0f;
 }
 
@@ -2025,8 +1919,7 @@ static void draw_customise(Ui *u, float cx, float cw)
         D2D1_RECT_F card = rectf(x, y + 20, w, 150);
         ui_glass(card, 16, 0, 0);
         ui_icon(GL_COLOR, u->fIconL, rectf(x, y + 44, w, 48), t->text3);
-        ui_text(L"Apply a wallpaper first — Customise edits the wallpaper that is on screen.",
-                u->fBody, rectf(x + 20, y + 100, w - 40, 22), t->text2);
+        ui_text(L"Apply a wallpaper to customise it.", u->fCenter, rectf(x + 20, y + 100, w - 40, 22), t->text2);
         y += 190;
     } else {
         if (depth_can_cool(e) || (e->flags & WPFLAG_DEPTH)) y = draw_cooler_section(u, x, y, w, e);
@@ -2402,13 +2295,13 @@ int pages_key(UINT vk, int ctrl, int shift)
 const wchar_t *pages_tooltip(int id)
 {
     switch (HIT_KIND(id)) {
-    case HK_URL:           return L"Import URL wallpaper";
+    case HK_URL:           return L"Import from a link";
     case HK_IMPORT_FOLDER: return HIT_DATA(id) == 0 ? L"Import a wallpaper folder" : NULL;
     case HK_STORE_CARD: {
         static wchar_t tip[80];
         const StoreState *s = store_get();
         if (HIT_DATA(id) < 0 || HIT_DATA(id) >= s->count) return NULL;
-        str_printf(tip, SP_COUNTOF(tip), L"Open its page on %ls", store_source_name(s->items[HIT_DATA(id)].source));
+        str_printf(tip, SP_COUNTOF(tip), L"Open on %ls", store_source_name(s->items[HIT_DATA(id)].source));
         return tip;
     }
     case HK_STORE_DL:      return store_dl_tip(HIT_DATA(id));

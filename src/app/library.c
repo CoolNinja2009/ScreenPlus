@@ -260,19 +260,18 @@ static void report(const ImportStats *st, const wchar_t *source, int before, BOO
     }
     wchar_t extra[160] = L"";
     if (st->unsupported)
-        str_printf(extra, SP_COUNTOF(extra), L" %d skipped (application, game-engine or stream wallpapers aren't supported).",
+        str_printf(extra, SP_COUNTOF(extra), L" %d unsupported.",
                    st->unsupported);
     if (st->added)
         app_notice(st->bad ? NOTICE_WARN : NOTICE_INFO, L"Added %d wallpaper%ls%ls%ls.%ls%ls", st->added,
                    st->added == 1 ? L"" : L"s", source[0] ? L" from " : L"", source, extra,
-                   st->bad ? L" Some items were missing or unreadable." : L"");
+                   st->bad ? L" Some could not be read." : L"");
     else if (st->dup && !st->bad)
         app_notice(NOTICE_INFO, L"Everything%ls%ls is already in your library.%ls", source[0] ? L" from " : L"", source, extra);
     else if (st->unsupported && !st->bad)
         app_notice(NOTICE_WARN, L"Nothing to import.%ls", extra);
     else
-        app_notice(NOTICE_WARN, L"Nothing was imported. Supported: images, videos (MP4, WebM, MKV, MOV, GIF...), HTML "
-                                L"wallpapers, and Lively Wallpaper / Wallpaper Engine web and video wallpapers.");
+        app_notice(NOTICE_WARN, L"Nothing was imported. These files are not supported.");
     ui_on_config_changed();
 }
 
@@ -463,8 +462,7 @@ void library_import_lively(void)
         import_package_library(roots[i], &st);
     }
     if (!n) {
-        app_notice(NOTICE_WARN, L"No Lively Wallpaper library was found. You can also use Import folder on a Lively "
-                                L"wallpaper folder or its \"wallpapers\" folder.");
+        app_notice(NOTICE_WARN, L"No Lively Wallpaper library was found.");
         return;
     }
     report(&st, L"Lively Wallpaper", before, TRUE);
@@ -507,7 +505,7 @@ void library_import_dialog(HWND owner, BOOL folder)
     else opts |= FOS_FILEMUSTEXIST;
     IFileOpenDialog_SetOptions(dlg, opts);
     if (folder) {
-        IFileOpenDialog_SetTitle(dlg, L"Choose the wallpaper folder containing index.html, LivelyInfo.json, or project.json");
+        IFileOpenDialog_SetTitle(dlg, L"Choose a wallpaper folder");
     } else {
         static const COMDLG_FILTERSPEC filters[] = {
             { L"Wallpapers", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr;"
@@ -567,7 +565,7 @@ void library_remove(const wchar_t *id)
         app_notice(NOTICE_INFO, L"Removed '%ls' from the library.", name);
     } else {
         LOGI(L"library: removed '%ls' (file left untouched)", name);
-        app_notice(NOTICE_INFO, L"Removed '%ls' from the library. The original file was not deleted.", name);
+        app_notice(NOTICE_INFO, L"Removed '%ls' from the library.", name);
     }
     ui_on_config_changed();
 }

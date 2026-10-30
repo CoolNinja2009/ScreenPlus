@@ -137,7 +137,7 @@ void app_set_screensaver(const wchar_t *wallpaperId)
     ScrState st;
     scr_query(&st);
     if (!(st.ours && st.active))
-        app_notice(NOTICE_INFO, L"Saved. Switch on Use Screen+ as the screensaver in Settings to let Windows start it.");
+        app_notice(NOTICE_INFO, L"Saved. Turn on the screensaver in Settings to use it.");
 }
 
 void app_set_paused(BOOL paused)
@@ -279,6 +279,10 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             supervisor_on_timer();
         } else if (wp == T_SHELL_UPDATE) {
             update_on_timer();
+        } else if (wp == T_SHELL_STARTUP) {
+            KillTimer(h, T_SHELL_STARTUP);
+            startup_sync();
+            ui_on_status();
         }
         return 0;
     case WM_DISPLAYCHANGE:
@@ -353,7 +357,7 @@ static void apply_setup_choice(void)
 int app_main(HINSTANCE inst, int argc, wchar_t **argv)
 {
     uint32_t forward = CMD_SHOW_UI;
-    int trayOnly = 0, signIn = 0;   /* --startup: the Run entry; "Open in the background" decides the window */
+    int trayOnly = 0, signIn = 0;   /* --startup: the Run entry; "Start minimised to the tray" decides the window */
     for (int i = 1; i < argc; i++) {
         if (str_ieq(argv[i], L"--tray")) { trayOnly = 1; forward = CMD_NONE; }
         else if (str_ieq(argv[i], L"--startup")) { signIn = 1; forward = CMD_NONE; }
@@ -397,9 +401,6 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     int existed = file_exists(paths_config());
     int loaded = config_load(&g_app.cfg, paths_config());
     if (!loaded && !existed) first_run();
-    int sw = startup_is_enabled();
-    if (sw != g_app.cfg.s.startWithWindows) g_app.cfg.s.startWithWindows = sw;
-    if (sw) startup_set_enabled(TRUE);      /* refresh the path if the executable moved */
     if (forward == CMD_PAUSE) g_app.cfg.s.paused = 1;
     if (forward == CMD_RESUME) g_app.cfg.s.paused = 0;
     apply_setup_choice();
@@ -435,6 +436,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
 
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
     update_init();                  /* "Auto update": the first check a few minutes from now */
+    SetTimer(g_app.shellWnd, T_SHELL_STARTUP, 3000, NULL);   /* "Start with Windows" in step, off the start path */
     if (forward == CMD_SHOW_SETTINGS) ui_show_screensaver();
     else if (!trayOnly && !(signIn && g_app.cfg.s.launchToTray)) app_show_ui();
     else if (forward == CMD_NEXT_WALLPAPER) app_next_wallpaper();

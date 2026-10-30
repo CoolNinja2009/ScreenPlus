@@ -232,12 +232,12 @@ static void run_setup(void)
     str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" /S /UPDATE", g_ready);
     if (!CreateProcessW(g_ready, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         LOGW(L"update: could not start the installer (err %lu)", GetLastError());
-        set_status(0, -1, L"The update could not start; Screen+ tries again at the next check");
+        set_status(0, -1, L"The update could not start");
     } else {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
         LOGI(L"update: installing Screen+ %ls; setup closes Screen+ and starts the new version", g_readyVersion);
-        str_printf(text, SP_COUNTOF(text), L"Installing Screen+ %ls… it starts again in a moment", g_readyVersion);
+        str_printf(text, SP_COUNTOF(text), L"Installing Screen+ %ls…", g_readyVersion);
         set_status(1, -1, text);
     }
     g_ready[0] = 0;
@@ -248,7 +248,7 @@ static void try_install(void)
 {
     wchar_t text[SP_COUNTOF(g_state.text)];
     if (ui_is_open()) {
-        str_printf(text, SP_COUNTOF(text), L"Screen+ %ls is ready: it installs when you close this window", g_readyVersion);
+        str_printf(text, SP_COUNTOF(text), L"Screen+ %ls installs when this window closes", g_readyVersion);
         set_status(0, -1, text);
         return;
     }
@@ -263,7 +263,7 @@ static BOOL start(BOOL install, BOOL user)
     j->install = install && can_install();
     j->user = user;
     j->cancel = CreateEventW(NULL, TRUE, FALSE, NULL);
-    set_status(1, -1, L"Checking GitHub for a new release…");
+    set_status(1, -1, L"Checking for updates…");
     g_job = j;
     g_thread = j->cancel ? CreateThread(NULL, 0, worker, j, 0, NULL) : NULL;
     if (!g_thread) {
@@ -317,11 +317,11 @@ void update_get(UpdateState *out)
     ReleaseSRWLockShared(&g_lock);
     if (out->text[0]) return;
     if (!out->supported)
-        str_copy(out->text, SP_COUNTOF(out->text), L"This copy wasn't installed by setup, so it can't update itself; Check now looks on GitHub");
+        str_copy(out->text, SP_COUNTOF(out->text), L"Portable copy: updates are not installed automatically");
     else if (g_app.cfg.s.autoUpdate)
-        str_copy(out->text, SP_COUNTOF(out->text), L"Installs new releases from GitHub by itself; your library and settings are kept");
+        str_copy(out->text, SP_COUNTOF(out->text), L"On");
     else
-        str_copy(out->text, SP_COUNTOF(out->text), L"Off: Screen+ only looks for new releases when you press Check now");
+        str_copy(out->text, SP_COUNTOF(out->text), L"Off");
 }
 
 void update_on_event(WPARAM wp, LPARAM lp)
@@ -344,11 +344,11 @@ void update_on_event(WPARAM wp, LPARAM lp)
         if (j->user) app_notice(NOTICE_ERROR, L"%ls", j->error);
     } else if (!j->newer) {
         LOGI(L"update: Screen+ %ls is up to date (latest release %ls)", SP_VERSION_W, j->version);
-        str_printf(text, SP_COUNTOF(text), L"Screen+ %ls is up to date · checked at %02u:%02u", SP_VERSION_W, now.wHour, now.wMinute);
+        str_printf(text, SP_COUNTOF(text), L"Up to date · checked at %02u:%02u", now.wHour, now.wMinute);
         set_status(0, -1, text);
     } else if (!j->setup[0] || (!j->user && !g_app.cfg.s.autoUpdate)) {
         LOGI(L"update: Screen+ %ls is available", j->version);
-        str_printf(text, SP_COUNTOF(text), can_install() ? L"Screen+ %ls is available: Check now installs it"
+        str_printf(text, SP_COUNTOF(text), can_install() ? L"Screen+ %ls is available"
                                                          : L"Screen+ %ls is available on GitHub", j->version);
         set_status(0, -1, text);
     } else {

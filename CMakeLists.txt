@@ -93,7 +93,7 @@ endforeach()
 set(SOURCES
     src/main.c
     src/common/util.c src/common/log.c src/common/paths.c src/common/json.c src/common/webfetch.c
-    src/common/ytdlp.c src/common/scrnsave.c
+    src/common/ytdlp.c src/common/scrnsave.c src/common/autostart.c
     src/screensaver/screensaver.c
     src/settings/config.c
     src/monitor/monitor.c
@@ -129,7 +129,8 @@ target_link_libraries(ScreenPlus PRIVATE
     "${WEBVIEW2_SDK_DIR}/build/native/x64/WebView2LoaderStatic.lib"
     ${FFMPEG_IMPLIBS} delayimp
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
-    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp)
+    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp
+    taskschd)
 
 # Sample wallpapers besides Aurora: setup bundles only Aurora and, when "Sample wallpapers" is ticked, runs
 # `screenplus samples install`, which downloads this release's ScreenPlus-<version>-samples.zip (CI uploads it),
@@ -165,7 +166,7 @@ file(SIZE "${SAMPLES_ZIP}" SAMPLES_SIZE)
 # Terminal companion, shipped as ScreenPlus.com next to ScreenPlus.exe: a terminal resolves
 # `screenplus` to the .com first (PATHEXT order), shortcuts and the startup entry name the .exe.
 add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/json.c src/common/paths.c
-                             src/common/webfetch.c src/common/scrnsave.c)
+                             src/common/webfetch.c src/common/scrnsave.c src/common/autostart.c)
 set_target_properties(ScreenPlusCli PROPERTIES OUTPUT_NAME ScreenPlus SUFFIX ".com" PDB_NAME ScreenPlusCli)
 target_include_directories(ScreenPlusCli PRIVATE src)
 target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
@@ -173,7 +174,7 @@ target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN3
                                                  SP_SAMPLES_SIZE=${SAMPLES_SIZE} SP_SAMPLES_SHA256="${SAMPLES_SHA256}")
 target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /wd4221 /wd4100)
 target_link_options(ScreenPlusCli PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /INCREMENTAL:NO)
-target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 advapi32 bcrypt winhttp)
+target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 oleaut32 advapi32 bcrypt winhttp taskschd)
 
 # Validation helpers (not shipped): check the wallpaper is attached and visible behind the
 # icons, and print the livelySystemInformation payload the engine feeds web wallpapers.

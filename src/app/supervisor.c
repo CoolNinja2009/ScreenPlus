@@ -104,17 +104,16 @@ void supervisor_on_exit(DWORD code, DWORD pid)
         UINT delay = 1000u << (g_app.crashes - 1);       /* 1 s, 2 s, 4 s */
         g_app.restartPending = 1;
         SetTimer(g_app.shellWnd, 1, delay, NULL);
-        app_notice(NOTICE_WARN, L"The wallpaper renderer stopped unexpectedly and is restarting (attempt %d of %d).",
+        app_notice(NOTICE_WARN, L"The renderer stopped unexpectedly. Restarting (%d of %d)…",
                    g_app.crashes, MAX_RESTARTS);
     } else if (!g_app.safeMode) {
         g_app.safeMode = 1;
         g_app.restartPending = 1;
         SetTimer(g_app.shellWnd, 1, 3000, NULL);
-        app_notice(NOTICE_WARN, L"The renderer kept failing, so it restarted in safe mode (video and HTML wallpapers are paused).");
+        app_notice(NOTICE_WARN, L"The renderer kept failing and was restarted in safe mode.");
     } else {
         g_app.engineGaveUp = 1;
-        app_notice(NOTICE_ERROR, L"The renderer stopped after repeated failures. Your normal Windows wallpaper is shown. "
-                                 L"Use Restart renderer to try again.");
+        app_notice(NOTICE_ERROR, L"The renderer stopped after repeated failures.");
     }
     tray_update();
     ui_on_status();

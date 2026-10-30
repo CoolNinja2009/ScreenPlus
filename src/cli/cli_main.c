@@ -4,7 +4,7 @@
  * the .com first (PATHEXT order) while shortcuts and the startup entry name the .exe, the same
  * arrangement as devenv.com/devenv.exe. Commands run inside the running app: each one is sent as
  * IPC_CLI_REQUEST and the app's IPC_CLI_REPLY is printed (src/app/cli_server.c). A few work
- * without the app: help, version, start, logs, paths, path, tools, samples, vcredist, screensaver (but use). No arguments: an interactive prompt.
+ * without the app: help, version, start, logs, paths, path, tools, samples, vcredist, startup, screensaver (but use). No arguments: an interactive prompt.
  *
  * Exit codes: 0 ok, 1 the command failed, 2 bad usage, 3 Screen+ is not running. */
 #include "../common/common.h"
@@ -14,6 +14,7 @@
 #include "../common/paths.h"
 #include "../common/webfetch.h"
 #include "../common/scrnsave.h"
+#include "../common/autostart.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -312,6 +313,7 @@ static const wchar_t k_help[] =
     L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
     L"  samples install                        the sample wallpapers besides Aurora (setup's optional download)\n"
     L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
+    L"  startup [on | off]                     start Screen+ when you sign in (a logon task)\n"
     L"  screensaver [on | off | preview]       Screen+ as the Windows screensaver\n"
     L"  screensaver timeout <minutes>          idle time before it starts (a Windows setting)\n"
     L"  screensaver lock [on | off]            sign-in screen when it ends (a Windows setting)\n"
@@ -568,6 +570,34 @@ static int cmd_screensaver(int n, wchar_t **argv)
     if (st.current[0]) out(L"SCRNSAVE.EXE = %ls\n", st.current);
     if (st.policy) out(L"Group Policy sets the screensaver on this PC: Windows may ignore Screen+'s.\n");
     return EXIT_OK;
+}
+
+/* ---- startup: Start with Windows without the app (setup turns it on or off, the uninstaller off).
+ * Status exits 0 when it is on, so setup can ask an installed copy. */
+static int cmd_startup(const wchar_t *sub)
+{
+    HRESULT hrCo = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    wchar_t exe[SP_MAX_PATH];
+    AutostartKind kind = AUTOSTART_OFF;
+    HRESULT hr = S_OK;
+    int rc = EXIT_OK;
+    if (!sub || !sub[0] || str_ieq(sub, L"status")) {
+        kind = autostart_query(NULL, 0);
+        if (kind == AUTOSTART_OFF) rc = EXIT_FAILED;
+    } else if (str_ieq(sub, L"on") || str_ieq(sub, L"off")) {
+        path_join(exe, SP_COUNTOF(exe), paths_exe_dir(), L"ScreenPlus.exe");
+        if (!autostart_set(str_ieq(sub, L"on"), exe, &kind, &hr)) {
+            err(L"Could not change the Windows startup entry (0x%08lX).\n", (unsigned long)hr);
+            rc = EXIT_FAILED;
+        }
+    } else {
+        err(L"Usage: screenplus startup [status | on | off]\n");
+        rc = EXIT_USAGE;
+    }
+    if (rc != EXIT_USAGE)
+        out(L"Start with Windows: %ls\n", kind == AUTOSTART_TASK ? L"on" : kind == AUTOSTART_RUN ? L"on (Run key)" : L"off");
+    if (SUCCEEDED(hrCo)) CoUninitialize();
+    return rc;
 }
 
 /* ---- vcredist: the Microsoft Visual C++ runtime ONNX Runtime needs (setup offers it when it is missing) */
@@ -873,6 +903,7 @@ static int run_command(int argc, wchar_t **in)
     if (str_ieq(c, L"tools")) return cmd_tools(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"samples")) return cmd_samples(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"vcredist")) return cmd_vcredist(n > 1 ? argv[1] : NULL);
+    if (str_ieq(c, L"startup")) return cmd_startup(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"screensaver") && !(n > 1 && str_ieq(argv[1], L"use"))) return cmd_screensaver(n, argv);
     if (str_ieq(c, L"watch") || (watch && str_ieq(c, L"status"))) {
         argv[0] = L"status";

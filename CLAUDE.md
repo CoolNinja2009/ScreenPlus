@@ -21,7 +21,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 ## Processes and IPC
 - **Shell**: `ScreenPlus.exe`, `src/app`. Runs the tray and UI window, owns `config.ini` and supervises the
   engine (`supervisor.c`: job object, backoff, safe mode). It is single-instance (mutex
-  `Local\ScreenPlus.Instance.v1`); a second launch forwards its switch and exits. The Run entry passes
+  `Local\ScreenPlus.Instance.v1`); a second launch forwards its switch and exits. The logon task passes
   `--startup` (window unless `launch_to_tray`); `--tray` (CLI `start`, setup's `/UPDATE` relaunch) never opens
   the window; a plain launch always does.
 - **Engine**: `ScreenPlus.exe --engine`, `src/engine/engine.c`. Owns the desktop-hosted windows, renderers,
@@ -56,9 +56,9 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
 | `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, backiee, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
-| `src/app/startup.c`, `supervisor.c` | HKCU Run entry; engine process lifecycle |
+| `src/app/startup.c`, `supervisor.c` | Start with Windows (`startup_sync` 3 s after start moves a Run entry to the logon task); engine process lifecycle |
 | `src/app/update.c` | Auto update (`auto_update`, Settings Check now, `screenplus update`): GitHub's latest release vs `SP_VERSION_W`, the setup asset downloaded into `<data>\updates` and checked against the size + SHA-256 GitHub lists, run as `/S /UPDATE` (setup closes the app and relaunches it `--tray`). Installed copies only (`uninstall.exe` beside the exe); waits while the window is open |
-| `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, vcredist), IPC for the rest |
+| `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, samples, vcredist, startup, screensaver), IPC for the rest |
 | `src/screensaver/screensaver.c` | Screensaver process (see above) |
 | `src/common/scrnsave.c` | Windows screensaver registration, timeout, lock-on-resume, `.scr` sync, Preview launch |
 | `src/ui/identify.c` | Displays page **Identify**: each display's number in its corner |
@@ -72,7 +72,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/ui/ui_pages.c` | Library, Displays, Customise and Settings pages; `pages_activate`, `pages_context`, `pages_tooltip` |
 | `src/ui/thumbs.c`, `d2d_c.h`, `dwrite_c.h` | Thumbnail worker thread; hand-written C COM declarations |
 | `src/settings/config.c` | `config.ini` (UTF-8 INI, atomic write + `.bak`), `WallpaperEntry`, `Settings` |
-| `src/common/` | `util` (bounded `str_*`, paths, UTF-8, StrBuf), `log`, `paths` (data dirs), `json` (small DOM), `ipc.h`, `webfetch` (WinHTTP + pinned tool install + the Visual C++ runtime check/installer; the CLI uses it too), `ytdlp` (run/resolve yt-dlp, stream address cache) |
+| `src/common/` | `util` (bounded `str_*`, paths, UTF-8, StrBuf), `log`, `paths` (data dirs), `json` (small DOM), `ipc.h`, `webfetch` (WinHTTP + pinned tool install + the Visual C++ runtime check/installer; the CLI uses it too), `ytdlp` (run/resolve yt-dlp, stream address cache), `autostart` (Start with Windows: a per-user Task Scheduler logon task `ScreenPlus-<SID>` at normal priority, the HKCU Run key as fallback; app + CLI `startup`, which setup and the uninstaller call) |
 | `installer/screenplus.nsi` | Per-user NSIS installer: install type page and an optional-features page (link tools) |
 | `resources/` | Icon, `.rc`, manifest (comctl32 v6, PerMonitorV2) |
 | `docs/store/` | Store sources (branch `store`): `sources.md` maps every site, `motionbgs.md` in detail, `sites-without-one-click-download.md` why some open their page |
@@ -189,14 +189,19 @@ Renderer details:
   2. Run `ScreenPlus.com stop`.
   3. Run the build on a scratch `SCREENPLUS_DATA_DIR`, never on the real data folder.
   4. Ask the user to start the installed copy again (Start menu). Never start it from the agent: see below.
-  A dev build rewrites `HKCU\...\Run\ScreenPlus` when Start with Windows is on; restore it.
+  A dev build re-registers the logon task for its own exe when Start with Windows is on; restore it with the
+  installed `ScreenPlus.com startup on` (1.8.4 and older used the Run key `HKCU\...\Run\ScreenPlus`).
 - **The Claude desktop app is MSIX-packaged** (`Claude_pzs8sxrjxfjjc`), so every process the agent starts sees a
   copy-on-write view of `%LOCALAPPDATA%`: new files land in `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\`
   and shadow the real ones there, while existing real files are still changed and deleted for real. On 2026-10-29
   a Screen+ restarted from the agent loaded a stale private `config.ini` (from 2026-10-25), and its startup sweeps
   (`url_import_sweep`, `depth_sweep`) deleted real downloads and depth pages that only the real library used. The
   stale copy was renamed to `ScreenPlus.stale-copy-2026-10-25`. A process outside the package (WMI, Task
-  Scheduler) is blocked by the auto-mode classifier.
+  Scheduler) is blocked by the auto-mode classifier. HKCU is virtualized the same way (private hive under
+  `Packages\Claude_pzs8sxrjxfjjc\SystemAppData\Helium`): agent processes may read a stale `Run\ScreenPlus`, and
+  their HKCU writes may never reach the real one. Task Scheduler calls do reach the real service: test
+  `autostart.c` with a scratch build that defines `AUTOSTART_TASK_PREFIX`/`AUTOSTART_RUN_VALUE` as test names,
+  never with `build\ScreenPlus.com startup on|off`.
 - To test logic without stopping the user's app, compile a scratch harness with `cl`. Link the real `.c`
   files, stub the `app_*`/`ui_*` hooks, and point `SCREENPLUS_DATA_DIR` at a scratch folder.
 - `ScreenPlus.exe --capture-preview <id>` renders an HTML wallpaper offscreen.
