@@ -6,7 +6,7 @@
 
 Live wallpapers for Windows.
 
-[![Release](https://img.shields.io/github/v/release/CoolNinja2009/ScreenPlus?style=flat-square&color=0a84ff&label=release)](https://github.com/CoolNinja2009/ScreenPlus/releases/latest)
+[![Release](https://img.shields.io/github/v/release/CoolNinja2009/ScreenPlus?style=flat-square&color=FFA500&label=release)](https://github.com/CoolNinja2009/ScreenPlus/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/CoolNinja2009/ScreenPlus/total?style=flat-square&color=0a84ff)](https://github.com/CoolNinja2009/ScreenPlus/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square)](LICENSE)
 
