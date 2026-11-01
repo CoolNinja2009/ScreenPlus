@@ -331,6 +331,7 @@ int screensaver_main(HINSTANCE inst, int argc, wchar_t **argv, int asScr)
     wchar_t udf[SP_MAX_PATH];
     path_join(udf, SP_COUNTOF(udf), paths_root(), L"WebView2-Screensaver");
     html_set_profile(udf);
+    html_set_fps_cap(S.cfg.s.webFps);
 
     WNDCLASSEXW wc = { sizeof wc };
     wc.lpfnWndProc = ctl_proc;

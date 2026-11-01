@@ -897,8 +897,9 @@ static void cmd_props(Reply *r, const Req *q)
 static const wchar_t *const k_themeNames[] = { L"system", L"light", L"dark", NULL };
 static const wchar_t *const k_modeNames[] = { L"independent", L"duplicate", L"span", NULL };
 static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary", NULL };
-enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP };
-static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames };
+static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
+enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS };
+static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames };
 static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *desc; } k_settings[] = {
     { L"start_with_windows",  offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
     { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Keep the window closed when it starts with Windows" },
@@ -912,6 +913,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"paused",              offsetof(Settings, paused),            SK_BOOL,  L"Wallpapers paused" },
     { L"html_mouse",          offsetof(Settings, htmlMouse),         SK_BOOL,  L"Mouse input for web wallpapers" },
     { L"html_audio",          offsetof(Settings, htmlAudio),         SK_BOOL,  L"System audio spectrum for web wallpapers" },
+    { L"web_fps",             offsetof(Settings, webFps),            SK_FPS,   L"Frame-rate limit for web wallpapers: 30, 60 or off" },
     { L"lively_auto_import",  offsetof(Settings, livelyImport),      SK_BOOL,  L"Add new Lively Wallpaper packages at launch" },
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
     { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
@@ -927,6 +929,7 @@ static const wchar_t *setting_text(int kind, int v)
 {
     const wchar_t *const *names = k_enumNames[kind];
     if (!names) return v ? L"on" : L"off";
+    if (kind == SK_FPS) v = v == 30 ? 1 : v == 60 ? 2 : 0;
     for (int i = 0; names[i]; i++) if (i == v) return names[i];
     return names[0];
 }
@@ -998,7 +1001,7 @@ static void cmd_settings(Reply *r, const Req *q)
             }
             if (field == (int *)&s->displayMode) app_set_display_mode(idx);
             else {
-                *field = idx;
+                *field = k_settings[i].kind == SK_FPS ? (idx == 1 ? 30 : idx == 2 ? 60 : 0) : idx;
                 app_save_config();
             }
         } else {

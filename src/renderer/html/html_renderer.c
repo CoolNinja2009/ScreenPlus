@@ -173,6 +173,10 @@ struct HtmlRenderer {
     IStream                  *capture;
     IStream                  *grab;        /* html_grab in flight */
     double                    raster;      /* fixed rasterization scale (preview capture), 0: monitor */
+    ULONGLONG                 moveSent;    /* a mouseMoved in flight since then (0: none) */
+    int                       movePending; /* newer position waiting for it: mvX, mvY, mvButtons */
+    double                    mvX, mvY;
+    int                       mvButtons;
 };
 
 static void html_addref(HtmlRenderer *r) { InterlockedIncrement(&r->refs); }
@@ -508,6 +512,35 @@ static HRESULT on_download(HtmlRenderer *r, void *sender, void *argsv)
     return S_OK;
 }
 
+/* Frame-rate cap: requestAnimationFrame callbacks only run on frames at least 1000/fps ms apart,
+ * minus half a vsync so a 200 Hz display settles on every third frame (67 fps), not a 3/4 mix.
+ * Skipped callbacks are re-queued, so the page draws nothing and Chromium presents nothing on
+ * those frames. All callbacks of one frame share the decision; ids stay cancellable. Pages that
+ * time by the clock keep their speed. window.__spFps(n) changes the cap live. */
+static int g_fpsCap = 60;
+
+static const wchar_t k_fpsJs[] =
+    L"(function(){var w=window,raf=w.requestAnimationFrame,caf=w.cancelAnimationFrame;if(!raf||w.__spFps)return;"
+    L"var fps=%d,last=-1e9,dec=-1,ok=true,prev=-1,vs=0,q=new Map(),seq=0;"
+    L"function allow(t){if(t===dec)return ok;dec=t;var d=t-prev;prev=t;if(d>0&&d<50)vs=vs?Math.min(d,vs+0.05):d;"
+    L"ok=!fps||t-last>=1000/fps-vs/2;if(ok)last=t;return ok;}"
+    L"w.requestAnimationFrame=function(cb){var id=++seq;var tick=function(t){if(!q.has(id))return;"
+    L"if(!allow(t)){q.set(id,raf.call(w,tick));return;}q.delete(id);cb(t);};q.set(id,raf.call(w,tick));return id;};"
+    L"w.cancelAnimationFrame=function(id){var n=q.get(id);if(n!==undefined){caf.call(w,n);q.delete(id);}};"
+    L"Object.defineProperty(w,'__spFps',{value:function(n){fps=n|0;}});})();";
+
+void html_set_fps_cap(int fps)
+{
+    g_fpsCap = fps == 30 || fps == 60 ? fps : 0;
+}
+
+static void apply_fps(HtmlRenderer *r)
+{
+    wchar_t js[64];
+    str_printf(js, SP_COUNTOF(js), L"window.__spFps&&__spFps(%d)", g_fpsCap);
+    ICoreWebView2_ExecuteScript(r->wv, js, (ICoreWebView2ExecuteScriptCompletedHandler *)&g_noopScript);
+}
+
 static void configure(HtmlRenderer *r)
 {
     ICoreWebView2Settings *st = NULL;
@@ -563,6 +596,11 @@ static void configure(HtmlRenderer *r)
     }
     /* Lively / Wallpaper Engine API shim, injected before any page script runs. */
     ICoreWebView2_AddScriptToExecuteOnDocumentCreated(r->wv, wpapi_shim_js(),
+        (ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *)&g_noopAdd);
+    /* Always installed (cap 0 passes every frame), so the setting can change without a reload. */
+    wchar_t fpsJs[SP_COUNTOF(k_fpsJs) + 8];
+    str_printf(fpsJs, SP_COUNTOF(fpsJs), k_fpsJs, g_fpsCap);
+    ICoreWebView2_AddScriptToExecuteOnDocumentCreated(r->wv, fpsJs,
         (ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *)&g_noopAdd);
 }
 
@@ -804,8 +842,48 @@ static void hr_apply(Renderer *base)
 {
     HtmlRenderer *r = (HtmlRenderer *)base;
     if (!r->wv || r->closed || !r->readyPosted) return;   /* the first navigation applies everything */
+    apply_fps(r);
     apply_properties(r);
     apply_adjustments(r);
+}
+
+static HRESULT on_moved(HtmlRenderer *r, void *a, void *b);
+
+static void send_mouse(HtmlRenderer *r, const char *type, double x, double y, const char *button, int buttons,
+                       int clicks, double dy, Callback *done)
+{
+    wchar_t json[320];
+    str_printf(json, SP_COUNTOF(json),
+               L"{\"type\":\"%hs\",\"x\":%.2f,\"y\":%.2f,\"button\":\"%hs\",\"buttons\":%d,\"clickCount\":%d,"
+               L"\"deltaX\":0,\"deltaY\":%.2f,\"pointerType\":\"mouse\"}",
+               type, x, y, button, buttons, clicks, dy);
+    ICoreWebView2_CallDevToolsProtocolMethod(r->wv, L"Input.dispatchMouseEvent", json,
+        (ICoreWebView2CallDevToolsProtocolMethodCompletedHandler *)(done ? done : &g_noopCdp));
+}
+
+/* Moves are coalesced: one in flight at a time, the latest position sent when it completes. Raw
+ * input arrives at the mouse's polling rate (up to 1000/s+); queued calls would leave a slow page
+ * trailing the cursor. A call that never completes stops gating after 250 ms. */
+static void send_move(HtmlRenderer *r, double x, double y, int buttons)
+{
+    ULONGLONG now = GetTickCount64();
+    if (r->moveSent && now - r->moveSent < 250) {
+        r->mvX = x; r->mvY = y; r->mvButtons = buttons; r->movePending = 1;
+        return;
+    }
+    r->movePending = 0;
+    Callback *cb = cb_new(&k_vtHrPtr, &IID_ICoreWebView2CallDevToolsProtocolMethodCompletedHandler, r, on_moved);
+    r->moveSent = cb ? now : 0;
+    send_mouse(r, "mouseMoved", x, y, "none", buttons, 0, 0.0, cb);
+    if (cb) cb_release(cb);
+}
+
+static HRESULT on_moved(HtmlRenderer *r, void *a, void *b)
+{
+    (void)a; (void)b;
+    r->moveSent = 0;
+    if (r->movePending && r->wv && !r->closed && r->state == RS_ACTIVE) send_move(r, r->mvX, r->mvY, r->mvButtons);
+    return S_OK;
 }
 
 static void hr_input(Renderer *base, const RendererInput *in)
@@ -813,6 +891,11 @@ static void hr_input(Renderer *base, const RendererInput *in)
     HtmlRenderer *r = (HtmlRenderer *)base;
     if (!r->wv || r->closed || !r->readyPosted || r->state != RS_ACTIVE) return;
     double x = in->x / r->scale, y = in->y / r->scale, dy = 0.0;
+    if (in->kind == RIN_MOVE) {
+        send_move(r, x, y, in->buttons);
+        return;
+    }
+    r->movePending = 0;   /* clicks, wheel and leave carry their own position */
     const char *type = "mouseMoved", *button = "none";
     int clicks = 0;
     switch (in->kind) {
@@ -823,13 +906,7 @@ static void hr_input(Renderer *base, const RendererInput *in)
     default: break;
     }
     if (in->kind == RIN_DOWN || in->kind == RIN_UP) button = in->button == 1 ? "right" : in->button == 2 ? "middle" : "left";
-    wchar_t json[320];
-    str_printf(json, SP_COUNTOF(json),
-               L"{\"type\":\"%hs\",\"x\":%.2f,\"y\":%.2f,\"button\":\"%hs\",\"buttons\":%d,\"clickCount\":%d,"
-               L"\"deltaX\":0,\"deltaY\":%.2f,\"pointerType\":\"mouse\"}",
-               type, x, y, button, in->buttons, clicks, dy);
-    ICoreWebView2_CallDevToolsProtocolMethod(r->wv, L"Input.dispatchMouseEvent", json,
-                                             (ICoreWebView2CallDevToolsProtocolMethodCompletedHandler *)&g_noopCdp);
+    send_mouse(r, type, x, y, button, in->buttons, clicks, dy, NULL);
 }
 
 static void hr_feed(Renderer *base, int what, const char *payload)

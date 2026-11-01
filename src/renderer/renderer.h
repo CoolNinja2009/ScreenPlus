@@ -90,6 +90,8 @@ void html_shutdown(void);
 void html_capture_mode(const wchar_t *userDataFolder);
 /* Screensaver process: its own WebView2 profile, so it never depends on the engine's browser. */
 void html_set_profile(const wchar_t *userDataFolder);
+/* Frame-rate cap for pages (30, 60, 0: the display's rate). New pages get it; live ones on vt->apply. */
+void html_set_fps_cap(int fps);
 /* Grabs the loaded page as JPEG; the result arrives as WM_SP_HTML_GRAB (receiver releases the stream). */
 BOOL html_grab(Renderer *r);
 

@@ -554,13 +554,19 @@ static void wallpaper_data_tick(void)
     if (!wantSystem && !wantTrack && !(wantAudio && E.cfg.s.htmlAudio)) {
         KillTimer(E.ctl, T_WALLPAPER_DATA); audio_visualizer_stop(); now_playing_stop(); return;
     }
+    /* Started at 1 ms to fire at once; steady rate: the spectrum at 30 Hz (Wallpaper Engine's
+     * rate, each feed is a script the page compiles), everything else at 250 ms. */
+    BOOL audioOn = wantAudio && E.cfg.s.htmlAudio;
+    SetTimer(E.ctl, T_WALLPAPER_DATA, audioOn ? 33 : 250, NULL);
     if (wantTrack) now_playing_start(); else now_playing_stop();
-    if (wantAudio && E.cfg.s.htmlAudio) audio_visualizer_start(); else audio_visualizer_stop();
+    if (audioOn) audio_visualizer_start(); else audio_visualizer_stop();
     /* Lively system data (cpu/gpu/ram/net) only when a page asks for it; the
-     * sampling windows in sysinfo expect a steady tick. */
+     * sampling windows in sysinfo expect a steady ~250 ms tick. */
+    static ULONGLONG lastSys;
+    ULONGLONG now = GetTickCount64();
     char sys[2048] = "";
-    if (wantSystem) sysinfo_sample(sys, sizeof sys);
-    float bands[64]; BOOL spectrum = wantAudio && E.cfg.s.htmlAudio && audio_visualizer_spectrum(bands);
+    if (wantSystem && now - lastSys >= 240) { lastSys = now; sysinfo_sample(sys, sizeof sys); }
+    float bands[64]; BOOL spectrum = audioOn && audio_visualizer_spectrum(bands);
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &E.slots[i];
         if (!s->used || !s->r || s->state != RS_ACTIVE || !s->r->vt->wants || !s->r->vt->feed) continue;
@@ -663,11 +669,16 @@ static void reload_config(void)
     Config fresh;
     ZeroMemory(&fresh, sizeof fresh);
     config_load(&fresh, paths_config());
-    int oldAudio = E.cfg.s.audio, oldStill = E.cfg.s.stillWallpaper;
+    int oldAudio = E.cfg.s.audio, oldStill = E.cfg.s.stillWallpaper, oldFps = E.cfg.s.webFps;
     config_free(&E.cfg);
     E.cfg = fresh;
     E.userPaused = E.cfg.s.paused;
     reconcile_slots();
+    if (oldFps != E.cfg.s.webFps) {
+        html_set_fps_cap(E.cfg.s.webFps);
+        for (int i = 0; i < SP_MAX_MONITORS; i++)
+            if (E.slots[i].used && E.slots[i].r && E.slots[i].r->vt->apply) E.slots[i].r->vt->apply(E.slots[i].r);
+    }
     if (oldAudio != E.cfg.s.audio) {
         for (int i = 0; i < SP_MAX_MONITORS; i++)
             if (E.slots[i].used && E.slots[i].r) E.slots[i].r->vt->set_audio(E.slots[i].r, slot_wants_audio(&E.slots[i]));
@@ -1054,6 +1065,7 @@ int engine_main(HINSTANCE inst, HWND shell, int safeMode)
     }
 
     config_load(&E.cfg, paths_config());
+    html_set_fps_cap(E.cfg.s.webFps);
     E.userPaused = E.cfg.s.paused;
     SYSTEM_POWER_STATUS sps;
     if (GetSystemPowerStatus(&sps)) {

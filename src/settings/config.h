@@ -88,6 +88,7 @@ typedef struct Settings {
     int       paused;         /* user pause, persisted */
     int       htmlMouse;      /* forward desktop mouse input to HTML wallpapers */
     int       htmlAudio;      /* system-audio spectrum for audio-reactive wallpapers */
+    int       webFps;         /* frame-rate cap for HTML wallpapers: 30, 60 or 0 (the display's rate) */
     int       livelyImport;   /* add newly installed Lively Wallpaper packages at launch */
     int       urlImport;      /* link button: import from web links (setup's optional yt-dlp component) */
     int       depthAll;       /* make every image wallpaper interactive (depth.c) when it is applied */

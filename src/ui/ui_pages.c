@@ -1024,6 +1024,15 @@ static void draw_settings(Ui *u, float cx, float cw)
         int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport, s->urlImport, s->depthAll };
         y = toggle_group(u, x, y, w, idx, l, d, v, 5);
     }
+    y += 10;
+    ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+    row_label(u, x, y, w - 300, L"Frame-rate limit", NULL);
+    {
+        static const wchar_t *opts[] = { L"30", L"60", L"Off" };
+        int sel = s->webFps == 30 ? 0 : s->webFps == 60 ? 1 : 2;
+        segmented(u, x + w - 18 - 78 * 3, y + 15, HK_WEB_FPS, opts, 3, sel, 78, NULL);
+    }
+    y += 62;
     y += 26;
     y = section(u, x, y, L"TROUBLESHOOTING");
     {
@@ -2150,6 +2159,11 @@ void pages_activate(int id, int dbl)
         }
         break;
     }
+    case HK_WEB_FPS:
+        g_app.cfg.s.webFps = data == 0 ? 30 : data == 1 ? 60 : 0;
+        app_save_config();
+        ui_invalidate();
+        break;
     case HK_THEME:
         g_app.cfg.s.theme = (ThemeMode)data;
         app_save_config();
