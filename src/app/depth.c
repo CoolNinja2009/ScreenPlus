@@ -467,6 +467,56 @@ static BOOL depth_current(const wchar_t *source, const wchar_t *depthFile)
            CompareFileTime(&d.ftLastWriteTime, &s.ftLastWriteTime) >= 0;
 }
 
+/* The page from the template (RCDATA): 1 written, 0 already the same (onlyIfChanged), -1 not written, -2 no template. */
+static int render_page(const wchar_t *dir, const wchar_t *media, int model, int video, BOOL onlyIfChanged)
+{
+    HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(IDR_DEPTH_HTML), RT_RCDATA);
+    HGLOBAL g = r ? LoadResource(NULL, r) : NULL;
+    const char *tpl = g ? (const char *)LockResource(g) : NULL;
+    if (!tpl) return -2;
+    wchar_t depthName[64], pageName[64];
+    model_name(model, L"depth", video ? L".bin" : L".png", depthName, SP_COUNTOF(depthName));
+    model_name(model, L"index", L".html", pageName, SP_COUNTOF(pageName));
+    char *img = utf8_from_wide(media, NULL), *dep = utf8_from_wide(depthName, NULL);
+    const char *vars[][2] = { { "__IMG__", img }, { "__DEPTH__", dep }, { "__VIDEO__", video ? "1" : "0" } };
+    StrBuf b = { 0 };
+    const char *p = tpl, *end = tpl + SizeofResource(NULL, r), *hit;
+    while (img && dep && p < end && (hit = (const char *)memchr(p, '_', (size_t)(end - p))) != NULL) {   /* every __NAME__ */
+        size_t v = 0;
+        while (v < SP_COUNTOF(vars) && !((size_t)(end - hit) >= strlen(vars[v][0]) && memcmp(hit, vars[v][0], strlen(vars[v][0])) == 0)) v++;
+        if (v < SP_COUNTOF(vars)) {
+            sb_append(&b, p, (size_t)(hit - p));
+            sb_puts(&b, vars[v][1]);
+            p = hit + strlen(vars[v][0]);
+        } else {
+            sb_append(&b, p, (size_t)(hit - p) + 1);
+            p = hit + 1;
+        }
+    }
+    if (img && dep && p < end) sb_append(&b, p, (size_t)(end - p));
+    BOOL built = img && dep && !b.failed;
+    free(img);
+    free(dep);
+    wchar_t page[SP_MAX_PATH], props[SP_MAX_PATH];
+    path_join(page, SP_COUNTOF(page), dir, pageName);
+    path_join(props, SP_COUNTOF(props), dir, L"LivelyProperties.json");
+    int rc = -1;
+    if (built && onlyIfChanged) {                  /* the same bytes already there: leave the file (and its time) alone */
+        HANDLE f = CreateFileW(page, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+        if (f != INVALID_HANDLE_VALUE) {
+            LARGE_INTEGER sz;
+            char *old = GetFileSizeEx(f, &sz) && (size_t)sz.QuadPart == b.len ? (char *)malloc(b.len + 1) : NULL;
+            DWORD n = 0;
+            if (old && ReadFile(f, old, (DWORD)b.len, &n, NULL) && n == b.len && memcmp(old, b.p, b.len) == 0) rc = 0;
+            free(old);
+            CloseHandle(f);
+        }
+    }
+    if (built && rc != 0) rc = write_file(page, b.p, b.len) && write_file(props, k_props, sizeof k_props - 1) ? 1 : -1;
+    sb_free(&b);
+    return rc;
+}
+
 static BOOL write_page(DepthJob *j)
 {
     wchar_t dst[SP_MAX_PATH], name[24];
@@ -483,42 +533,28 @@ static BOOL write_page(DepthJob *j)
         fail(j, L"The picture could not be converted for the web page.");
         return FALSE;
     }
-    HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(IDR_DEPTH_HTML), RT_RCDATA);
-    HGLOBAL g = r ? LoadResource(NULL, r) : NULL;
-    const char *tpl = g ? (const char *)LockResource(g) : NULL;
-    if (!tpl) {
-        fail(j, L"The page template is missing from this build.");
-        return FALSE;
+    int r = render_page(j->dir, name, j->model, j->video, FALSE);
+    if (r < 0) fail(j, r == -2 ? L"The page template is missing from this build." : L"The wallpaper page could not be written to the data folder.");
+    return r >= 0;
+}
+
+/* Pages made by an older build get this build's page (its fixes) at the next start; nothing is touched when
+ * they already match. */
+void depth_refresh_pages(void)
+{
+    for (int i = 0; i < g_app.cfg.count; i++) {
+        const WallpaperEntry *e = &g_app.cfg.items[i];
+        wchar_t dir[SP_MAX_PATH], pat[SP_MAX_PATH];
+        WIN32_FIND_DATAW fd;
+        int video = (e->flags & WPFLAG_DEPTHVIDEO) != 0, model = depth_entry_model(e);
+        if (!(e->flags & WPFLAG_DEPTH) || e->type != WP_HTML || model < 0) continue;
+        path_dirname(dir, SP_COUNTOF(dir), e->path);
+        path_join(pat, SP_COUNTOF(pat), dir, video ? L"video.*" : L"image.*");
+        HANDLE h = FindFirstFileW(pat, &fd);
+        if (h == INVALID_HANDLE_VALUE) continue;
+        FindClose(h);
+        if (render_page(dir, fd.cFileName, model, video, TRUE) == 1) LOGI(L"depth: updated the page of '%ls'", e->name);
     }
-    wchar_t depthName[64], pageName[64];
-    model_name(j->model, L"depth", j->video ? L".bin" : L".png", depthName, SP_COUNTOF(depthName));
-    model_name(j->model, L"index", L".html", pageName, SP_COUNTOF(pageName));
-    char *img = utf8_from_wide(name, NULL), *dep = utf8_from_wide(depthName, NULL);
-    const char *vars[][2] = { { "__IMG__", img }, { "__DEPTH__", dep }, { "__VIDEO__", j->video ? "1" : "0" } };
-    StrBuf b = { 0 };
-    const char *p = tpl, *end = tpl + SizeofResource(NULL, r), *hit;
-    while (img && dep && p < end && (hit = (const char *)memchr(p, '_', (size_t)(end - p))) != NULL) {   /* every __NAME__ */
-        size_t v = 0;
-        while (v < SP_COUNTOF(vars) && !((size_t)(end - hit) >= strlen(vars[v][0]) && memcmp(hit, vars[v][0], strlen(vars[v][0])) == 0)) v++;
-        if (v < SP_COUNTOF(vars)) {
-            sb_append(&b, p, (size_t)(hit - p));
-            sb_puts(&b, vars[v][1]);
-            p = hit + strlen(vars[v][0]);
-        } else {
-            sb_append(&b, p, (size_t)(hit - p) + 1);
-            p = hit + 1;
-        }
-    }
-    if (img && dep && p < end) sb_append(&b, p, (size_t)(end - p));
-    free(img);
-    free(dep);
-    wchar_t page[SP_MAX_PATH], props[SP_MAX_PATH];
-    path_join(page, SP_COUNTOF(page), j->dir, pageName);
-    path_join(props, SP_COUNTOF(props), j->dir, L"LivelyProperties.json");
-    BOOL ok = !b.failed && write_file(page, b.p, b.len) && write_file(props, k_props, sizeof k_props - 1);
-    sb_free(&b);
-    if (!ok) fail(j, L"The wallpaper page could not be written to the data folder.");
-    return ok;
 }
 
 /* ---------------------------------------------------------------- the job */

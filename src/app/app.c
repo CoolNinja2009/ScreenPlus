@@ -426,6 +426,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     g_msgTaskbarCreated = RegisterWindowMessageW(L"TaskbarCreated");
     ChangeWindowMessageFilterEx(g_app.shellWnd, g_msgTaskbarCreated, MSGFLT_ALLOW, NULL);
 
+    depth_refresh_pages();            /* before the engine loads them: depth pages made by an older build get this build's fixes */
     supervisor_start();
     tray_init(g_app.shellWnd, inst);
     g_app.nativeInitMs = (double)(filetime_now() - g_app.processStart) / 10000.0;

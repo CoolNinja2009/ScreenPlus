@@ -241,6 +241,7 @@ void depth_get(DepthState *out);
 void depth_revert(const wchar_t *wallpaperId);         /* back to the plain image or video; the depth data is kept */
 void depth_auto(const wchar_t *wallpaperId);           /* "interactive images" setting: cool this wallpaper if it is a new image */
 void depth_auto_all(BOOL fetchMissing);                /* the same for every assigned wallpaper; fetchMissing: the user just switched it on */
+void depth_refresh_pages(void);                        /* shell start: pages made by an older build get this one's template */
 void depth_forget(const WallpaperEntry *e);            /* the entry was removed: delete its generated page */
 void depth_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_DEPTH */
 void depth_shutdown(void);

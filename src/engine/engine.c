@@ -57,6 +57,8 @@ static struct {
     int           fullscreen;     /* on any display (status only; pausing is per display) */
     HWINEVENTHOOK hooks[8];
     int           hookCount;
+    HWINEVENTHOOK fullHook;       /* the fullscreen app's window moves and resizes (see watch_fullscreen) */
+    DWORD         fullThread;
     HPOWERNOTIFY  pn[3];
     UINT          msgTaskbarCreated;
     uint32_t      nextRid;
@@ -402,6 +404,25 @@ static void apply_states(void)
     if (activated && E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, 3000, NULL);   /* a page grabs once it draws */
 }
 
+static void CALLBACK win_event(HWINEVENTHOOK hook, DWORD ev, HWND hwnd, LONG idObject, LONG idChild, DWORD tid, DWORD time);
+
+/* Leaving fullscreen in place (F11 in a browser or player, a game going windowed) changes no foreground
+ * window and shows or hides nothing, so none of the global hooks fire; and with every display paused the
+ * safety re-check is off. So while an app is fullscreen, its own thread's window moves and resizes are
+ * watched too (scoped to that thread: a global location hook would wake us for every cursor move). */
+static void watch_fullscreen(int any)
+{
+    DWORD pid = 0, tid = 0;
+    HWND fg = any ? GetForegroundWindow() : NULL;
+    if (fg) tid = GetWindowThreadProcessId(fg, &pid);
+    if (tid == E.fullThread && (E.fullHook || !tid)) return;
+    if (E.fullHook) UnhookWinEvent(E.fullHook);
+    E.fullHook = tid ? SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, NULL, win_event, pid, tid,
+                                       WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS)
+                     : NULL;
+    E.fullThread = E.fullHook ? tid : 0;
+}
+
 /* Per display. A span slot is covered only when every display is, and counts a fullscreen app on
  * any of them (it freezes, keeping its frame on the displays that still show it). */
 static void update_occlusion(void)
@@ -428,6 +449,7 @@ static void update_occlusion(void)
         s->fullscreen = full;
     }
     E.fullscreen = any;
+    watch_fullscreen(any);
     if (changed) apply_states();
 }
 
@@ -586,7 +608,8 @@ static void wallpaper_data_tick(void)
 static void CALLBACK win_event(HWINEVENTHOOK hook, DWORD ev, HWND hwnd, LONG idObject, LONG idChild, DWORD tid, DWORD time)
 {
     (void)hook; (void)tid; (void)time;
-    if (ev == EVENT_OBJECT_SHOW || ev == EVENT_OBJECT_HIDE || ev == EVENT_OBJECT_CLOAKED || ev == EVENT_OBJECT_UNCLOAKED) {
+    if (ev == EVENT_OBJECT_SHOW || ev == EVENT_OBJECT_HIDE || ev == EVENT_OBJECT_CLOAKED || ev == EVENT_OBJECT_UNCLOAKED ||
+        ev == EVENT_OBJECT_LOCATIONCHANGE) {
         if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF || !hwnd) return;
         if (GetAncestor(hwnd, GA_ROOT) != hwnd) return;
     }
@@ -1099,6 +1122,7 @@ int engine_main(HINSTANCE inst, HWND shell, int safeMode)
     video_shutdown();
     html_shutdown();
     for (int i = 0; i < E.hookCount; i++) UnhookWinEvent(E.hooks[i]);
+    if (E.fullHook) UnhookWinEvent(E.fullHook);
     for (int i = 0; i < 3; i++) if (E.pn[i]) UnregisterPowerSettingNotification(E.pn[i]);
     if (E.shellWait) UnregisterWaitEx(E.shellWait, INVALID_HANDLE_VALUE);
     if (E.scrWait) UnregisterWaitEx(E.scrWait, INVALID_HANDLE_VALUE);

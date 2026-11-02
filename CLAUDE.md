@@ -27,7 +27,9 @@ repository; open only the files a change touches. README.md is the user-facing d
   `--startup` (window unless `launch_to_tray`); `--tray` (CLI `start`, setup's `/UPDATE` relaunch) never opens
   the window; a plain launch always does.
 - **Engine**: `ScreenPlus.exe --engine`, `src/engine/engine.c`. Owns the desktop-hosted windows, renderers,
-  the per-monitor pause state machine (fullscreen, occlusion, battery, lock) and recovery. It reads
+  the per-monitor pause state machine (fullscreen, occlusion, battery, lock) and recovery. While an app is fullscreen,
+  `watch_fullscreen` hooks EVENT_OBJECT_LOCATIONCHANGE for its thread only: leaving fullscreen in place fires no
+  global hook, and with every display paused the 2 s safety re-check is off. It reads
   `config.ini` itself and reloads on command.
 - **Preview helper**: `ScreenPlus.exe --capture-preview <id>` (`src/app/preview_capture.c`) records HTML
   previews into `cache\previews`.
@@ -165,7 +167,7 @@ Renderer details:
 - DA3 input is `[1,N,3,H,W]` (N = 1, short side 504), output metric depth: inverted to DA2's inverse depth and
   normalised between percentiles. Videos (H.264/HEVC/VP8/VP9/AV1, local files only): FFmpeg software decode, up to
   15 depth frames a second and 3600 a video, GPU unless measured slower, range smoothed over frames, 288 px grey JPEGs
-  in `depth*.bin` ("SPDV", JPEGs, index, trailer; `write_video`). The page plays the video muted and blends the two
+  in `depth*.bin` ("SPDV", JPEGs, index, trailer; `write_video`). The page plays the video with its sound (the renderer mutes it unless Sound is on) and blends the two
   depth frames around each frame's time. The "interactive images" setting stays pictures only.
 - Nothing downloads unless the user pressed Make wallpaper cooler or switched on `interactive_images`.
 - GPU or CPU: DirectML recompiles the model at every process start (~0.9-2.5 s), a fast CPU needs ~1 s, so the first
@@ -183,6 +185,9 @@ Renderer details:
   Runtime is bumped, keep `VCRUN_MIN_MINOR`, `NeedVcRuntime` and the pinned redistributable in step.
 - The page is the existing HTML renderer's: Lively properties (`LivelyProperties.json`) give Customise its depth
   strength / auto move controls and the engine forwards the mouse. It draws only while something moves.
+  Pause survival: the plain picture/video stays under the canvas (shown on `webglcontextlost`; reload on restore or
+  3 s later), a picture redraws on `visibilitychange`/`resume`, a video re-plays and restarts its frame chain on them
+  (generation number) and a 1 s watchdog falls back to rAF when `requestVideoFrameCallback` stops firing.
 - Test the child with `SCREENPLUS_DATA_DIR=<scratch>` holding `depth\model.onnx` + `depth\ort\onnxruntime.dll`:
   `ScreenPlus.exe --depth <image> <outdir>`; read `logs\depth.log`.
 

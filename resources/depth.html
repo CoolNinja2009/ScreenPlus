@@ -24,9 +24,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
     bg.remove();
     vid = bg = document.createElement('video');
     vid.id = 'v';
-    vid.muted = vid.loop = vid.autoplay = vid.playsInline = true;
+    /* with its sound: Screen+ mutes the whole page unless Sound is on, and gives it to one display only */
+    vid.loop = vid.autoplay = vid.playsInline = true;
     vid.src = '__IMG__';
     document.body.insertBefore(vid, cv);
+    vid.play().catch(function () { vid.muted = true; vid.play(); });   /* autoplay refused with sound: at least the picture */
   }
   var gl = cv.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false });
   if (!gl) return;
@@ -136,16 +138,31 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
   }, { passive: true });
   document.documentElement.addEventListener('mouseleave', function () { if (!P.autoMove) aim(0, 0); });
   addEventListener('resize', function () { if (ready) { size(); draw(); } });
-  cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); });
+  /* A lost GPU context (a paused page under memory pressure, a driver reset after a game): the plain picture
+   * or video under the canvas shows at once, and a reload builds everything again: when Chromium restores the
+   * context, or when the page is visible and it hasn't within a few seconds. */
+  var lost = 0;
+  function rebuild() { if (lost && !document.hidden) setTimeout(function () { if (lost && !document.hidden) location.reload(); }, 3000); }
+  cv.addEventListener('webglcontextlost', function (e) {
+    e.preventDefault();
+    lost = 1;
+    cv.style.transition = 'none';
+    cv.style.opacity = 0;
+    rebuild();
+  });
   cv.addEventListener('webglcontextrestored', function () { location.reload(); });
+  document.addEventListener('visibilitychange', rebuild);
+  /* shown again after a freeze: the canvas may have been dropped meanwhile, and a picture only draws on a move */
+  function redraw() { if (ready && !lost && !document.hidden && !VIDEO) { size(); draw(); } }
+  document.addEventListener('visibilitychange', redraw);
+  document.addEventListener('resume', redraw);
 
   function show() {
     if (gl.getError()) return false;     /* e.g. a picture larger than the GPU allows: keep the plain one */
     ready = 1;
     size();
     draw();
-    cv.style.opacity = 1;
-    if (!VIDEO) setTimeout(function () { bg.remove(); }, 500);
+    cv.style.opacity = 1;                /* the plain one stays under it: the fallback if the GPU context is lost */
     return true;
   }
 
@@ -181,6 +198,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
   }
   function videoFrame(now, meta) {
     var t = meta && meta.mediaTime != null ? meta.mediaTime : vid.currentTime;
+    if (!meta && t === lastT && !step(now)) { later(); return; }   /* display frames: draw only what changed */
+    lastT = t;
     var f = t * fps, a = Math.floor(f) % count, b = (a + 1) % count;
     var A = bitmap(a), B = bitmap(b);
     for (var n = 2; n < 6; n++) bitmap((a + n) % count);    /* ahead of playback */
@@ -195,10 +214,37 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
     }
     later();
   }
+  /* One chain of frame callbacks. A freeze (Screen+ suspends the page while a fullscreen app runs) can pause
+   * the video and drop a pending callback, so showing the page again plays the video and starts a new chain;
+   * the generation number retires the old one if it does fire after all. */
+  var lastT = -1, gen = 0, drawn = 0, raf = !vid.requestVideoFrameCallback;
   function later() {
-    if (vid.requestVideoFrameCallback) vid.requestVideoFrameCallback(videoFrame);
-    else requestAnimationFrame(function (now) { videoFrame(now, null); });
+    var g = gen;
+    function cb(now, meta) { if (g === gen) { drawn = performance.now(); videoFrame(now, meta); } }
+    if (raf) requestAnimationFrame(function (now) { cb(now, null); });
+    else vid.requestVideoFrameCallback(cb);
   }
+  /* Watchdog: a shown, playing video that has drawn nothing for a while has lost its frame callbacks; the
+   * display's frames drive it until the video's own come back. */
+  setInterval(function () {
+    if (document.hidden || vid.paused || !count || performance.now() - drawn < 700) return;
+    if (!raf && vid.requestVideoFrameCallback) {
+      raf = 1;
+      vid.requestVideoFrameCallback(function () { raf = 0; gen++; later(); });
+    }
+    gen++;
+    later();
+  }, 1000);
+  function wake() {
+    if (document.hidden || !count) return;
+    if (vid.paused) vid.play().catch(function () { vid.muted = true; vid.play(); });
+    gen++;
+    later();
+  }
+  document.addEventListener('visibilitychange', wake);
+  document.addEventListener('resume', wake);                   /* Page Lifecycle: after a freeze */
+  vid.addEventListener('playing', wake);
+  vid.addEventListener('pause', function () { if (!document.hidden) wake(); });   /* paused while shown: not by anyone's choice */
   fetch('__DEPTH__').then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
     var dv = new DataView(ab), e = ab.byteLength;
     if (e < 32 || dv.getUint32(e - 4, true) !== 0x56445053) return;
