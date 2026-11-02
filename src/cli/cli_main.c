@@ -311,7 +311,7 @@ static const wchar_t k_help[] =
     L"  paths                                  where Screen+ keeps its data, config and logs\n"
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"
     L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
-    L"  samples install                        the sample wallpapers besides Aurora (setup's optional download)\n"
+    L"  samples install                        the sample wallpapers besides Singularity and Aurora (setup's optional download)\n"
     L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
     L"  startup [on | off]                     start Screen+ when you sign in (a logon task)\n"
     L"  screensaver [on | off | preview]       Screen+ as the Windows screensaver\n"
@@ -469,7 +469,7 @@ static int cmd_tools(const wchar_t *sub)
     return EXIT_USAGE;
 }
 
-/* ---- samples: the sample wallpapers besides Aurora, setup's optional download (default installations only,
+/* ---- samples: the sample wallpapers besides Singularity and Aurora, setup's optional download (default installations only,
  * ticked by default). This release's ScreenPlus-<version>-samples.zip, pinned by size and SHA-256 when it was
  * built (CMakeLists.txt), is unpacked into <program>\samples with Windows' tar.exe; download.sha256 there makes
  * a second run skip it. The app adds them to a new library itself (library_add_samples). */

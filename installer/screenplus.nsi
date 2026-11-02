@@ -8,14 +8,14 @@
 ; /UPDATE is how Screen+'s auto update runs it: Screen+ is started again (in the notification area) afterwards.
 ; An existing installation is found automatically and updated in place, keeping the library.
 ; Installation types (applied by Screen+ on its next launch via HKCU\Software\ScreenPlus\SetupMode):
-;   default - Aurora sample (+ the other samples: optional feature below) + automatic import of Lively Wallpaper's library
+;   default - Singularity and Aurora samples (+ the other samples: optional feature below) + automatic import of Lively Wallpaper's library
 ;   clean   - empty library, no sample, no automatic Lively import
 ;   keep    - update of an existing installation: nothing is changed (SetupMode is not written)
 ; Optional feature "Video import from web links" (on unless /NOURL or turned off before): setup runs
 ; `ScreenPlus.com tools install`, which downloads the pinned yt-dlp + QuickJS-NG releases (~20 MB, SHA-256
 ; verified) into %LOCALAPPDATA%\ScreenPlus\tools, so this installer stays small. Off: the app hides its
 ; link button (HKCU\Software\ScreenPlus\UrlImport = 0) and downloaded tools are removed.
-; Optional feature "Sample wallpapers" (default installation; on unless /NOSAMPLES): setup bundles only Aurora and
+; Optional feature "Sample wallpapers" (default installation; on unless /NOSAMPLES): setup bundles only Singularity and Aurora and
 ; runs `ScreenPlus.com samples install`, which downloads this release's ScreenPlus-<version>-samples.zip from GitHub
 ; (~35 MB, size and SHA-256 pinned at build time) into $INSTDIR\samples, so this installer stays small; the app adds
 ; them to the library on its next start. An update ("keep") neither offers nor changes them.
@@ -334,7 +334,7 @@ Function InstallTypePage
     ${NSD_AddStyle} $hDefault ${WS_GROUP}
   ${EndIf}
   IntOp $2 $1 + 12
-  ${NSD_CreateLabel} 13u $2u -13u 16u "Includes a sample wallpaper and imports your Lively Wallpaper library."
+  ${NSD_CreateLabel} 13u $2u -13u 16u "Includes sample wallpapers and imports your Lively Wallpaper library."
   Pop $0
 
   IntOp $2 $1 + 30
@@ -437,7 +437,7 @@ Function OptionsLeave
   ${EndIf}
 FunctionEnd
 
-; samples\ (Aurora and the downloaded Lively packages, with subfolders) goes as a whole; the Aurora check keeps
+; samples\ (Singularity, Aurora and the downloaded Lively packages, with subfolders) goes as a whole; the Aurora check keeps
 ; RMDir /r away from an unrelated "samples" folder in a hand-picked install folder.
 !macro RemoveSamples
   ${If} ${FileExists} "$INSTDIR\samples\Aurora\index.html"
@@ -470,6 +470,11 @@ Section "Install"
   ${Else}
     SetOutPath "$INSTDIR\samples\Aurora"
     File "${STAGE}\samples\Aurora\*.*"  ; the other samples are an optional download (section -Samples)
+    ${If} $InstMode != "keep"           ; Singularity: every default installation, never added by an update
+    ${OrIf} ${FileExists} "$INSTDIR\samples\Singularity\*.*"
+      SetOutPath "$INSTDIR\samples\Singularity"
+      File /r "${STAGE}\samples\Singularity\*.*"
+    ${EndIf}
   ${EndIf}
 
   SetOutPath "$INSTDIR"
@@ -533,7 +538,7 @@ Section "-UrlImport"
   WriteRegDWORD HKCU "${APP_KEY}" "UrlImport" $OptUrl   ; read once by the app: shows or hides its link button
 SectionEnd
 
-; Optional: the sample wallpapers besides Aurora, downloaded from this release on GitHub (not embedded).
+; Optional: the sample wallpapers besides Singularity and Aurora, downloaded from this release on GitHub (not embedded).
 Section "-Samples"
   ${If} $InstMode == "default"                        ; never on an update: it leaves the samples as they are
   ${AndIf} $OptSamples == 1

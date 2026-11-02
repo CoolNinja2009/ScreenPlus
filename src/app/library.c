@@ -381,16 +381,19 @@ int library_auto_import_lively(void)
     return st.added;
 }
 
-/* The wallpapers in <exe>\samples: Aurora (always bundled) and the others (in the portable zip, or downloaded by
- * setup: `screenplus samples install`), Lively packages or folders with an HTML entry. Added silently on the
- * first run and by setup's default installation; Aurora goes first. */
+/* The wallpapers in <exe>\samples: Singularity and Aurora (always bundled) and the others (in the portable zip, or
+ * downloaded by setup: `screenplus samples install`), Lively packages or folders with an HTML entry. Added silently
+ * on the first run and by setup's default installation; Singularity goes first, then Aurora. */
 int library_add_samples(void)
 {
     wchar_t root[SP_MAX_PATH], sub[SP_MAX_PATH], entry[SP_MAX_PATH];
     path_join(root, SP_COUNTOF(root), paths_exe_dir(), L"samples");
-    path_join(sub, SP_COUNTOF(sub), root, L"Aurora");
     ImportStats st = { 0 };
-    if (library_html_entry(sub, entry, SP_COUNTOF(entry))) add_file(entry, &st);
+    static const wchar_t *first[] = { L"Singularity", L"Aurora" };
+    for (size_t i = 0; i < SP_COUNTOF(first); i++) {
+        path_join(sub, SP_COUNTOF(sub), root, first[i]);
+        if (!import_package(sub, &st) && library_html_entry(sub, entry, SP_COUNTOF(entry))) add_file(entry, &st);
+    }
     path_join(sub, SP_COUNTOF(sub), root, L"*");
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW(sub, &fd);

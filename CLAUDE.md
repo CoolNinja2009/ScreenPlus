@@ -13,7 +13,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 - There is no unit-test suite. `tests/desktop_probe.c` and `tests/sysinfo_test.c` are validation helpers.
 - CI (`.github/workflows/release.yml`) releases every push to main as the next patch version, or as
   `SCREENPLUS_VERSION` in CMakeLists.txt when that is higher; a `vX.Y.Z` tag releases that exact version.
-  The portable zip carries every `samples\` wallpaper and the URL tools. The installer ships only Aurora
+  The portable zip carries every `samples\` wallpaper and the URL tools. The installer ships only Singularity and Aurora
   and downloads the tools.
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use
   nsDialogs custom pages.
