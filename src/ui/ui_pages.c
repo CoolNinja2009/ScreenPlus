@@ -1874,7 +1874,44 @@ static float draw_props_section(Ui *u, float x, float y, float w)
     return y + card + 26.0f;
 }
 
-/* Image wallpapers, and the interactive pages made from them (depth.c). */
+/* Image and video wallpapers, and the interactive pages made from them (depth.c): the button, and the model list
+ * that opens under the chosen model, each model rated for this PC. */
+static int g_depthList;                 /* the model list is open */
+
+static const wchar_t *const k_levelNames[] = { L"Can't run", L"Very hard", L"Slow", L"OK", L"Good", L"Very good" };
+static const uint32_t k_levelColours[] = { 0x7A0E12, 0xA4161A, 0xE8833A, 0xD4A72C, 0x8BC34A, 0x3FB950 };
+
+static void depth_time_text(double secs, wchar_t *out, size_t cap)
+{
+    if (secs < 1.5) str_copy(out, cap, L"~1 s");
+    else if (secs < 90) str_printf(out, cap, L"~%d s", (int)(secs + 0.5));
+    else if (secs < 5400) str_printf(out, cap, L"~%d min", (int)(secs / 60 + 0.5));
+    else str_printf(out, cap, L"~%.1f h", secs / 3600);
+}
+
+static void depth_size_text(int64_t bytes, wchar_t *out, size_t cap)
+{
+    if (bytes >= 1000000000) str_printf(out, cap, L"%.1f GB", bytes / 1e9);
+    else str_printf(out, cap, L"%d MB", (int)(bytes / 1000000));
+}
+
+/* The source the depth is made from, and its length when it is a video (0: a picture). */
+static double depth_entry_seconds(const WallpaperEntry *e)
+{
+    int cool = (e->flags & WPFLAG_DEPTH) != 0;
+    if (cool ? !(e->flags & WPFLAG_DEPTHVIDEO) : e->type != WP_VIDEO) return 0.0;
+    double s = depth_video_seconds(cool ? e->thumb : e->path);
+    return s > 0 ? s : 30.0;                   /* length unknown: rate it as a typical loop */
+}
+
+/* Five blocks, as many lit as the level, in the level's colour. */
+static void depth_meter(Ui *u, float x, float cy, int level)
+{
+    D2D1_COLOR_F on = col(k_levelColours[SP_CLAMP(level, 0, 5)], 1.0f);
+    for (int i = 0; i < 5; i++)
+        ui_rrect(rectf(x + i * 9.0f, cy - 7, 6, 14), 1.5f, i < SP_MAX(level, 1) ? on : u->t.track);
+}
+
 static float draw_cooler_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
 {
     Theme *t = &u->t;
@@ -1882,30 +1919,84 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     depth_get(&st);
     int cool = (e->flags & WPFLAG_DEPTH) != 0, mine = !st.id[0] || str_ieq(st.id, e->id);
     int busy = st.busy && mine, failed = !st.busy && st.failed && st.text[0] && mine;
+    int n = depth_model_count(), chosen = SP_MAX(0, depth_model_find(g_app.cfg.s.depthModel)), used = depth_entry_model(e);
+    double secs = depth_entry_seconds(e);
+    wchar_t noteBuf[200], size[24], line[200];
     const wchar_t *note = NULL;
     if (failed) note = st.text;
-    else if (st.busy) note = L"Busy with another wallpaper.";
+    else if (st.busy && !mine) note = L"Busy with another wallpaper.";
     else if (cool && !g_app.cfg.s.htmlMouse) note = L"Mouse interaction is off in Settings.";
-    else if (!cool && !depth_ready()) note = L"The first use downloads about 110 MB.";
-    /* the text starts below the button and the card grows with it, so neither clips; no text: one row */
+    else if (!cool && !busy && !depth_ready()) {
+        depth_size_text(depth_model(chosen)->size + depth_model(chosen)->dataSize, size, SP_COUNTOF(size));
+        str_printf(noteBuf, SP_COUNTOF(noteBuf), L"%ls downloads %ls the first time.", depth_model(chosen)->name, size);
+        note = noteBuf;
+    }
+    const float rowH = 58.0f;
     float noteH = busy || !note ? 0.0f : ui_text_height(note, u->fWrap, w - 36);
-    float h = busy ? 102.0f : note ? SP_MAX(96.0f, 60.0f + noteH + 18.0f) : 64.0f;
+    float listH = g_depthList ? n * rowH + 8.0f : 0.0f;
+    float h = 112.0f + listH + (busy ? 46.0f : note ? noteH + 16.0f : 0.0f);
     y = section(u, x, y, L"MAKE WALLPAPER COOLER");
     ui_glass(rectf(x, y, w, h), 14, 0, 0);
-    const wchar_t *label = busy ? L"Cancel" : cool ? L"Use plain image" : L"Make wallpaper cooler";
-    wchar_t icon = busy ? GL_CLOSE : cool ? GL_PHOTO : GL_SPEED;
+    const wchar_t *label = busy ? L"Cancel" : cool ? (secs > 0 ? L"Use plain video" : L"Use plain image") : L"Make wallpaper cooler";
+    wchar_t icon = busy ? GL_CLOSE : cool ? (secs > 0 ? GL_VIDEO : GL_PHOTO) : GL_SPEED;
     float bw = ui_button_width(label, icon);
     ui_button(HIT_ID(HK_COOL, busy ? 2 : cool ? 1 : 0), rectf(x + w - 18 - bw, y + 14, bw, 36), label, icon,
               busy ? BTN_SECONDARY : cool ? BTN_GHOST : BTN_PRIMARY);
     ui_text(cool ? L"Interactive depth is on" : L"Interactive depth", u->fBodyB, rectf(x + 18, y + 21, w - 54 - bw, 22), t->text);
+
+    /* the chosen model, which opens the list */
+    DepthEstimate est;
+    depth_estimate(chosen, secs, &est);
+    str_printf(line, SP_COUNTOF(line), L"%ls  ·  %ls", depth_model(chosen)->name, k_levelNames[SP_CLAMP(est.level, 0, 5)]);
+    float cy = y + 62;
+    draw_choice(u, HIT_ID(HK_DEPTH_PICK, 0), rectf(x + 18, cy, w - 36, 36), line);
+    cy += 44;
+    if (g_depthList) {
+        float right = x + w - 18, colW = SP_MIN(230.0f, w * 0.42f);
+        for (int i = 0; i < n; i++) {
+            const DepthModel *m = depth_model(i);
+            D2D1_RECT_F r = rectf(x + 18, cy, w - 36, rowH - 4);
+            int id = HIT_ID(HK_DEPTH_MODEL, i), ready = depth_model_ready(i);
+            depth_estimate(i, secs, &est);
+            if (i == chosen) ui_rrect(r, 8, t->highlight);
+            else if (ui_is_hot(id)) ui_rrect(r, 8, t->panelHover);
+            if (i == chosen) ui_icon(GL_CHECK, u->fIconS, rectf(r.left + 6, r.top, 22, rowH - 4), t->accent);
+            str_copy(line, SP_COUNTOF(line), m->name);
+            if (i == used) str_cat(line, SP_COUNTOF(line), L"  (in use)");
+            ui_text(line, u->fBodyB, rectf(r.left + 32, r.top + 7, r.right - r.left - colW - 44, 20), t->text);
+            ui_text(m->desc, u->fSmall, rectf(r.left + 32, r.top + 29, r.right - r.left - colW - 44, 18), t->text2);
+            /* right column: meter and verdict, then the time and the download */
+            float cx = right - colW;
+            depth_meter(u, cx, r.top + 17, est.level);
+            if (est.level > 0) {
+                wchar_t tm[32];
+                depth_time_text(est.seconds, tm, SP_COUNTOF(tm));
+                str_printf(line, SP_COUNTOF(line), L"%ls  ·  %ls%ls", k_levelNames[est.level], tm, secs > 0 ? L" for this video" : L"");
+            } else {
+                str_copy(line, SP_COUNTOF(line), L"Can't run: not enough memory");
+            }
+            ui_text(line, u->fSmall, rectf(cx + 52, r.top + 8, colW - 52, 18), est.level > 1 ? t->text : col(k_levelColours[est.level], 1.0f));
+            if (ready) {
+                str_copy(line, SP_COUNTOF(line), L"Downloaded");
+            } else {
+                depth_size_text(m->size + m->dataSize, size, SP_COUNTOF(size));
+                str_printf(line, SP_COUNTOF(line), L"Download %ls", size);
+            }
+            ui_text(line, u->fSmall, rectf(cx + 52, r.top + 29, colW - 52, 18), t->text3);
+            ui_hit(id, r, 1, 1);
+            ui_focus_ring(r, 8, id);
+            cy += rowH;
+        }
+        cy += 8;
+    }
     if (busy) {
-        D2D1_RECT_F bar = rectf(x + 18, y + 84, w - 36, 4);
-        ui_text(st.text, u->fSmall, rectf(x + 18, y + 60, w - 36, 18), t->text2);
+        D2D1_RECT_F bar = rectf(x + 18, cy + 26, w - 36, 4);
+        ui_text(st.text, u->fSmall, rectf(x + 18, cy + 2, w - 36, 18), t->text2);
         ui_rrect(bar, 2, t->track);
         if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
-        return y + h + 26.0f;
+    } else if (note) {
+        ui_text(note, u->fWrap, rectf(x + 18, cy + 2, w - 36, noteH + 4.0f), failed ? t->danger : t->text2);
     }
-    if (note) ui_text(note, u->fWrap, rectf(x + 18, y + 60, w - 36, noteH + 4.0f), failed ? t->danger : t->text2);
     return y + h + 26.0f;
 }
 
@@ -2170,6 +2261,32 @@ void pages_activate(int id, int dbl)
         cus.adj = adjust_defaults();
         look_commit(0);
         break;
+    case HK_DEPTH_PICK:
+        g_depthList = !g_depthList;
+        ui_invalidate();
+        break;
+    case HK_DEPTH_MODEL: {
+        /* picking a model is the go-ahead: it downloads if need be and makes this wallpaper cooler with it */
+        WallpaperEntry *e = customise_entry();
+        DepthState st;
+        DepthEstimate est;
+        g_depthList = 0;
+        depth_get(&st);
+        depth_estimate(data, e ? depth_entry_seconds(e) : 0.0, &est);
+        if (est.level == 0) {
+            app_notice(NOTICE_ERROR, L"%ls needs more memory than this PC has.", depth_model(data)->name);
+            ui_invalidate();
+            break;
+        }
+        str_copy(g_app.cfg.s.depthModel, SP_COUNTOF(g_app.cfg.s.depthModel), depth_model(data)->key);
+        app_save_config();
+        if (e && !st.busy && (depth_can_cool(e) || (e->flags & WPFLAG_DEPTH)) && depth_entry_model(e) != data) {
+            e->flags &= ~WPFLAG_NOCOOL;
+            depth_start(e->id);
+        }
+        ui_invalidate();
+        break;
+    }
     case HK_COOL: {
         WallpaperEntry *e = customise_entry();
         if (!e) break;

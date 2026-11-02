@@ -28,7 +28,7 @@ and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpap
 - A store that searches seven wallpaper sites at once
 - Per-monitor wallpapers, or one wallpaper duplicated or spanned across monitors
 - Screensaver mode
-- Make wallpaper cooler: turns a picture into a 3D wallpaper that follows the mouse
+- Make wallpaper cooler: turns a picture or video into a 3D wallpaper that follows the mouse
 - Colour grading and wallpaper properties
 - Pauses for fullscreen apps, covered desktops, the lock screen and battery power
 - Starts the moment you sign in, with a still of your wallpaper on screen until it does
@@ -56,8 +56,10 @@ Silent install: `ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/NOURL] 
 - **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, backiee and Wallhaven. Sites that don't allow
   direct downloads open in your browser.
 - **Displays**: choose Independent, Duplicate or Span.
-- **Customise**: adjust colours and the wallpaper's own properties. **Make wallpaper cooler** downloads about 110 MB
-  the first time and needs the Visual C++ Redistributable 14.44 or newer.
+- **Customise**: adjust colours and the wallpaper's own properties. **Make wallpaper cooler** works on pictures and
+  videos. Pick a depth model (Depth Anything 2 or 3, Small to Large); each shows how well this PC runs it and how
+  long it takes. A model downloads the first time you pick it (100 MB to 1.4 GB). It needs the Visual C++
+  Redistributable 14.44 or newer.
 - **Settings**: startup, screensaver, pausing, audio and updates.
 
 | Type | Formats |
@@ -118,7 +120,10 @@ MIT, see [LICENSE](LICENSE). Third-party components are listed in [THIRD_PARTY_N
 - [FFmpeg](https://ffmpeg.org) (LGPL-2.1-or-later, dynamically linked)
 - [WebView2 SDK](https://developer.microsoft.com/microsoft-edge/webview2/) (BSD-3-Clause)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) and [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (MIT), optional
-- [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) and [Depth Anything V2 Small](https://huggingface.co/onnx-community/depth-anything-v2-small) (Apache-2.0), downloaded on first use
+- [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) and the depth models, each downloaded when it is first
+  picked: [Depth Anything V2](https://huggingface.co/onnx-community/depth-anything-v2-small) Small (Apache-2.0), Base and
+  Large (CC BY-NC 4.0); [Depth Anything 3](https://huggingface.co/onnx-community/depth-anything-v3-small) Small, Base and
+  Large (Apache-2.0)
 - [NSIS](https://nsis.sourceforge.io) for the installer
 
 Wallpapers in the screenshots belong to their authors. Screen+ is not affiliated with Lively Wallpaper, Wallpaper

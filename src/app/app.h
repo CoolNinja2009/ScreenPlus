@@ -10,7 +10,7 @@
 #define WM_SP_TRAY          (WM_APP + 61)
 #define WM_SP_STATUS        (WM_APP + 62)
 #define WM_SP_URLIMPORT     (WM_APP + 63)   /* wParam 0: progress, 1: job finished (lParam: the job) */
-#define WM_SP_DEPTH         (WM_APP + 64)   /* wParam 0: progress, 1: job finished (lParam: the job) */
+#define WM_SP_DEPTH         (WM_APP + 64)   /* wParam 0: progress, 1: job finished (lParam: the job), 2: video frames (lParam: done | total << 16; from the child) */
 #define WM_SP_STORE         (WM_APP + 65)   /* lParam: a Store worker's result */
 #define WM_SP_UPDATE        (WM_APP + 66)   /* wParam 0: progress, 1: check finished (lParam: the job) */
 #define T_SHELL_UPDATE      2               /* shell window timer: the next update check (app.c's own start at 1) */
@@ -196,9 +196,9 @@ void store_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_STORE */
 void store_on_import(void);                            /* after url_import_on_event: the queued download may start */
 void store_shutdown(void);
 
-/* depth.c: "Make wallpaper cooler" turns an image wallpaper into an interactive depth web wallpaper (the
- * entry becomes WP_HTML + WPFLAG_DEPTH). One job at a time; the downloads (ONNX Runtime, model) are only
- * ever started by the user's own action. depth_infer.c is the --depth child process that runs the model. */
+/* depth.c: "Make wallpaper cooler" turns an image or video wallpaper into an interactive depth web wallpaper
+ * (the entry becomes WP_HTML + WPFLAG_DEPTH). One job at a time; the downloads (ONNX Runtime, the model) are
+ * only ever started by the user's own action. depth_infer.c is the --depth child process that runs the model. */
 typedef struct DepthState {
     int     busy;
     int     percent;        /* -1: unknown */
@@ -206,12 +206,39 @@ typedef struct DepthState {
     wchar_t id[SP_ID_LEN];  /* wallpaper being converted; empty: only fetching the files */
     wchar_t text[200];
 } DepthState;
-BOOL depth_ready(void);                                /* runtime and model are downloaded (cheap check) */
-BOOL depth_can_cool(const WallpaperEntry *e);          /* a still picture that exists (not an animated GIF) */
+
+/* The depth models on offer (open weights, ONNX, all run by the same ONNX Runtime). */
+typedef struct DepthModel {
+    const wchar_t *key, *name, *desc;
+    const wchar_t *url, *dataUrl;  /* the graph, and its external weights (model.onnx_data) or NULL */
+    int64_t        size, dataSize;
+    const char    *sha, *dataSha;
+    int            v3;             /* Depth Anything 3: input [1,N,3,H,W], output metric depth (far = larger) */
+    int            shortSide;      /* the model's working resolution: the picture's shorter side */
+    float          cost;           /* compute per frame against Depth Anything 2 Small */
+    float          gb;             /* memory one run needs */
+} DepthModel;
+#define DEPTH_VIDEO_FPS    15      /* depth frames per second of video at most */
+#define DEPTH_VIDEO_FRAMES 3600    /* ... and per video: longer ones get fewer per second */
+int               depth_model_count(void);
+const DepthModel *depth_model(int i);                  /* i out of range: the default (Depth Anything 2 Small) */
+int               depth_model_find(const wchar_t *key);  /* -1: unknown */
+BOOL              depth_model_ready(int i);            /* its files are downloaded */
+void              depth_model_file(int i, wchar_t *out, size_t cap);   /* model.onnx */
+void              depth_model_dir(int i, wchar_t *out, size_t cap);    /* its folder: backend record, weights */
+/* How well this PC runs a model: level 5 very good .. 1 very hard, 0 can't run; seconds: the estimated time
+ * for one picture, or for `videoSeconds` of video when that is > 0. */
+typedef struct DepthEstimate { int level; double seconds; int gpu; } DepthEstimate;
+void depth_estimate(int model, double videoSeconds, DepthEstimate *out);
+double depth_video_seconds(const wchar_t *path);       /* a video's length (FFmpeg; cached), 0: unknown */
+int  depth_entry_model(const WallpaperEntry *e);       /* the model a depth wallpaper was made with, -1: none */
+
+BOOL depth_ready(void);                                /* runtime and the chosen model are downloaded (cheap check) */
+BOOL depth_can_cool(const WallpaperEntry *e);          /* a still picture or a local video that exists (not a GIF) */
 BOOL depth_start(const wchar_t *wallpaperId);          /* "" fetches the files only; FALSE: busy or not an image */
 void depth_cancel(void);
 void depth_get(DepthState *out);
-void depth_revert(const wchar_t *wallpaperId);         /* back to the plain image; the depth data is kept */
+void depth_revert(const wchar_t *wallpaperId);         /* back to the plain image or video; the depth data is kept */
 void depth_auto(const wchar_t *wallpaperId);           /* "interactive images" setting: cool this wallpaper if it is a new image */
 void depth_auto_all(BOOL fetchMissing);                /* the same for every assigned wallpaper; fetchMissing: the user just switched it on */
 void depth_forget(const WallpaperEntry *e);            /* the entry was removed: delete its generated page */
@@ -235,4 +262,4 @@ void update_on_event(WPARAM wp, LPARAM lp);            /* WM_SP_UPDATE */
 void update_on_ui_closed(void);                        /* a ready update waits while the window is open */
 void update_shutdown(void);
 enum { DEPTH_AUTO = 0, DEPTH_CPU = 1, DEPTH_BENCH = 2, DEPTH_CRASHED = 3 };   /* which processor: see depth_infer.c */
-int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng);     /* ScreenPlus.exe --depth */
+int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng, const wchar_t *model, int video, HWND notify);   /* ScreenPlus.exe --depth */

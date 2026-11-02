@@ -1,16 +1,25 @@
-/* Depth estimation child process: ScreenPlus.exe --depth <image> <dir> [--cpu | --bench | --crashed] [--png]
- * Runs Depth Anything V2 Small (unquantized FP32 ONNX) through ONNX Runtime on one picture and writes
- * <dir>\depth.png, an 8-bit map at the model's own resolution where 255 is nearest (the wallpaper page
- * samples it with linear filtering). --png also saves the picture as <dir>\image.png, for formats a web
- * page can't show. Exit code 0: done; 2: picture unreadable; 3: ONNX Runtime missing; 4: inference failed.
+/* Depth estimation child process:
+ *   ScreenPlus.exe --depth <image|video> <dir> [--model <key>] [--video] [--notify <hwnd>] [--cpu | --bench | --crashed] [--png]
+ * Runs a depth model (depth.c's k_models: Depth Anything 2 or 3, unquantized FP32 ONNX) through ONNX Runtime.
+ * A picture gives <dir>\depth[-<key>].png, an 8-bit map at the model's own resolution where 255 is nearest (the
+ * wallpaper page samples it with linear filtering); --png also saves the picture as <dir>\image.png, for formats
+ * a web page can't show. --video runs every frame the page will need (DEPTH_VIDEO_FPS at most) and writes
+ * <dir>\depth[-<key>].bin: small grey JPEGs back to back, then an index (see write_video), posting
+ * WM_SP_DEPTH (2, done | total << 16) to --notify as it goes. Exit code 0: done; 2: picture or video
+ * unreadable; 3: ONNX Runtime missing; 4: inference failed; 5: a video codec the web page can't play.
  *
  * Which processor: the GPU (DirectML, the highest-performance adapter) is not always the quicker way to get
  * one picture done: DirectML compiles the whole model at every start (about 2 s) where a fast CPU needs about
- * 1 s in all. So the first run times both on the real picture and keeps the faster one in
- * <data>\depth\backend.json; later runs use it, and fall back to the CPU if a recorded GPU stops working. The
- * test is redone when ONNX Runtime or the graphics adapters change, or with --bench. --cpu runs on the CPU and
- * records nothing; --crashed is the parent's retry after this process died (almost surely the GPU path): it runs
- * on the CPU and records the CPU as the choice.
+ * 1 s in all. So the first run times both on the real picture and keeps the faster one in the model's
+ * backend.json; later runs use it, and fall back to the CPU if a recorded GPU stops working. The test is
+ * redone when ONNX Runtime or the graphics adapters change, or with --bench. --cpu runs on the CPU and records
+ * nothing; --crashed is the parent's retry after this process died (almost surely the GPU path): it runs on the
+ * CPU and records the CPU as the choice. A video compiles once and runs hundreds of frames, so it takes the GPU
+ * unless the record says its runs are slower there.
+ *
+ * Depth Anything 3 takes a batch of views ([1,N,3,H,W]) and returns metric depth (far = larger): it gets one
+ * view and its depth is turned into inverse depth, the scale Depth Anything 2 returns. Video frames are
+ * normalised between percentiles that follow the video smoothly, so the depth does not pulse from frame to frame.
  *
  * It is its own process so that a GPU driver fault cannot take the tray app down, and so that the
  * model's memory goes back to Windows when it exits. Pre/post-processing follows the Python reference
@@ -26,13 +35,16 @@
 #include <onnxruntime_c_api.h>
 #include <wincodec.h>
 #include <dxgi.h>
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define MODEL_SHORT 518     /* the size the model was trained at: the picture's shorter side */
 #define MODEL_LONG  1036    /* longest side allowed (74 patches of 14): ultrawide pictures stay quick */
+#define VIDEO_SHORT 288     /* video depth frames: shorter side (the page filters them; they stay small) */
 #define DILATE_PX   3       /* the reference's 5 px dilation and 4 px blur are for a full-size picture; */
 #define BLUR_PX     2       /* these are the same amounts at the model's resolution */
 
@@ -80,10 +92,11 @@ static IWICBitmapSource *open_upright(IWICImagingFactory *f, const wchar_t *path
     return src;
 }
 
-/* The model's input size: shorter side 518, longer side at most 1036, both multiples of 14. */
-static void model_size(UINT w, UINT h, int *mw, int *mh)
+/* The model's input size: shorter side `shortSide` (its training size), longer side at most 1036, both
+ * multiples of 14. */
+static void model_size(UINT w, UINT h, int shortSide, int *mw, int *mh)
 {
-    double s = (double)MODEL_SHORT / SP_MIN(w, h), lw = w * s, lh = h * s;
+    double s = (double)shortSide / SP_MIN(w, h), lw = w * s, lh = h * s;
     double cap = (double)MODEL_LONG / SP_MAX(lw, lh);
     if (cap < 1.0) { lw *= cap; lh *= cap; }
     *mw = SP_MAX(14, (int)(lw / 14.0 + 0.5) * 14);
@@ -252,61 +265,105 @@ static BOOL append_dml(OrtSessionOptions *so, HMODULE dll)
     return FALSE;
 }
 
-/* One inference: w*h floats of depth (larger = nearer) into out. gpu: DirectML, else the CPU threads.
- * ms (optional) receives what one job costs on this backend: session creation plus the run. */
-static BOOL run_model(HMODULE dll, int gpu, const wchar_t *model, float *chw, int w, int h, float *out, double *ms)
+/* A loaded model: created once, run once for a picture or for every frame of a video. */
+typedef struct Sess {
+    OrtEnv            *env;
+    OrtSessionOptions *so;
+    OrtSession        *s;
+    OrtMemoryInfo     *mi;
+    int                w, h, v3, gpu;
+} Sess;
+
+static void sess_close(Sess *x)
 {
-    OrtEnv *env = NULL;
-    OrtSessionOptions *so = NULL;
-    OrtSession *sess = NULL;
-    OrtMemoryInfo *mi = NULL;
+    if (x->mi) g_o->ReleaseMemoryInfo(x->mi);
+    if (x->s) g_o->ReleaseSession(x->s);
+    if (x->so) g_o->ReleaseSessionOptions(x->so);
+    if (x->env) g_o->ReleaseEnv(x->env);
+    memset(x, 0, sizeof *x);
+}
+
+/* gpu: DirectML, else the CPU threads. v3: Depth Anything 3's batch-of-views input. */
+static BOOL sess_open(Sess *x, HMODULE dll, int gpu, const wchar_t *model, int v3, int w, int h)
+{
+    BOOL ok = FALSE;
+    memset(x, 0, sizeof *x);
+    x->w = w;
+    x->h = h;
+    x->v3 = v3;
+    x->gpu = gpu;
+    ORT(g_o->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "screenplus", &x->env));
+    ORT(g_o->CreateSessionOptions(&x->so));
+    ORT(g_o->SetSessionGraphOptimizationLevel(x->so, ORT_ENABLE_ALL));
+    /* fixed shapes: DirectML compiles the whole graph, the CPU provider folds the shape arithmetic */
+    ORT(g_o->AddFreeDimensionOverrideByName(x->so, "batch_size", 1));
+    ORT(g_o->AddFreeDimensionOverrideByName(x->so, "num_images", 1));
+    ORT(g_o->AddFreeDimensionOverrideByName(x->so, "height", h));
+    ORT(g_o->AddFreeDimensionOverrideByName(x->so, "width", w));
+    if (gpu) {
+        ORT(g_o->DisableMemPattern(x->so));
+        ORT(g_o->SetSessionExecutionMode(x->so, ORT_SEQUENTIAL));
+        if (!append_dml(x->so, dll)) goto done;
+    }
+    ORT(g_o->CreateSession(x->env, model, x->so, &x->s));
+    ORT(g_o->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &x->mi));
+    ok = TRUE;
+done:
+    if (!ok) sess_close(x);
+    return ok;
+}
+
+/* One inference: w*h floats of depth into out, larger = nearer (Depth Anything 3's metric depth inverted). */
+static BOOL sess_run(Sess *x, float *chw, float *out)
+{
     OrtValue *in = NULL, *res = NULL;
     OrtTensorTypeAndShapeInfo *info = NULL;
     BOOL ok = FALSE;
-    double t0 = time_ms();
-    ORT(g_o->CreateEnv(ORT_LOGGING_LEVEL_ERROR, "screenplus", &env));
-    ORT(g_o->CreateSessionOptions(&so));
-    ORT(g_o->SetSessionGraphOptimizationLevel(so, ORT_ENABLE_ALL));
-    /* fixed shapes: DirectML compiles the whole graph, the CPU provider folds the shape arithmetic */
-    ORT(g_o->AddFreeDimensionOverrideByName(so, "batch_size", 1));
-    ORT(g_o->AddFreeDimensionOverrideByName(so, "height", h));
-    ORT(g_o->AddFreeDimensionOverrideByName(so, "width", w));
-    if (gpu) {
-        ORT(g_o->DisableMemPattern(so));
-        ORT(g_o->SetSessionExecutionMode(so, ORT_SEQUENTIAL));
-        if (!append_dml(so, dll)) goto done;
-    }
-    ORT(g_o->CreateSession(env, model, so, &sess));
-    double t1 = time_ms();
-    int64_t shape[4] = { 1, 3, h, w };
-    ORT(g_o->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &mi));
-    ORT(g_o->CreateTensorWithDataAsOrtValue(mi, chw, (size_t)w * h * 3 * sizeof(float), shape, 4, ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in));
+    int w = x->w, h = x->h;
+    int64_t shape[5] = { 1, 1, 3, h, w };
+    ORT(g_o->CreateTensorWithDataAsOrtValue(x->mi, chw, (size_t)w * h * 3 * sizeof(float), x->v3 ? shape : shape + 1, x->v3 ? 5 : 4,
+                                            ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in));
     const char *inName[] = { "pixel_values" }, *outName[] = { "predicted_depth" };
-    ORT(g_o->Run(sess, NULL, inName, (const OrtValue *const *)&in, 1, outName, 1, &res));
-    if (ms) *ms = time_ms() - t0;
+    ORT(g_o->Run(x->s, NULL, inName, (const OrtValue *const *)&in, 1, outName, 1, &res));
     float *data = NULL;
     int64_t dims[4] = { 0 };
     size_t nd = 0;
     ORT(g_o->GetTensorMutableData(res, (void **)&data));
     ORT(g_o->GetTensorTypeAndShape(res, &info));
     ORT(g_o->GetDimensionsCount(info, &nd));
-    if (nd == 3) ORT(g_o->GetDimensions(info, dims, nd));
-    if (nd != 3 || dims[1] != h || dims[2] != w) {
-        LOGE(L"depth: unexpected output shape (%d dimensions, %lld x %lld)", (int)nd, nd == 3 ? (long long)dims[1] : 0LL, nd == 3 ? (long long)dims[2] : 0LL);
+    if (nd == 3 || nd == 4) ORT(g_o->GetDimensions(info, dims, nd));
+    if ((nd != 3 && nd != 4) || dims[nd - 2] != h || dims[nd - 1] != w) {
+        LOGE(L"depth: unexpected output shape (%d dimensions, %lld x %lld)", (int)nd, nd >= 3 ? (long long)dims[nd - 2] : 0LL,
+             nd >= 3 ? (long long)dims[nd - 1] : 0LL);
         goto done;
     }
-    memcpy(out, data, (size_t)w * h * sizeof(float));
+    size_t n = (size_t)w * h;
+    if (x->v3) for (size_t i = 0; i < n; i++) out[i] = 1.0f / SP_MAX(data[i], 1e-4f);
+    else memcpy(out, data, n * sizeof(float));
     ok = TRUE;
-    LOGI(L"depth: %ls inference %dx%d: session %.0f ms, run %.0f ms", gpu ? L"DirectML" : L"CPU", w, h, t1 - t0, time_ms() - t1);
 done:
     if (info) g_o->ReleaseTensorTypeAndShapeInfo(info);
     if (res) g_o->ReleaseValue(res);
     if (in) g_o->ReleaseValue(in);
-    if (mi) g_o->ReleaseMemoryInfo(mi);
-    if (sess) g_o->ReleaseSession(sess);
-    if (so) g_o->ReleaseSessionOptions(so);
-    if (env) g_o->ReleaseEnv(env);
     return ok;
+}
+
+/* A picture: load, run, unload. ms (optional) receives what one job costs on this backend (loading plus the
+ * run), runMs (optional) the run alone. */
+static BOOL run_model(HMODULE dll, int gpu, const wchar_t *model, int v3, float *chw, int w, int h, float *out, double *ms, double *runMs)
+{
+    Sess x;
+    double t0 = time_ms();
+    if (!sess_open(&x, dll, gpu, model, v3, w, h)) return FALSE;
+    double t1 = time_ms();
+    BOOL ok = sess_run(&x, chw, out);
+    double t2 = time_ms();
+    sess_close(&x);
+    if (!ok) return FALSE;
+    if (ms) *ms = t2 - t0;
+    if (runMs) *runMs = t2 - t1;
+    LOGI(L"depth: %ls inference %dx%d: session %.0f ms, run %.0f ms", gpu ? L"DirectML" : L"CPU", w, h, t1 - t0, t2 - t1);
+    return TRUE;
 }
 
 static HMODULE load_runtime(void)
@@ -338,6 +395,7 @@ static HMODULE load_runtime(void)
 typedef struct Backend {
     int    gpu;             /* the faster one: 1 DirectML, 0 CPU */
     double gpuMs, cpuMs;    /* what the test measured for one job (0: that backend failed or was not tried) */
+    double gpuRun, cpuRun;  /* ... of which the run itself (the rest is loading the model): depth_estimate's figures */
     char   ort[16];         /* the record is only valid for this ONNX Runtime ... */
     char   fp[17];          /* ... and these graphics adapters */
 } Backend;
@@ -372,9 +430,12 @@ static void adapter_fingerprint(char out[17])
     snprintf(out, 17, "%016llx", (unsigned long long)(base ^ sum));
 }
 
+static int g_model;          /* k_models: each model keeps its own record in its folder */
+
 static void backend_path(wchar_t *out, size_t cap)
 {
-    path_join(out, cap, paths_root(), L"depth\\backend.json");
+    depth_model_dir(g_model, out, cap);
+    path_join(out, cap, out, L"backend.json");
 }
 
 /* The record, if there is one made by this ONNX Runtime on these adapters. */
@@ -389,6 +450,8 @@ static BOOL read_backend(Backend *b, const char *fp)
         b->gpu = strcmp(json_str(json_get(j, "backend"), "cpu"), "gpu") == 0;
         b->gpuMs = json_num(json_get(j, "gpu_ms"), 0.0);
         b->cpuMs = json_num(json_get(j, "cpu_ms"), 0.0);
+        b->gpuRun = json_num(json_get(j, "gpu_run_ms"), 0.0);
+        b->cpuRun = json_num(json_get(j, "cpu_run_ms"), 0.0);
         strncpy_s(b->ort, sizeof b->ort, json_str(json_get(j, "ort"), ""), _TRUNCATE);
         strncpy_s(b->fp, sizeof b->fp, json_str(json_get(j, "fingerprint"), ""), _TRUNCATE);
         ok = strcmp(b->ort, g_ortVersion) == 0 && strcmp(b->fp, fp) == 0;
@@ -399,10 +462,10 @@ static BOOL read_backend(Backend *b, const char *fp)
 
 static void write_backend(const Backend *b)
 {
-    char text[320];
+    char text[400];
     wchar_t p[SP_MAX_PATH];
-    int n = snprintf(text, sizeof text, "{\"backend\":\"%s\",\"gpu_ms\":%.0f,\"cpu_ms\":%.0f,\"ort\":\"%s\",\"fingerprint\":\"%s\"}\n",
-                     b->gpu ? "gpu" : "cpu", b->gpuMs, b->cpuMs, b->ort, b->fp);
+    int n = snprintf(text, sizeof text, "{\"backend\":\"%s\",\"gpu_ms\":%.0f,\"cpu_ms\":%.0f,\"gpu_run_ms\":%.0f,\"cpu_run_ms\":%.0f,"
+                     "\"ort\":\"%s\",\"fingerprint\":\"%s\"}\n", b->gpu ? "gpu" : "cpu", b->gpuMs, b->cpuMs, b->gpuRun, b->cpuRun, b->ort, b->fp);
     backend_path(p, SP_COUNTOF(p));
     HANDLE f = CreateFileW(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     DWORD w = 0;
@@ -423,17 +486,17 @@ static void warm_file(const wchar_t *path)
 }
 
 /* Times one job on the GPU and on the CPU (this very picture), records the faster and leaves its depth in out. */
-static BOOL benchmark(HMODULE dll, const wchar_t *model, float *chw, int w, int h, float *out, Backend *rec)
+static BOOL benchmark(HMODULE dll, const wchar_t *model, int v3, float *chw, int w, int h, float *out, Backend *rec)
 {
     size_t n = (size_t)w * h;
     float *cpuOut = (float *)malloc(n * sizeof(float));
     if (!cpuOut) return FALSE;
     warm_file(model);
-    rec->gpuMs = rec->cpuMs = 0.0;
-    BOOL okGpu = run_model(dll, 1, model, chw, w, h, out, &rec->gpuMs);
-    BOOL okCpu = run_model(dll, 0, model, chw, w, h, cpuOut, &rec->cpuMs);
-    if (!okGpu) rec->gpuMs = 0.0;
-    if (!okCpu) rec->cpuMs = 0.0;
+    rec->gpuMs = rec->cpuMs = rec->gpuRun = rec->cpuRun = 0.0;
+    BOOL okGpu = run_model(dll, 1, model, v3, chw, w, h, out, &rec->gpuMs, &rec->gpuRun);
+    BOOL okCpu = run_model(dll, 0, model, v3, chw, w, h, cpuOut, &rec->cpuMs, &rec->cpuRun);
+    if (!okGpu) rec->gpuMs = rec->gpuRun = 0.0;
+    if (!okCpu) rec->cpuMs = rec->cpuRun = 0.0;
     rec->gpu = okGpu && (!okCpu || rec->gpuMs <= rec->cpuMs);    /* only a quicker CPU wins: a tie keeps the work off the CPU */
     if (!rec->gpu && okCpu) memcpy(out, cpuOut, n * sizeof(float));
     free(cpuOut);
@@ -444,33 +507,304 @@ static BOOL benchmark(HMODULE dll, const wchar_t *model, float *chw, int w, int 
     return okGpu || okCpu;
 }
 
+/* ---------------------------------------------------------------- video */
+
+/* lo and hi between which the depth spreads: the 0.5th and 99.5th percentile of a sample (a few stray pixels
+ * then can't squeeze the rest of the frame into a narrow band). */
+static int cmp_float(const void *a, const void *b)
+{
+    float x = *(const float *)a, y = *(const float *)b;
+    return x < y ? -1 : x > y;
+}
+
+static void percentiles(const float *d, size_t n, float *sample, size_t cap, float *lo, float *hi)
+{
+    size_t step = SP_MAX((size_t)1, n / cap), m = 0;
+    for (size_t i = 0; i < n && m < cap; i += step) sample[m++] = d[i];
+    qsort(sample, m, sizeof(float), cmp_float);
+    *lo = sample[(size_t)(m * 0.005)];
+    *hi = sample[SP_MIN(m - 1, (size_t)(m * 0.995))];
+}
+
+/* Area-average downscale of a w x h grey map to ow x oh. */
+static void shrink(const uint8_t *src, int w, int h, uint8_t *dst, int ow, int oh)
+{
+    for (int y = 0; y < oh; y++) {
+        int y0 = y * h / oh, y1 = SP_MAX(y0 + 1, (y + 1) * h / oh);
+        for (int x = 0; x < ow; x++) {
+            int x0 = x * w / ow, x1 = SP_MAX(x0 + 1, (x + 1) * w / ow), sum = 0;
+            for (int yy = y0; yy < y1; yy++)
+                for (int xx = x0; xx < x1; xx++) sum += src[(size_t)yy * w + xx];
+            dst[(size_t)y * ow + x] = (uint8_t)(sum / ((y1 - y0) * (x1 - x0)));
+        }
+    }
+}
+
+/* A grey JPEG of px into buf; the byte count, 0 on failure. */
+static DWORD encode_jpeg(IWICImagingFactory *f, const uint8_t *px, int w, int h, uint8_t *buf, DWORD cap)
+{
+    IWICStream *st = NULL;
+    IWICBitmapEncoder *enc = NULL;
+    IWICBitmapFrameEncode *fe = NULL;
+    IPropertyBag2 *pb = NULL;
+    GUID pf = GUID_WICPixelFormat8bppGray;
+    ULARGE_INTEGER pos = { 0 };
+    LARGE_INTEGER zero = { 0 };
+    HRESULT hr = IWICImagingFactory_CreateStream(f, &st);
+    if (SUCCEEDED(hr)) hr = IWICStream_InitializeFromMemory(st, buf, cap);
+    if (SUCCEEDED(hr)) hr = IWICImagingFactory_CreateEncoder(f, &GUID_ContainerFormatJpeg, NULL, &enc);
+    if (SUCCEEDED(hr)) hr = IWICBitmapEncoder_Initialize(enc, (IStream *)st, WICBitmapEncoderNoCache);
+    if (SUCCEEDED(hr)) hr = IWICBitmapEncoder_CreateNewFrame(enc, &fe, &pb);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_Initialize(fe, pb);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_SetSize(fe, (UINT)w, (UINT)h);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_SetPixelFormat(fe, &pf);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_WritePixels(fe, (UINT)h, (UINT)w, (UINT)(w * h), (BYTE *)px);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_Commit(fe);
+    if (SUCCEEDED(hr)) hr = IWICBitmapEncoder_Commit(enc);
+    if (SUCCEEDED(hr)) hr = IWICStream_Seek(st, zero, STREAM_SEEK_CUR, &pos);
+    SP_RELEASE(pb);
+    SP_RELEASE(fe);
+    SP_RELEASE(enc);
+    SP_RELEASE(st);
+    return SUCCEEDED(hr) ? (DWORD)pos.QuadPart : 0;
+}
+
+static BOOL put(HANDLE f, const void *p, DWORD n)
+{
+    DWORD w = 0;
+    return WriteFile(f, p, n, &w, NULL) && w == n;
+}
+
+typedef struct Notify { HWND wnd; double last; } Notify;
+
+static void notify(Notify *nt, int done, int total)
+{
+    double now = time_ms();
+    if (!nt->wnd || (now - nt->last < 250.0 && done < total)) return;
+    nt->last = now;
+    PostMessageW(nt->wnd, WM_SP_DEPTH, 2, (LPARAM)(SP_MIN(done, 0xffff) | (SP_MIN(total, 0xffff) << 16)));
+}
+
+/* Every frame the page needs: frame k is the depth at k / fps seconds. depth.bin is
+ *   "SPDV" u32 1 | the JPEGs | index: u32 offset, u32 size per frame | u32 count, u32 w, u32 h, f32 fps, u32 index offset, "SPDV"
+ * (little endian; a frame the video has no picture of repeats the one before). */
+static int write_video(IWICImagingFactory *wic, HMODULE dll, const DepthModel *m, const wchar_t *model, const wchar_t *video,
+                       const wchar_t *out, int mode, Notify *nt)
+{
+    AVFormatContext *fmt = NULL;
+    AVCodecContext *dec = NULL;
+    AVPacket *pkt = av_packet_alloc();
+    AVFrame *fr = av_frame_alloc();
+    struct SwsContext *sws = NULL;
+    Sess x = { 0 };
+    HANDLE f = INVALID_HANDLE_VALUE;
+    uint8_t *rgb = NULL, *u8 = NULL, *small_ = NULL, *jpg = NULL;
+    float *chw = NULL, *depth = NULL, *sample = NULL;
+    uint32_t *index = NULL;
+    wchar_t tmp[SP_MAX_PATH];
+    int rc = 2, mw = 0, mh = 0, ow = 0, oh = 0, count = 0, total = 0;
+    double t0 = time_ms();
+    char *u = utf8_from_wide(video, NULL);
+    str_printf(tmp, SP_COUNTOF(tmp), L"%ls.tmp", out);
+
+    if (!u || !pkt || !fr || !video_ffmpeg_available(NULL, 0) || avformat_open_input(&fmt, u, NULL, NULL) < 0) goto done;
+    avformat_find_stream_info(fmt, NULL);
+    const AVCodec *codec = NULL;
+    int vi = av_find_best_stream(fmt, AVMEDIA_TYPE_VIDEO, -1, -1, &codec, 0);
+    if (vi < 0 || !codec) goto done;
+    AVStream *st = fmt->streams[vi];
+    enum AVCodecID id = st->codecpar->codec_id;
+    if (id != AV_CODEC_ID_H264 && id != AV_CODEC_ID_HEVC && id != AV_CODEC_ID_VP8 && id != AV_CODEC_ID_VP9 && id != AV_CODEC_ID_AV1) {
+        LOGE(L"depth: the video's codec (%hs) does not play in WebView2", avcodec_get_name(id));
+        rc = 5;
+        goto done;
+    }
+    for (unsigned i = 0; i < fmt->nb_streams; i++) fmt->streams[i]->discard = (int)i == vi ? AVDISCARD_DEFAULT : AVDISCARD_ALL;
+    if (!(dec = avcodec_alloc_context3(codec)) || avcodec_parameters_to_context(dec, st->codecpar) < 0) goto done;
+    dec->pkt_timebase = st->time_base;
+    dec->thread_count = 0;                                    /* as many as FFmpeg likes: decoding is not the slow part */
+    if (avcodec_open2(dec, codec, NULL) < 0 || dec->width <= 0 || dec->height <= 0) goto done;
+
+    double secs = fmt->duration > 0 ? fmt->duration / (double)AV_TIME_BASE : st->duration > 0 ? st->duration * av_q2d(st->time_base) : 0.0;
+    double srcFps = st->avg_frame_rate.num > 0 && st->avg_frame_rate.den > 0 ? av_q2d(st->avg_frame_rate) : DEPTH_VIDEO_FPS;
+    double fps = SP_MIN((double)DEPTH_VIDEO_FPS, srcFps);
+    if (secs > 0 && secs * fps > DEPTH_VIDEO_FRAMES) fps = DEPTH_VIDEO_FRAMES / secs;     /* long videos: fewer per second */
+    total = secs > 0 ? SP_MIN((int)ceil(secs * fps), DEPTH_VIDEO_FRAMES) : 0;
+    model_size((UINT)dec->width, (UINT)dec->height, m->shortSide, &mw, &mh);
+    double k = (double)SP_MIN(VIDEO_SHORT, SP_MIN(mw, mh)) / SP_MIN(mw, mh);
+    ow = SP_MAX(16, (int)(mw * k + 0.5));
+    oh = SP_MAX(16, (int)(mh * k + 0.5));
+    DWORD jcap = (DWORD)(ow * oh) + 65536;
+    size_t n = (size_t)mw * mh;
+    rgb = (uint8_t *)malloc(n * 3);
+    u8 = (uint8_t *)malloc(n);
+    small_ = (uint8_t *)malloc((size_t)ow * oh);
+    jpg = (uint8_t *)malloc(jcap);
+    depth = (float *)malloc(n * sizeof(float));
+    sample = (float *)malloc(20000 * sizeof(float));
+    index = (uint32_t *)malloc((size_t)DEPTH_VIDEO_FRAMES * 2 * sizeof(uint32_t));
+    if (!rgb || !u8 || !small_ || !jpg || !depth || !sample || !index) goto done;
+    LOGI(L"depth: video %dx%d, %.1f s at %.2f fps (%hs) -> %d depth frames at %.2f fps, model input %dx%d, saved %dx%d",
+         dec->width, dec->height, secs, srcFps, avcodec_get_name(id), total, fps, mw, mh, ow, oh);
+
+    rc = 4;
+    {
+        Backend rec = { 0 };
+        char fp[17] = "";
+        int gpu = mode != DEPTH_CPU && mode != DEPTH_CRASHED;
+        if (gpu) {
+            adapter_fingerprint(fp);
+            if (read_backend(&rec, fp) && rec.cpuRun > 0 && (rec.gpuRun <= 0 || rec.cpuRun < rec.gpuRun)) gpu = 0;   /* the GPU really is slower */
+        }
+        if (!(gpu && sess_open(&x, dll, 1, model, m->v3, mw, mh)) && !sess_open(&x, dll, 0, model, m->v3, mw, mh)) goto done;
+        LOGI(L"depth: model loaded on the %ls in %.0f ms", x.gpu ? L"GPU" : L"CPU", time_ms() - t0);
+    }
+    f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    uint32_t pos = 8, head[2] = { 0x56445053u /* "SPDV" */, 1 };
+    if (f == INVALID_HANDLE_VALUE || !put(f, head, sizeof head)) goto done;
+
+    double next = 0.0, start = st->start_time != AV_NOPTS_VALUE ? st->start_time * av_q2d(st->time_base) : 0.0;
+    float slo = 0.0f, shi = 0.0f;
+    int eof = 0, runs = 0;
+    double runMs = 0.0;
+    while (count < DEPTH_VIDEO_FRAMES) {
+        int got = avcodec_receive_frame(dec, fr);
+        if (got == AVERROR(EAGAIN)) {
+            if (eof) break;
+            if (av_read_frame(fmt, pkt) < 0) {
+                eof = 1;
+                avcodec_send_packet(dec, NULL);
+            } else {
+                if (pkt->stream_index == vi) avcodec_send_packet(dec, pkt);
+                av_packet_unref(pkt);
+            }
+            continue;
+        }
+        if (got < 0) break;
+        int64_t ts = fr->best_effort_timestamp != AV_NOPTS_VALUE ? fr->best_effort_timestamp : fr->pts;
+        double t = ts != AV_NOPTS_VALUE ? ts * av_q2d(st->time_base) - start : next;
+        if (t + 0.5 / srcFps < next || (total && count >= total)) {   /* not a frame the page needs */
+            av_frame_unref(fr);
+            continue;
+        }
+        /* this picture, stretched to the model's size like a still one */
+        uint8_t *dst[4] = { rgb, NULL, NULL, NULL };
+        int ls[4] = { mw * 3, 0, 0, 0 };
+        sws = sws_getCachedContext(sws, fr->width, fr->height, (enum AVPixelFormat)fr->format, mw, mh, AV_PIX_FMT_RGB24, SWS_AREA, NULL, NULL, NULL);
+        if (!sws) goto done;
+        sws_scale(sws, (const uint8_t *const *)fr->data, fr->linesize, 0, fr->height, dst, ls);
+        av_frame_unref(fr);
+        free(chw);
+        double r0 = time_ms();
+        if (!(chw = to_tensor(rgb, mw, mh)) || !sess_run(&x, chw, depth)) goto done;
+        runMs += time_ms() - r0;
+        runs++;
+        float lo, hi;
+        percentiles(depth, n, sample, 20000, &lo, &hi);
+        if (count == 0) { slo = lo; shi = hi; }
+        else { slo += (lo - slo) * 0.15f; shi += (hi - shi) * 0.15f; }   /* the range follows the video, smoothly */
+        float scale = 255.0f / (shi - slo + 1e-8f);
+        for (size_t i = 0; i < n; i++) u8[i] = (uint8_t)SP_CLAMP((int)((depth[i] - slo) * scale), 0, 255);
+        shrink(u8, mw, mh, small_, ow, oh);
+        dilate(small_, ow, oh, 2);
+        blur(small_, ow, oh, 1);
+        DWORD len = encode_jpeg(wic, small_, ow, oh, jpg, jcap);
+        if (!len || !put(f, jpg, len)) goto done;
+        /* a gap in the video (variable frame rate): this picture also stands in for the frame times it skipped */
+        int limit = total ? total : DEPTH_VIDEO_FRAMES;
+        do {
+            index[count * 2] = pos;
+            index[count * 2 + 1] = len;
+            count++;
+        } while (count < limit && (count + 0.5) / fps <= t);
+        next = count / fps;
+        pos += len;
+        notify(nt, count, total ? total : count);
+    }
+    if (count == 0) goto done;
+    float hdr[1] = { (float)fps };
+    uint32_t tail[6] = { (uint32_t)count, (uint32_t)ow, (uint32_t)oh, 0, pos, 0x56445053u };
+    memcpy(&tail[3], hdr, sizeof(float));
+    if (!put(f, index, (DWORD)count * 2 * sizeof(uint32_t)) || !put(f, tail, sizeof tail)) goto done;
+    CloseHandle(f);
+    f = INVALID_HANDLE_VALUE;
+    if (!MoveFileExW(tmp, out, MOVEFILE_REPLACE_EXISTING)) goto done;
+    {   /* the run time per frame, for depth_estimate */
+        Backend rec;
+        char fp[17] = "";
+        adapter_fingerprint(fp);
+        if (!read_backend(&rec, fp)) {
+            ZeroMemory(&rec, sizeof rec);
+            rec.gpu = x.gpu;
+            strncpy_s(rec.ort, sizeof rec.ort, g_ortVersion, _TRUNCATE);
+            strncpy_s(rec.fp, sizeof rec.fp, fp, _TRUNCATE);
+        }
+        if (x.gpu) rec.gpuRun = runMs / runs;
+        else rec.cpuRun = runMs / runs;
+        write_backend(&rec);
+    }
+    rc = 0;
+    LOGI(L"depth: %d depth frames (%d runs, %.0f ms each on the %ls) in %.1f s, %.1f MB", count, runs, runMs / SP_MAX(runs, 1),
+         x.gpu ? L"GPU" : L"CPU", (time_ms() - t0) / 1000.0, pos / 1048576.0);
+done:
+    if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+    if (rc) DeleteFileW(tmp);
+    if (x.s || x.env) sess_close(&x);
+    sws_freeContext(sws);
+    avcodec_free_context(&dec);
+    avformat_close_input(&fmt);
+    av_frame_free(&fr);
+    av_packet_free(&pkt);
+    free(index);
+    free(sample);
+    free(depth);
+    free(chw);
+    free(jpg);
+    free(small_);
+    free(u8);
+    free(rgb);
+    free(u);
+    return rc;
+}
+
 /* ---------------------------------------------------------------- entry point */
 
-int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng)
+int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng, const wchar_t *modelKey, int video, HWND notifyWnd)
 {
     IWICImagingFactory *f = NULL;
     IWICBitmapSource *src = NULL;
     uint8_t *rgb = NULL, *u8 = NULL;
     float *chw = NULL, *depth = NULL;
     HMODULE dll = NULL;
-    wchar_t model[SP_MAX_PATH], tmp[SP_MAX_PATH], png[SP_MAX_PATH];
+    wchar_t model[SP_MAX_PATH], tmp[SP_MAX_PATH], png[SP_MAX_PATH], name[64];
     UINT sw = 0, sh = 0;
     int w = 0, h = 0, rc = 2;
     double t0 = time_ms();
     log_init(L"depth");
     HRESULT hrCo = CoInitializeEx(NULL, COINIT_MULTITHREADED);
-    LOGI(L"depth: %ls -> %ls (%ls)", image, dir,
+    g_model = SP_MAX(0, depth_model_find(modelKey));
+    const DepthModel *m = depth_model(g_model);
+    LOGI(L"depth: %ls -> %ls with %ls (%ls)", image, dir, m->name,
          mode == DEPTH_CPU ? L"CPU only" : mode == DEPTH_CRASHED ? L"CPU, after a crash" : mode == DEPTH_BENCH ? L"test both" : L"fastest of GPU and CPU");
 
-    path_join(model, SP_COUNTOF(model), paths_root(), L"depth\\model.onnx");
+    depth_model_file(g_model, model, SP_COUNTOF(model));
+    if (g_model) str_printf(name, SP_COUNTOF(name), L"depth-%ls%ls", m->key, video ? L".bin" : L".png");
+    else str_copy(name, SP_COUNTOF(name), video ? L"depth.bin" : L"depth.png");
+    path_join(png, SP_COUNTOF(png), dir, name);
+    if (FAILED(CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&f))) goto done;
+    if (video) {
+        rc = 3;
+        if (!(dll = load_runtime())) goto done;
+        Notify nt = { notifyWnd, 0.0 };
+        rc = write_video(f, dll, m, model, image, png, mode, &nt);
+        goto done;
+    }
     path_join(tmp, SP_COUNTOF(tmp), dir, L"depth.tmp");
-    path_join(png, SP_COUNTOF(png), dir, L"depth.png");
-    if (FAILED(CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&f)) ||
-        !(src = open_upright(f, image, &sw, &sh))) {
+    if (!(src = open_upright(f, image, &sw, &sh))) {
         LOGE(L"depth: cannot read the picture");
         goto done;
     }
-    model_size(sw, sh, &w, &h);
+    model_size(sw, sh, m->shortSide, &w, &h);
     if (!(rgb = scaled_rgb(f, src, w, h)) || !(chw = to_tensor(rgb, w, h)) || !(depth = (float *)malloc((size_t)w * h * sizeof(float)))) {
         LOGE(L"depth: out of memory");
         goto done;
@@ -495,32 +829,40 @@ int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wan
             strncpy_s(rec.fp, sizeof rec.fp, fp, _TRUNCATE);
         }
         if (mode == DEPTH_CPU) {
-            ok = run_model(dll, 0, model, chw, w, h, depth, NULL);
+            ok = run_model(dll, 0, model, m->v3, chw, w, h, depth, NULL, NULL);
         } else if (mode == DEPTH_CRASHED) {                 /* the GPU path killed the process: the CPU is the choice now */
-            ok = run_model(dll, 0, model, chw, w, h, depth, &rec.cpuMs);
+            rec.gpu = 0;
+            ok = run_model(dll, 0, model, m->v3, chw, w, h, depth, &rec.cpuMs, &rec.cpuRun);
             if (ok) write_backend(&rec);
         } else if (known && !rec.gpu) {                      /* the test found the CPU quicker */
-            ok = run_model(dll, 0, model, chw, w, h, depth, NULL);
+            ok = run_model(dll, 0, model, m->v3, chw, w, h, depth, NULL, NULL);
         } else if (known) {                                  /* ... the GPU quicker; if it has stopped working, remember that */
-            ok = run_model(dll, 1, model, chw, w, h, depth, NULL);
+            ok = run_model(dll, 1, model, m->v3, chw, w, h, depth, NULL, NULL);
             if (!ok) {
                 LOGW(L"depth: the GPU stopped working; using the CPU from now on");
                 rec.gpu = 0;
-                rec.gpuMs = 0.0;
-                ok = run_model(dll, 0, model, chw, w, h, depth, &rec.cpuMs);
+                rec.gpuMs = rec.gpuRun = 0.0;
+                ok = run_model(dll, 0, model, m->v3, chw, w, h, depth, &rec.cpuMs, &rec.cpuRun);
                 if (ok) write_backend(&rec);
             }
         } else {
-            ok = benchmark(dll, model, chw, w, h, depth, &rec);
+            ok = benchmark(dll, model, m->v3, chw, w, h, depth, &rec);
         }
         if (!ok) goto done;
     }
 
     float lo = depth[0], hi = depth[0];
     size_t n = (size_t)w * h;
-    for (size_t i = 1; i < n; i++) {
-        if (depth[i] < lo) lo = depth[i];
-        if (depth[i] > hi) hi = depth[i];
+    if (m->v3) {                                         /* inverse metric depth: the sky's far tail would flatten the rest */
+        float *sample = (float *)malloc(20000 * sizeof(float));
+        if (!sample) goto done;
+        percentiles(depth, n, sample, 20000, &lo, &hi);
+        free(sample);
+    } else {
+        for (size_t i = 1; i < n; i++) {
+            if (depth[i] < lo) lo = depth[i];
+            if (depth[i] > hi) hi = depth[i];
+        }
     }
     if (!(u8 = (uint8_t *)malloc(n))) goto done;
     float scale = 255.0f / (hi - lo + 1e-8f);

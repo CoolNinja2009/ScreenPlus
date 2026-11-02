@@ -31,8 +31,9 @@ repository; open only the files a change touches. README.md is the user-facing d
   `config.ini` itself and reloads on command.
 - **Preview helper**: `ScreenPlus.exe --capture-preview <id>` (`src/app/preview_capture.c`) records HTML
   previews into `cache\previews`.
-- **Depth helper**: `ScreenPlus.exe --depth <image> <dir> [--cpu | --bench | --crashed] [--png]` (`src/app/depth_infer.c`)
-  runs the depth model on one picture and exits (0 ok, 2 unreadable picture, 3 ONNX Runtime missing, 4 inference failed).
+- **Depth helper**: `ScreenPlus.exe --depth <image|video> <dir> [--model <key>] [--video] [--notify <hwnd>] [--cpu | --bench | --crashed] [--png]`
+  (`src/app/depth_infer.c`) runs a depth model on one picture or every frame of a video and exits (0 ok, 2 unreadable,
+  3 ONNX Runtime missing, 4 inference failed, 5 video codec WebView2 can't play).
 - **Screensaver**: `ScreenPlus.scr` (a copy of the exe; `main.c` dispatches on the `.scr` name) or
   `ScreenPlus.exe --screensaver /s` (Preview). `src/screensaver/screensaver.c` runs the renderers itself (no shell,
   engine or desktop host): `/s` topmost windows per display (or one spanned), `/p <hwnd>` a child in Screen Saver
@@ -114,14 +115,15 @@ Renderer details:
   | `store-blocked.txt` | Store cards blocked from their right-click menu (`store_block`: key + preview hash, near hashes hide copies on other sites); deleted by Settings' Reset settings (`store_unblock_all`) |
   | `updates\` | Auto update's verified installer; cleared at the next check |
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |
-  | `depth\` | `ort\onnxruntime.dll`, `model.onnx` (both downloaded on request, pinned in `depth.c`), `<id>\` = a depth wallpaper's page, picture, `depth.png` |
+  | `depth\` | `ort\onnxruntime.dll`, `model.onnx` + `backend.json` (the default model), `models\<key>\` (the others: `model.onnx`, DA3's `model.onnx_data`, `backend.json`), all downloaded on request and pinned in `depth.c`; `<id>\` = a depth wallpaper's page `index[-<key>].html`, picture or video, `depth[-<key>].png`/`.bin` |
 - `WallpaperEntry` fields:
   - `type`: image, video or html.
   - `path`: a file, the HTML entry document, or an http(s) URL.
   - `format`: plain, lively or we.
   - `flags`: `WPFLAG_URL` (http(s) path), `WPFLAG_YTDLP` (a stream that yt-dlp resolves), `WPFLAG_AUDIO`,
     `WPFLAG_SYSINFO`, `WPFLAG_DEPTH` (an image converted by depth.c: `type` html, `path` its page, `thumb` the
-    original picture), `WPFLAG_NOCOOL` (the user took it back to plain; the "interactive images" setting skips it).
+    original picture or video), `WPFLAG_DEPTHVIDEO` (with DEPTH: `thumb` is a video), `WPFLAG_NOCOOL` (the user took it
+    back to plain; the "interactive images" setting skips it).
   - `thumb`.
 - `display_mode` (independent/duplicate/span) is applied inside `config_assignment`/`config_has_override`:
   overrides only count in independent mode and are kept otherwise. Applying to one display switches to independent.
@@ -150,10 +152,21 @@ Renderer details:
 - yt-dlp.exe is a PyInstaller one-file build. It ignores `PYTHON*` variables, so pass `--encoding utf-8`.
   Killing its launcher leaks `%TEMP%\_MEI*`, so stop its children first (`stop_tree` in `ytdlp.c`).
 
-## Depth wallpapers (v1.6)
+## Depth wallpapers (v1.6, models and videos 1.9)
 - Pinned in `depth.c`: the DirectML ONNX Runtime NuGet package (URL, size, SHA-256 of the package and of
-  `onnxruntime.dll`) and the onnx-community Depth Anything V2 Small FP32 model. CMake downloads the same package
+  `onnxruntime.dll`) and `k_models`, the onnx-community FP32 exports of Depth Anything 2 and 3 Small/Base/Large (HF
+  API `api/models/<repo>/tree/main/onnx` lists size and LFS SHA-256). CMake downloads the same ORT package
   for its C API headers only (`ORT_VERSION`/`ORT_SHA256`): keep both in step. DirectML is the system's copy.
+- The chosen model is the `depth_model` setting (a key; not in the CLI table). Customise's list rates each model with
+  `depth_estimate`: the child's per-model `backend.json` (`gpu_run_ms`/`cpu_run_ms` per frame), else DA2 Small's
+  measurement times the model's `cost`, else a guess from GPU memory and CPU threads; `gb` decides "can't run".
+  Picking a model starts the job for that wallpaper. Each model has its own page and depth file, so a switch changes
+  the entry's path (the engine reloads) and going back to an earlier model is instant.
+- DA3 input is `[1,N,3,H,W]` (N = 1, short side 504), output metric depth: inverted to DA2's inverse depth and
+  normalised between percentiles. Videos (H.264/HEVC/VP8/VP9/AV1, local files only): FFmpeg software decode, up to
+  15 depth frames a second and 3600 a video, GPU unless measured slower, range smoothed over frames, 288 px grey JPEGs
+  in `depth*.bin` ("SPDV", JPEGs, index, trailer; `write_video`). The page plays the video muted and blends the two
+  depth frames around each frame's time. The "interactive images" setting stays pictures only.
 - Nothing downloads unless the user pressed Make wallpaper cooler or switched on `interactive_images`.
 - GPU or CPU: DirectML recompiles the model at every process start (~0.9-2.5 s), a fast CPU needs ~1 s, so the first
   run times both on the real picture and `depth\backend.json` keeps the quicker (re-tested when the ONNX Runtime
@@ -161,7 +174,8 @@ Renderer details:
   fails falls back to the CPU and is re-recorded. If the child dies, the parent runs it again with `--crashed`: CPU,
   and the CPU is recorded. `--cpu` records nothing.
   Model: input `pixel_values` [1,3,H,W] (H, W multiples of 14, short side 518, long side at most 1036), output
-  `predicted_depth`; shapes are fixed with free-dimension overrides. Depth map = min-max normalised, dilated, blurred.
+  `predicted_depth`; shapes are fixed with free-dimension overrides. Depth map = min-max normalised (DA2 pictures),
+  dilated, blurred.
 - ONNX Runtime is built with the MSVC 14.44 toolset, so it needs the Visual C++ runtime at 14.44 or newer
   (`dumpbin /headers onnxruntime.dll`, linker version). `vcruntime_ok/fetch/run` in `webfetch.c` (pinned Microsoft
   installer, run elevated) back `screenplus vcredist`; `installer/screenplus.nsi` checks the registry

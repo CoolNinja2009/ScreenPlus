@@ -203,7 +203,11 @@ static void make_still(IWICImagingFactory *f, Req *r)
     uint8_t *px = NULL;
     if (f) {
         /* Packages name their own preview (e.g. Lively's "lively_t.jpg"); prefer it over guessing. */
-        if (r->thumb[0] && file_exists(r->thumb)) px = from_file(f, r->thumb, r->w, r->h);
+        if (r->thumb[0] && file_exists(r->thumb)) {
+            px = from_file(f, r->thumb, r->w, r->h);
+            if (!px) px = from_shell(f, r->thumb, r->w, r->h);         /* an interactive video's original */
+            if (!px) ffmpeg_thumbnail(r->thumb, r->w, r->h, &px);
+        }
         if (!px && r->type == WP_HTML) {
             px = html_preview(f, r->path, r->w, r->h);
             if (!px) {                    /* nothing shipped: the recorded preview, or record one */

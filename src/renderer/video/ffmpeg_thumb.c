@@ -203,6 +203,22 @@ BOOL ffmpeg_first_frame(const wchar_t *path, int w, int h, uint8_t **out)
     return ok;
 }
 
+/* Length in seconds from the container (the depth model list's time estimate), 0: unknown. */
+double ffmpeg_duration(const wchar_t *path)
+{
+    double secs = 0.0;
+    Src s;
+    char *u = video_ffmpeg_available(NULL, 0) ? utf8_from_wide(path, NULL) : NULL;
+    if (u && src_open(&s, u, 0)) {
+        AVStream *st = s.fmt->streams[s.vi];
+        if (s.fmt->duration > 0) secs = s.fmt->duration / (double)AV_TIME_BASE;
+        else if (st->duration > 0) secs = st->duration * av_q2d(st->time_base);
+        src_close(&s);
+    }
+    free(u);
+    return secs;
+}
+
 static int count_frames(const char *u)
 {
     AVPacket *pkt = av_packet_alloc();

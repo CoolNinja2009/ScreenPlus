@@ -101,6 +101,7 @@ HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, H
 /* The frame a video starts on, BGRA w x h cover crop (ffmpeg_thumb.c), for the Windows wallpaper still;
  * the caller frees it with free(). */
 BOOL ffmpeg_first_frame(const wchar_t *path, int w, int h, uint8_t **bgra);
+double ffmpeg_duration(const wchar_t *path);                               /* seconds, 0: unknown */
 struct IWICBitmapFrameDecode;
 UINT image_exif_orientation(struct IWICBitmapFrameDecode *frame);   /* 1..8 (1: upright or unknown) */
 int  image_orientation_transform(UINT orientation);                /* WICBitmapTransformOptions that makes it upright */

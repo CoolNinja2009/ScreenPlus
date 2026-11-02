@@ -56,6 +56,7 @@ void config_defaults(Config *c)
     c->s.livelyImport = 1;
     c->s.urlImport = 1;
     c->s.depthAll = 0;
+    str_copy(c->s.depthModel, SP_COUNTOF(c->s.depthModel), L"da2-small");
     c->s.theme = THEME_SYSTEM;
     c->s.displayMode = DM_INDEPENDENT;
     c->s.scrAudio = 0;
@@ -332,6 +333,7 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"lively_auto_import")) s->livelyImport = parse_bool(val, s->livelyImport);
             else if (str_ieq(key, L"url_import")) s->urlImport = parse_bool(val, s->urlImport);
             else if (str_ieq(key, L"interactive_images")) s->depthAll = parse_bool(val, s->depthAll);
+            else if (str_ieq(key, L"depth_model")) str_copy(s->depthModel, SP_COUNTOF(s->depthModel), val);
             else if (str_ieq(key, L"display_mode"))
                 s->displayMode = str_ieq(val, L"span") ? DM_SPAN : str_ieq(val, L"duplicate") ? DM_DUPLICATE : DM_INDEPENDENT;
             else if (str_ieq(key, L"screensaver_audio")) s->scrAudio = parse_bool(val, s->scrAudio);
@@ -454,7 +456,7 @@ BOOL config_save(const Config *c, const wchar_t *path)
                   "pause_when_covered=%d\r\nsuspend_on_lock=%d\r\npause_on_battery=%d\r\naudio=%d\r\n"
                   "auto_recover=%d\r\npaused=%d\r\nhtml_mouse=%d\r\nhtml_audio=%d\r\nweb_fps=%d\r\nlively_auto_import=%d\r\n"
                   "url_import=%d\r\ninteractive_images=%d\r\ndisplay_mode=%s\r\nscreensaver_audio=%d\r\n"
-                  "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\nauto_update=%d\r\ntheme=%s\r\n\r\n",
+                  "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\nauto_update=%d\r\ntheme=%s\r\n",
               s->startWithWindows, s->launchToTray, s->stillWallpaper, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
               s->pauseOnBattery, s->audio, s->autoRecover, s->paused, s->htmlMouse, s->htmlAudio, s->webFps, s->livelyImport,
               s->urlImport, s->depthAll,
@@ -462,7 +464,9 @@ BOOL config_save(const Config *c, const wchar_t *path)
               s->scrAudio, s->scrDisplays == SCRD_SPAN ? "span" : s->scrDisplays == SCRD_PRIMARY ? "primary" : "all",
               s->scrExitOnMouse, s->autoUpdate,
               s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system");
-    sb_puts(&b, "[assignments]\r\n");
+    sb_puts(&b, "depth_model=");     /* its own line: sb_printf formats into 512 bytes */
+    sb_put_wide(&b, s->depthModel);
+    sb_puts(&b, "\r\n\r\n[assignments]\r\n");
     if (c->defaultWallpaper[0]) {
         sb_puts(&b, "default=");
         sb_put_wide(&b, c->defaultWallpaper);

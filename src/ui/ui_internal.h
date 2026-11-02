@@ -28,7 +28,8 @@ enum HitKind {
     HK_DISPMODE, HK_IDENTIFY, HK_SCR_CHOOSE, HK_SCR_PREVIEW, HK_SCR_TIMEOUT, HK_SCR_DISPLAYS, HK_SCR_WINDOWS,
     HK_STORE_TEXT, HK_STORE_CLEAR, HK_STORE_CARD, HK_STORE_DL, HK_STORE_RETRY,  /* Store; data: the item's index */
     HK_STORE_FILTER,                                                            /* data: SF_* */
-    HK_UPDATE_CHECK, HK_RESET_SETTINGS
+    HK_UPDATE_CHECK, HK_RESET_SETTINGS,
+    HK_DEPTH_PICK, HK_DEPTH_MODEL     /* depth model list: open/close; pick (data: depth_model index) */
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
