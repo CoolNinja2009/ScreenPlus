@@ -63,6 +63,8 @@ BrandingText "${APP_NAME} ${VERSION}"
 
 VIProductVersion "${VERSION}.0"
 VIAddVersionKey "ProductName" "${APP_NAME}"
+VIAddVersionKey "CompanyName" "Screen+"
+VIAddVersionKey "OriginalFilename" "ScreenPlus-Setup-${VERSION}.exe"
 VIAddVersionKey "FileDescription" "${APP_NAME} Setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"

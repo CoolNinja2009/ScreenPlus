@@ -135,6 +135,72 @@ jobs:
         shell: cmd
         run: call build.cmd Release ${{ steps.version.outputs.version }}
 
+      # Code signing through SignPath Foundation (free for open source), so Defender and SmartScreen
+      # trust the files instead of flagging an unknown unsigned exe. It runs once the repository variable
+      # SIGNPATH_ORGANIZATION_ID and the secret SIGNPATH_API_TOKEN are set (see .signpath/README.md):
+      # the exes are signed first, setup is rebuilt around them, then setup itself is signed.
+      - name: Upload exes for signing
+        id: unsigned-bin
+        if: vars.SIGNPATH_ORGANIZATION_ID != '' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-bin
+          path: |
+            build/ScreenPlus.exe
+            build/ScreenPlus.com
+
+      - name: Sign exes
+        if: steps.unsigned-bin.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ScreenPlus
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: binaries
+          github-artifact-id: ${{ steps.unsigned-bin.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600   # release-signing waits for your approval
+          output-artifact-directory: signed-bin
+
+      - name: Rebuild setup around the signed exes
+        if: steps.unsigned-bin.outcome == 'success'
+        shell: pwsh
+        run: |
+          $v = '${{ steps.version.outputs.version }}'
+          Copy-Item signed-bin\ScreenPlus.exe, signed-bin\ScreenPlus.com build\ -Force
+          Copy-Item build\ScreenPlus.exe build\ScreenPlus.scr -Force
+          & 'C:\Program Files (x86)\NSIS\makensis.exe' /V2 "/DVERSION=$v" "/DSTAGE=$PWD\build" `
+            "/DOUTFILE=$PWD\build\ScreenPlus-Setup-$v.exe" installer\screenplus.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+
+      - name: Upload setup for signing
+        id: unsigned-setup
+        if: steps.unsigned-bin.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-setup
+          path: build/ScreenPlus-Setup-${{ steps.version.outputs.version }}.exe
+
+      - name: Sign setup
+        if: steps.unsigned-setup.outcome == 'success'
+        uses: signpath/github-action-submit-signing-request@v1
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ScreenPlus
+          signing-policy-slug: release-signing
+          artifact-configuration-slug: installer
+          github-artifact-id: ${{ steps.unsigned-setup.outputs.artifact-id }}
+          wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 3600
+          output-artifact-directory: signed-setup
+
+      - name: Use the signed setup
+        if: steps.unsigned-setup.outcome == 'success'
+        shell: pwsh
+        run: Copy-Item signed-setup\*.exe build\ -Force
+
       - name: Package
         id: package
         shell: pwsh

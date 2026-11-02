@@ -15,6 +15,8 @@ repository; open only the files a change touches. README.md is the user-facing d
   `SCREENPLUS_VERSION` in CMakeLists.txt when that is higher; a `vX.Y.Z` tag releases that exact version.
   The portable zip carries every `samples\` wallpaper and the URL tools. The installer ships only Singularity and Aurora
   and downloads the tools.
+- CI signs releases through SignPath Foundation once `SIGNPATH_ORGANIZATION_ID` (variable) and `SIGNPATH_API_TOKEN`
+  (secret) exist: exes first, setup rebuilt with makensis around them, then setup. Setup is in `.signpath/`.
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use
   nsDialogs custom pages.
 
