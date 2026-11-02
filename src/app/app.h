@@ -190,6 +190,8 @@ const StoreVariant *store_best(const StoreItem *it);   /* the largest file it co
 int  store_dl_state(int index, int *percent);          /* STOREDL_*; percent: -1 unknown */
 void store_download(int index);                        /* the best file into the library (again: cancel); _SITE: its page */
 void store_page_url(int index, wchar_t *out, size_t cap);
+void store_block(int index);                           /* hidden from every listing (and its copies) until reset */
+void store_unblock_all(void);                          /* Settings' Reset settings */
 void store_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_STORE */
 void store_on_import(void);                            /* after url_import_on_event: the queued download may start */
 void store_shutdown(void);

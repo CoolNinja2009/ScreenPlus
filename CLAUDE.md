@@ -111,6 +111,7 @@ Renderer details:
   | `WebView2-Screensaver\` | The screensaver process's WebView2 profile |
   | `downloads\` | Link and Store downloads; deleted with their entry (`library_discard`, never while another entry uses one, e.g. as a depth wallpaper's `thumb`) |
   | `pending-delete.txt` | A removed entry's download or depth folder that was open then; `library_purge` retries it at the next start |
+  | `store-blocked.txt` | Store cards blocked from their right-click menu (`store_block`: key + preview hash, near hashes hide copies on other sites); deleted by Settings' Reset settings (`store_unblock_all`) |
   | `updates\` | Auto update's verified installer; cleared at the next check |
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |
   | `depth\` | `ort\onnxruntime.dll`, `model.onnx` (both downloaded on request, pinned in `depth.c`), `<id>\` = a depth wallpaper's page, picture, `depth.png` |

@@ -518,9 +518,56 @@ static void fold(int i)
     }
 }
 
+/* Blocked cards: the right-click menu's Block, kept in <data>\store-blocked.txt ("key hash" per line, hash 0 when
+ * the preview wasn't hashed yet) until Settings' Reset settings. A near hash blocks the copies on other sites too. */
+typedef struct Blocked { uint32_t key; uint64_t hash; } Blocked;
+static Blocked *g_block;
+static int      g_blockCount, g_blockCap, g_blockLoaded;
+
+static void block_path(wchar_t *out, size_t cap) { path_join(out, cap, paths_root(), L"store-blocked.txt"); }
+
+static int block_add(uint32_t key, uint64_t hash)
+{
+    if (g_blockCount == g_blockCap) {
+        int nc = g_blockCap ? g_blockCap * 2 : 64;
+        Blocked *n = (Blocked *)realloc(g_block, sizeof(Blocked) * (size_t)nc);
+        if (!n) return 0;
+        g_block = n;
+        g_blockCap = nc;
+    }
+    g_block[g_blockCount].key = key;
+    g_block[g_blockCount++].hash = hash;
+    return 1;
+}
+
+static void block_load(void)
+{
+    if (g_blockLoaded) return;
+    g_blockLoaded = 1;
+    wchar_t p[SP_MAX_PATH];
+    block_path(p, SP_COUNTOF(p));
+    FILE *f = _wfopen(p, L"r");
+    if (!f) return;
+    unsigned int key;
+    unsigned long long hash;
+    while (fscanf(f, "%x %llx", &key, &hash) == 2) block_add(key, hash);
+    fclose(f);
+}
+
+static int bits64(uint64_t v);
+
+static int blocked(const StoreItem *it)
+{
+    for (int i = 0; i < g_blockCount; i++) {
+        if (g_block[i].key == it->key) return 1;
+        if (it->hashed && g_block[i].hash && bits64(it->hash ^ g_block[i].hash) <= 5) return 1;
+    }
+    return 0;
+}
+
 static int shown(const StoreItem *it)
 {
-    if (it->dupOf) return 0;
+    if (it->dupOf || blocked(it)) return 0;
     if (S.filter[SF_KIND] && it->kind != S.filter[SF_KIND]) return 0;
     if (S.filter[SF_SOURCE] && it->source != S.filter[SF_SOURCE] - 1) return 0;
     int64_t px = pixels(it), need = (int64_t)k_resMin[g_query.res][0] * k_resMin[g_query.res][1];
@@ -777,7 +824,38 @@ BOOL store_search(const wchar_t *query)
 
 void store_open(void)
 {
+    block_load();
     if (!g_started) relist();
+}
+
+void store_block(int i)
+{
+    if (i < 0 || i >= S.count) return;
+    block_load();
+    const StoreItem *it = &S.items[i];
+    uint64_t hash = it->hashed ? it->hash : 0;
+    if (!block_add(it->key, hash)) return;
+    wchar_t p[SP_MAX_PATH];
+    block_path(p, SP_COUNTOF(p));
+    FILE *f = _wfopen(p, L"a");
+    if (f) {
+        fprintf(f, "%08x %016llx\n", it->key, (unsigned long long)hash);
+        fclose(f);
+    } else {
+        LOGW(L"store: could not save the block list");
+    }
+    rebuild_view();
+    ui_on_status();
+}
+
+void store_unblock_all(void)
+{
+    g_blockCount = 0;
+    g_blockLoaded = 1;
+    wchar_t p[SP_MAX_PATH];
+    block_path(p, SP_COUNTOF(p));
+    DeleteFileW(p);
+    rebuild_view();
 }
 
 void store_more(void)

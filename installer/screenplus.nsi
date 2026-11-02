@@ -45,6 +45,16 @@ SetCompressor /SOLID lzma
 !ifndef OUTFILE
   !define OUTFILE "..\build\ScreenPlus-Setup-${VERSION}.exe"
 !endif
+; Space for what setup downloads (NSIS counts only embedded files): the build writes sizes.nsh beside its output.
+!include /NONFATAL "${STAGE}\sizes.nsh"
+!ifndef SAMPLES_KB
+  !define SAMPLES_KB 45000
+!endif
+!ifndef SAMPLES_DL_MB
+  !define SAMPLES_DL_MB 35
+!endif
+!define /math SAMPLES_MB ${SAMPLES_KB} / 1024
+!define URL_TOOLS_KB 20500   ; yt-dlp + QuickJS-NG, in the data folder
 
 !define APP_NAME     "Screen+"
 !define APP_EXE      "ScreenPlus.exe"
@@ -400,7 +410,7 @@ Function OptionsPage
   ${If} $InstMode == "default"  ; not offered on an update or a clean installation
     ${NSD_CreateCheckbox} 0 0 100% 12u "&Sample wallpapers (recommended)"
     Pop $hSamples
-    ${NSD_CreateLabel} 13u 13u -13u 16u "Downloads more sample wallpapers (about 35 MB)."
+    ${NSD_CreateLabel} 13u 13u -13u 16u "Downloads more sample wallpapers (about ${SAMPLES_DL_MB} MB, ${SAMPLES_MB} MB on disk)."
     Pop $0
     ${If} $OptSamples == 1
       ${NSD_Check} $hSamples
@@ -437,6 +447,7 @@ Function OptionsLeave
   ${If} $VcNeeded == 1
     ${NSD_GetState} $hVc $OptVc
   ${EndIf}
+  Call SetDownloadSizes
 FunctionEnd
 
 ; samples\ (Singularity, Aurora and the downloaded Lively packages, with subfolders) goes as a whole; the Aurora check keeps
@@ -525,7 +536,7 @@ Section "Install"
 SectionEnd
 
 ; Optional feature: video import from web links. The tools are downloaded here, not embedded.
-Section "-UrlImport"
+Section "-UrlImport" SecUrl
   ${If} $OptUrl == 1
     DetailPrint "Downloading yt-dlp and QuickJS-NG..."
     nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" tools install'
@@ -541,7 +552,7 @@ Section "-UrlImport"
 SectionEnd
 
 ; Optional: the sample wallpapers besides Singularity and Aurora, downloaded from this release on GitHub (not embedded).
-Section "-Samples"
+Section "-Samples" SecSamples
   ${If} $InstMode == "default"                        ; never on an update: it leaves the samples as they are
   ${AndIf} $OptSamples == 1
     DetailPrint "Downloading sample wallpapers..."
@@ -564,6 +575,21 @@ Section "-VcRuntime"
     ${EndIf}
   ${EndIf}
 SectionEnd
+
+; The directory page's "Space required": downloads count only when they are chosen (after the sections: it names them).
+Function SetDownloadSizes
+  StrCpy $0 0
+  ${If} $InstMode == "default"
+  ${AndIf} $OptSamples == 1
+    StrCpy $0 ${SAMPLES_KB}
+  ${EndIf}
+  SectionSetSize ${SecSamples} $0
+  StrCpy $0 0
+  ${If} $OptUrl == 1
+    StrCpy $0 ${URL_TOOLS_KB}
+  ${EndIf}
+  SectionSetSize ${SecUrl} $0
+FunctionEnd
 
 ; ------------------------------------------------------------------ uninstall
 Section "Uninstall"

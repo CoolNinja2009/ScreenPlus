@@ -162,6 +162,17 @@ if(SAMPLES_PACK)   # only when a sample changed: the zip isn't byte-reproducible
 endif()
 file(SHA256 "${SAMPLES_ZIP}" SAMPLES_SHA256)
 file(SIZE "${SAMPLES_ZIP}" SAMPLES_SIZE)
+# The installer's space figures: the samples download unpacked, and the download itself (sizes.nsh beside the build).
+set(SAMPLES_UNPACKED 0)
+foreach(f IN LISTS SAMPLE_FILES)
+    if(NOT f MATCHES "/samples/(Aurora|Singularity)/")
+        file(SIZE "${f}" _s)
+        math(EXPR SAMPLES_UNPACKED "${SAMPLES_UNPACKED} + ${_s}")
+    endif()
+endforeach()
+math(EXPR SAMPLES_KB "${SAMPLES_UNPACKED} / 1024")
+math(EXPR SAMPLES_DL_MB "(${SAMPLES_SIZE} + 524288) / 1048576")
+file(WRITE "${CMAKE_BINARY_DIR}/sizes.nsh" "!define SAMPLES_KB ${SAMPLES_KB}\n!define SAMPLES_DL_MB ${SAMPLES_DL_MB}\n")
 
 # Terminal companion, shipped as ScreenPlus.com next to ScreenPlus.exe: a terminal resolves
 # `screenplus` to the .com first (PATHEXT order), shortcuts and the startup entry name the .exe.
@@ -210,7 +221,7 @@ if(MAKENSIS)
         COMMAND "${MAKENSIS}" /V2 "/DVERSION=${PROJECT_VERSION}" "/DSTAGE=${_stage}" "/DOUTFILE=${_setup}"
                 "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi"
         DEPENDS ScreenPlus ScreenPlusCli "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi" "${CMAKE_SOURCE_DIR}/installer/wizard.bmp"
-                "${CMAKE_SOURCE_DIR}/installer/header.bmp" "${CMAKE_SOURCE_DIR}/LICENSE"
+                "${CMAKE_SOURCE_DIR}/installer/header.bmp" "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_BINARY_DIR}/sizes.nsh"
         COMMENT "Building ScreenPlus-Setup-${PROJECT_VERSION}.exe" VERBATIM)
     add_custom_target(ScreenPlusSetup ALL DEPENDS "${SETUP_EXE}")
 else()

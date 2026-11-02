@@ -1058,6 +1058,13 @@ static void draw_settings(Ui *u, float cx, float cw)
         row_label(u, x, y, w - b1 - b2 - 60, L"Logs and data", NULL);
         ui_button(HIT_ID(HK_OPEN_DATA, 0), rectf(x + w - 18 - b2, y + 14, b2, 34), L"Open data folder", GL_FOLDER, BTN_SECONDARY);
         ui_button(HIT_ID(HK_OPEN_LOGS, 0), rectf(x + w - 26 - b2 - b1, y + 14, b1, 34), L"Open logs", GL_DOC, BTN_SECONDARY);
+        y += 62 + 10;
+    }
+    {
+        float bw = ui_button_width(L"Reset settings", GL_REFRESH);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - bw - 60, L"Reset settings", NULL);
+        ui_button(HIT_ID(HK_RESET_SETTINGS, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Reset settings", GL_REFRESH, BTN_SECONDARY);
     }
     y += 62 + 26;
 
@@ -1959,6 +1966,31 @@ void pages_draw(void)
     u->alpha = 1.0f;
 }
 
+/* Every setting back to config_defaults; the library, assignments and Windows' screensaver settings stay. */
+static void reset_settings(void)
+{
+    Ui *u = g_ui;
+    if (MessageBoxW(u->hwnd, L"Reset every setting to its factory value and unblock all Store wallpapers?\n\n"
+                             L"Your library is kept.", L"Screen+", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES)
+        return;
+    Config d;
+    ZeroMemory(&d, sizeof d);
+    config_defaults(&d);
+    Settings *s = &g_app.cfg.s;
+    if (s->startWithWindows != d.s.startWithWindows && !startup_set_enabled(d.s.startWithWindows))
+        d.s.startWithWindows = s->startWithWindows;
+    if (s->paused != d.s.paused) app_set_paused(d.s.paused);
+    if (s->audio != d.s.audio) app_set_audio(d.s.audio);
+    *s = d.s;
+    app_save_config();
+    store_unblock_all();
+    ui_refresh_theme();
+    update_schedule(FALSE);
+    LOGI(L"settings reset to factory values");
+    app_notice(NOTICE_INFO, L"Settings reset.");
+    ui_animate();
+}
+
 static void toggle_setting(int idx)
 {
     Settings *s = &g_app.cfg.s;
@@ -2106,6 +2138,7 @@ void pages_activate(int id, int dbl)
     case HK_AUDIO:         app_set_audio(!g_app.cfg.s.audio); break;
     case HK_RESTART_CURRENT:
     case HK_RESTART_ENGINE: app_restart_renderer(); break;
+    case HK_RESET_SETTINGS: reset_settings(); break;
     case HK_REVEAL: {
         WallpaperEntry *e = config_find(&g_app.cfg, app_wallpaper_for(target_id()));
         if (e && wallpaper_is_url(e->path)) shell_open(e->path);   /* a web page or stream: its link */
@@ -2217,6 +2250,19 @@ void pages_activate(int id, int dbl)
 void pages_context(int id, int sx, int sy)
 {
     Ui *u = g_ui;
+    if (HIT_KIND(id) == HK_STORE_CARD || HIT_KIND(id) == HK_STORE_DL) {
+        HMENU m = CreatePopupMenu();
+        if (!m) return;
+        AppendMenuW(m, MF_STRING, 1, L"Open its page");
+        AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(m, MF_STRING, 2, L"Block this wallpaper");
+        UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
+        DestroyMenu(m);
+        if (cmd == 1) pages_activate(HIT_ID(HK_STORE_CARD, HIT_DATA(id)), 0);
+        else if (cmd == 2) store_block(HIT_DATA(id));
+        ui_invalidate();
+        return;
+    }
     if (HIT_KIND(id) != HK_CARD && HIT_KIND(id) != HK_NAME) return;
     int vi = HIT_DATA(id);
     if (vi < 0 || vi >= u->viewCount) return;
