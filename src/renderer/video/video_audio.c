@@ -220,7 +220,25 @@ static int refill(VideoSource *s, AudioDev *d, Pcm *p, AudioState *as, AVFrame *
     return 0;
 }
 
-static HRESULT feed(VideoSource *s, AudioDev *d, Pcm *p, AudioState *as, AVFrame *fr)
+/* Pause fade: gain ramps per frame toward 0 (fading out before a pause) or 1 (after a start). */
+#define FADE_OUT_S 0.6
+#define FADE_IN_S  0.4
+static void copy_gain(float *dst, const float *src, UINT32 frames, int channels, int rate, float *gain, int out)
+{
+    float target = out ? 0.0f : 1.0f, step = (float)(1.0 / ((out ? FADE_OUT_S : FADE_IN_S) * rate));
+    if (*gain == target) {
+        if (out) memset(dst, 0, (size_t)frames * channels * sizeof(float));
+        else memcpy(dst, src, (size_t)frames * channels * sizeof(float));
+        return;
+    }
+    for (UINT32 i = 0; i < frames; i++) {
+        *gain = out ? SP_MAX(0.0f, *gain - step) : SP_MIN(1.0f, *gain + step);
+        float g = *gain * *gain;             /* squared: sounds even to the ear */
+        for (int c = 0; c < channels; c++) dst[i * channels + c] = src[i * channels + c] * g;
+    }
+}
+
+static HRESULT feed(VideoSource *s, AudioDev *d, Pcm *p, AudioState *as, AVFrame *fr, float *gain)
 {
     UINT32 padding = 0;
     HRESULT hr = IAudioClient_GetCurrentPadding(d->client, &padding);
@@ -250,7 +268,7 @@ static HRESULT feed(VideoSource *s, AudioDev *d, Pcm *p, AudioState *as, AVFrame
         }
         UINT32 n = SP_MIN(avail, (UINT32)p->frames);
         if (FAILED(hr = IAudioRenderClient_GetBuffer(d->render, n, &buf))) return hr;
-        memcpy(buf, p->buf, (size_t)n * d->channels * sizeof(float));
+        copy_gain((float *)buf, p->buf, n, d->channels, d->rate, gain, s->fadeOut != 0);
         if (FAILED(hr = IAudioRenderClient_ReleaseBuffer(d->render, n, 0))) return hr;
         pcm_consume(p, (int)n, d->channels, d->rate);
         padding += n;
@@ -273,7 +291,8 @@ static unsigned __stdcall audio_main(void *arg)
     as.inFmt = -1;
     AVFrame *fr = av_frame_alloc();
     int failures = 0;
-    double retryAt = 0.0;
+    double retryAt = 0.0, fadeSince = 0.0;
+    float gain = 0.0f;                   /* the first start fades in */
     while (fr && !s->quit && !s->audioQuit) {
         if (!dev.client) {
             double now = time_ms();
@@ -296,15 +315,29 @@ static unsigned __stdcall audio_main(void *arg)
             pcm.frames = 0;
             LOGI(L"audio: WASAPI shared output %d Hz, %d ch, buffer %u frames", dev.rate, dev.channels, dev.bufFrames);
         }
+        if (s->fadeOut) {                /* faded out (or stuck: no samples to fade): now the video pauses */
+            if (fadeSince == 0.0) fadeSince = time_ms();
+            if (gain <= 0.0f || time_ms() - fadeSince > FADE_OUT_S * 1000.0 + 900.0) {
+                if (InterlockedCompareExchange(&s->fadeOut, 0, 1) == 1 && !s->wantPlay) {
+                    InterlockedExchange(&s->playing, 0);
+                    SetEvent(s->wake);
+                }
+                fadeSince = 0.0;
+                continue;
+            }
+        } else {
+            fadeSince = 0.0;
+        }
         if (!s->playing || !s->clockValid || s->failed) {
             if (dev.started) {
                 IAudioClient_Stop(dev.client);
                 dev.started = 0;
             }
+            gain = 0.0f;                 /* the next start fades in */
             WaitForSingleObject(s->audioWake, INFINITE);
             continue;
         }
-        HRESULT hr = feed(s, &dev, &pcm, &as, fr);
+        HRESULT hr = feed(s, &dev, &pcm, &as, fr, &gain);
         if (SUCCEEDED(hr) && !dev.started) {
             hr = IAudioClient_Start(dev.client);
             dev.started = SUCCEEDED(hr);
@@ -381,6 +414,10 @@ void audio_stop(VideoSource *s)
         CloseHandle(s->audioThread);
         s->audioThread = NULL;
         LOGI(L"audio: disabled");
+    }
+    if (InterlockedExchange(&s->fadeOut, 0)) {   /* stopped mid-fade: the pause it was holding back */
+        InterlockedExchange(&s->playing, s->wantPlay);
+        SetEvent(s->wake);
     }
     if (s->aidx >= 0 && s->fmt && (unsigned)s->aidx < s->fmt->nb_streams)
         s->fmt->streams[s->aidx]->discard = AVDISCARD_ALL;

@@ -939,6 +939,18 @@ static void draw_settings(Ui *u, float cx, float cw)
         ui_toggle(HIT_ID(HK_TOGGLE, TOG_AUTO_UPDATE), x + w - 62, y + 19, TOG_AUTO_UPDATE, s->autoUpdate);
     }
     y += 62 + 10;
+    {
+        SamplesState ss;                 /* Update once a check found changes; with the toggle on they update by themselves */
+        samples_get(&ss);
+        const wchar_t *label = ss.pending ? L"Update" : L"Check now";
+        float bw = ui_button_width(label, GL_REFRESH);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - bw - 120, L"Sample wallpaper updates", ss.text);
+        ui_button(HIT_ID(HK_SAMPLES_CHECK, ss.pending), rectf(x + w - 82 - bw, y + 14, bw, 34), label, GL_REFRESH,
+                  ss.pending ? BTN_PRIMARY : BTN_SECONDARY);
+        ui_toggle(HIT_ID(HK_TOGGLE, TOG_AUTO_SAMPLES), x + w - 62, y + 19, TOG_AUTO_SAMPLES, s->autoUpdateSamples);
+    }
+    y += 62 + 10;
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
     row_label(u, x, y, w - 300, L"Appearance", NULL);
     {
@@ -2171,6 +2183,7 @@ static void toggle_setting(int idx)
     case TOG_SCR_AUDIO:  s->scrAudio = !s->scrAudio; break;
     case TOG_SCR_MOUSE:  s->scrExitOnMouse = !s->scrExitOnMouse; break;
     case TOG_AUTO_UPDATE: s->autoUpdate = !s->autoUpdate; break;
+    case TOG_AUTO_SAMPLES: s->autoUpdateSamples = !s->autoUpdateSamples; break;
     case TOG_SCR_ENABLE:
     case TOG_SCR_LOCK: {                 /* Windows settings: not in config.ini */
         ScrState st;
@@ -2187,6 +2200,7 @@ static void toggle_setting(int idx)
     app_save_config();
     if (idx == TOG_DEPTH_ALL) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download and to start on the current image */
     if (idx == TOG_AUTO_UPDATE) update_schedule(TRUE);  /* on: check in a moment; off: no more checks */
+    if (idx == TOG_AUTO_SAMPLES) samples_schedule(TRUE);
     ui_animate();
 }
 
@@ -2290,6 +2304,7 @@ void pages_activate(int id, int dbl)
         break;
     case HK_SCR_WINDOWS:   ShellExecuteW(NULL, NULL, L"control.exe", L"desk.cpl,,@screensaver", NULL, SW_SHOWNORMAL); break;
     case HK_UPDATE_CHECK:  update_check(TRUE); ui_invalidate(); break;
+    case HK_SAMPLES_CHECK: samples_check(data != 0); ui_invalidate(); break;   /* data: it says Update */
     case HK_PLAYPAUSE:     app_set_paused(!g_app.cfg.s.paused); break;
     case HK_AUDIO:         app_set_audio(!g_app.cfg.s.audio); break;
     case HK_RESTART_CURRENT:

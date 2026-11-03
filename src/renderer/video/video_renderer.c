@@ -1232,7 +1232,13 @@ static void source_update_flags(VideoSource *s)
         if (s->outputs[i]->audio) audio = 1;
     }
     LeaveCriticalSection(&s->outLock);
-    InterlockedExchange(&s->playing, play);
+    InterlockedExchange(&s->wantPlay, play);
+    if (!play && s->playing && audio && s->audioThread && s->clockValid && !s->failed) {
+        InterlockedExchange(&s->fadeOut, 1);  /* audible: audio_main fades the sound out, then pauses */
+    } else {
+        InterlockedExchange(&s->fadeOut, 0);
+        InterlockedExchange(&s->playing, play);
+    }
     if (InterlockedExchange(&s->audioWanted, audio) != audio) SetEvent(s->decodeWake);
     SetEvent(s->wake);
     SetEvent(s->audioWake);

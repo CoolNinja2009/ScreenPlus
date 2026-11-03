@@ -923,6 +923,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"screensaver_displays", offsetof(Settings, scrDisplays),      SK_SCRDISP, L"Screensaver on all displays, span or primary" },
     { L"screensaver_exit_on_mouse", offsetof(Settings, scrExitOnMouse), SK_BOOL, L"A mouse move ends the screensaver" },
     { L"auto_update",         offsetof(Settings, autoUpdate),        SK_BOOL,  L"Install new Screen+ releases from GitHub automatically" },
+    { L"auto_update_samples", offsetof(Settings, autoUpdateSamples), SK_BOOL,  L"Update the downloaded sample wallpapers when they change" },
 };
 
 static const wchar_t *setting_text(int kind, int v)
@@ -1026,6 +1027,7 @@ static void cmd_settings(Reply *r, const Req *q)
                 app_save_config();
                 if (field == &s->depthAll) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download */
                 if (field == &s->autoUpdate) update_schedule(TRUE);
+                if (field == &s->autoUpdateSamples) samples_schedule(TRUE);
             }
         }
         ui_on_config_changed();

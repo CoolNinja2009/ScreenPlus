@@ -81,7 +81,9 @@ struct VideoSource {
     volatile LONG     quit;
     volatile LONG     audioQuit;
     volatile LONG     failed;
-    volatile LONG     playing;              /* desired: at least one ACTIVE output */
+    volatile LONG     playing;              /* desired: at least one ACTIVE output (stays 1 while the sound fades out) */
+    volatile LONG     wantPlay;             /* at least one ACTIVE output */
+    volatile LONG     fadeOut;              /* the audio thread fades out, then clears playing */
     volatile LONG     redraw;
     volatile LONG     audioWanted;
 

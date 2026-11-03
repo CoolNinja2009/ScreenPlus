@@ -15,6 +15,8 @@
 #define WM_SP_UPDATE        (WM_APP + 66)   /* wParam 0: progress, 1: check finished (lParam: the job) */
 #define T_SHELL_UPDATE      2               /* shell window timer: the next update check (app.c's own start at 1) */
 #define T_SHELL_STARTUP     3               /* shell window timer: the Start with Windows check, once after start */
+#define WM_SP_SAMPLES       (WM_APP + 67)   /* wParam 0: progress, 1: check finished (lParam: the job) */
+#define T_SHELL_SAMPLES     4               /* shell window timer: the next sample wallpaper update check */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
@@ -265,5 +267,26 @@ void update_on_timer(void);                            /* T_SHELL_UPDATE */
 void update_on_event(WPARAM wp, LPARAM lp);            /* WM_SP_UPDATE */
 void update_on_ui_closed(void);                        /* a ready update waits while the window is open */
 void update_shutdown(void);
+/* The latest release, shared with samples_update.c: its JSON (json_free it) and version, and one of its assets. */
+typedef struct JVal JVal;
+JVal *release_latest(wchar_t *version, size_t cap, int v[3], wchar_t *err, size_t errCap);
+BOOL  release_asset(const JVal *root, const wchar_t *version, const wchar_t *name, int64_t max,
+                    wchar_t *url, size_t urlCap, int64_t *size, char sha[65]);
+
+/* samples_update.c: "Sample wallpaper updates". Compares the downloaded samples with the latest release's
+ * (ScreenPlus-<version>-samples.json) and replaces the changed files, by Update or with the setting on. */
+typedef struct SamplesState {
+    int     busy;
+    int     percent;            /* download, -1: unknown */
+    int     pending;            /* the last check found changed samples, not yet updated */
+    wchar_t text[300];          /* status line for Settings ("" before the first check) */
+} SamplesState;
+void samples_init(void);                               /* shell start: arms the first check when the setting is on */
+void samples_schedule(BOOL soon);                      /* the setting changed */
+BOOL samples_check(BOOL install);                      /* now; install: the changed samples are updated */
+void samples_get(SamplesState *out);
+void samples_on_timer(void);                           /* T_SHELL_SAMPLES */
+void samples_on_event(WPARAM wp, LPARAM lp);           /* WM_SP_SAMPLES */
+void samples_shutdown(void);
 enum { DEPTH_AUTO = 0, DEPTH_CPU = 1, DEPTH_BENCH = 2, DEPTH_CRASHED = 3 };   /* which processor: see depth_infer.c */
 int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng, const wchar_t *model, int video, HWND notify);   /* ScreenPlus.exe --depth */

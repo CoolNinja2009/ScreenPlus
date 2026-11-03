@@ -323,6 +323,7 @@ Function .onInit
   ${GetOptions} $R0 "/UPDATE" $R1
   ${IfNot} ${Errors}
     StrCpy $Relaunch 1
+    StrCpy $OptSamples 0     ; auto update: the app's own "Sample wallpaper updates" setting decides about samples
   ${EndIf}
 FunctionEnd
 
@@ -590,7 +591,7 @@ Section "-UrlImport" SecUrl
 SectionEnd
 
 ; Optional: the sample wallpapers besides Singularity and Aurora, downloaded from this release on GitHub (not embedded).
-; An update downloads them only over older downloaded ones (also when silent, unless /NOSAMPLES).
+; An update downloads them only over older downloaded ones, when ticked; auto update (/UPDATE) leaves them to the app.
 Section "-Samples" SecSamples
   StrCpy $SamplesStale 0
   ${If} $InstMode == "default"

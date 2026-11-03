@@ -106,7 +106,7 @@ set(SOURCES
     src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
-    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c
+    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c src/app/samples_update.c
     src/app/store_sources.c
     src/tray/tray.c
     src/ui/ui_core.c src/ui/ui_pages.c src/ui/textedit.c src/ui/thumbs.c src/ui/identify.c
@@ -167,6 +167,7 @@ file(SIZE "${SAMPLES_ZIP}" SAMPLES_SIZE)
 # sample changes; `samples install` keeps it in samples\samples.id and setup offers an update when it differs.
 set(SAMPLES_UNPACKED 0)
 set(_ids "")
+set(_manifest "")
 foreach(f IN LISTS SAMPLE_FILES)
     if(NOT f MATCHES "/samples/(Aurora|Singularity)/")
         file(SIZE "${f}" _s)
@@ -174,9 +175,17 @@ foreach(f IN LISTS SAMPLE_FILES)
         file(SHA256 "${f}" _h)
         file(RELATIVE_PATH _r "${CMAKE_SOURCE_DIR}/samples" "${f}")
         string(APPEND _ids "${_r} ${_h}\n")
+        string(REPLACE "\\" "\\\\" _r "${_r}")
+        string(REPLACE "\"" "\\\"" _r "${_r}")
+        string(APPEND _manifest ",\n\"${_r}\":\"${_h}\"")
     endif()
 endforeach()
 string(SHA256 SAMPLES_ID "${_ids}")
+# ScreenPlus-<version>-samples.json (a release asset beside the zip): every file's SHA-256, so the app's "Sample
+# wallpaper updates" (samples_update.c) can tell which installed samples changed.
+string(SUBSTRING "${_manifest}" 1 -1 _manifest)
+file(WRITE "${CMAKE_BINARY_DIR}/ScreenPlus-${PROJECT_VERSION}-samples.json"
+     "{\"id\":\"${SAMPLES_ID}\",\"files\":{${_manifest}\n}}\n")
 math(EXPR SAMPLES_KB "${SAMPLES_UNPACKED} / 1024")
 math(EXPR SAMPLES_DL_MB "(${SAMPLES_SIZE} + 524288) / 1048576")
 file(WRITE "${CMAKE_BINARY_DIR}/sizes.nsh"

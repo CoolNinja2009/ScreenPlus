@@ -15,8 +15,12 @@ repository; open only the files a change touches. README.md is the user-facing d
   `SCREENPLUS_VERSION` in CMakeLists.txt when that is higher; a `vX.Y.Z` tag releases that exact version.
   The portable zip carries every `samples\` wallpaper and the URL tools. The installer ships only Singularity and Aurora
   and downloads the tools. The other samples are `ScreenPlus.com samples install`; `samples\samples.id` holds their
-  content hash (`SAMPLES_ID`, CMakeLists.txt), and an update offers "Update the sample wallpapers" (ticked) when it
-  differs. Their files are replaced and the library is left alone.
+  content hash (`SAMPLES_ID`, CMakeLists.txt), and an interactive update offers "Update the sample wallpapers" (ticked)
+  when it differs; auto update's silent `/UPDATE` never touches samples. In the app, Settings' "Sample wallpaper
+  updates" (`samples_update.c`, `auto_update_samples`, off by default; Check now → Update) compares the downloaded
+  samples' files with the latest release's `ScreenPlus-<ver>-samples.json` (every file's SHA-256, a CI release asset),
+  names the changed ones and unpacks only those files from the samples zip. Files the user added and Customise
+  settings (`props\`) stay; the library is never changed.
 - CI signs releases through SignPath Foundation once `SIGNPATH_ORGANIZATION_ID` (variable) and `SIGNPATH_API_TOKEN`
   (secret) exist: exes first, setup rebuilt with makensis around them, then setup. Setup is in `.signpath/`.
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use
@@ -64,6 +68,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
 | `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, backiee, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
 | `src/app/startup.c`, `supervisor.c` | Start with Windows (`startup_sync` 3 s after start moves a Run entry to the logon task); engine process lifecycle |
+| `src/app/samples_update.c` | Sample wallpaper updates (see Build): latest release's samples list vs the downloaded samples, changed files unpacked from its zip (`WM_SP_SAMPLES`, `T_SHELL_SAMPLES`); uses update.c's `release_latest`/`release_asset` |
 | `src/app/update.c` | Auto update (`auto_update`, Settings Check now, `screenplus update`): GitHub's latest release vs `SP_VERSION_W`, the setup asset downloaded into `<data>\updates` and checked against the size + SHA-256 GitHub lists, run as `/S /UPDATE` (setup closes the app and relaunches it `--tray`). Installed copies only (`uninstall.exe` beside the exe); waits while the window is open |
 | `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, samples, vcredist, startup, screensaver), IPC for the rest |
 | `src/screensaver/screensaver.c` | Screensaver process (see above) |
@@ -91,6 +96,10 @@ Renderer details:
 - **HTML**: one WebView2 environment is shared. Folders are mapped to the virtual host
   `https://wallpaper.screenplus.example/`, and URL pages load directly. Hidden pages are suspended with a
   low memory target.
+- **Pause fade**: an audible page fades its sound out over 600 ms before it is hidden or suspended and back in over
+  400 ms (`k_fadeJs`, injected into every page: AudioContext output through a Screen+ gain, media elements by volume;
+  `apply_state` + `TIMER_FADE`). Video: `source_update_flags` sets `fadeOut` instead of pausing, and `audio_main` ramps
+  the samples (`copy_gain`) and then clears `playing`; every start fades in.
 
 ## UI model (immediate mode)
 - `ui_invalidate` redraws on demand; there are no retained widgets. Drawing registers hit rects with
@@ -238,6 +247,9 @@ Renderer details:
 - To test logic without stopping the user's app, compile a scratch harness with `cl`. Link the real `.c`
   files, stub the `app_*`/`ui_*` hooks, and point `SCREENPLUS_DATA_DIR` at a scratch folder.
 - `ScreenPlus.exe --capture-preview <id>` renders an HTML wallpaper offscreen.
+- Driving a dev build's window: posted/sent mouse clicks don't land (TrackMouseEvent's leave fires because the real
+  cursor is elsewhere); send WM_KEYDOWN Tab/Enter instead (focus ring shows where you are) and capture with
+  PrintWindow. The window may open minimized: ShowWindow(SW_SHOWNOACTIVATE) first.
 - A scratch engine runs beside the user's app: `SCREENPLUS_DATA_DIR=<scratch> ScreenPlus.exe --engine` (no shell,
   no mutex; it attaches to the desktop too, so keep runs short; `taskkill /PID` without /F stops it cleanly). Set
   `pause_on_fullscreen=0`/`pause_when_covered=0` in its config to measure rendering while the user runs a game.

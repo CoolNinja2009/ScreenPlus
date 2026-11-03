@@ -192,6 +192,7 @@ void app_exit(void)
     depth_shutdown();
     store_shutdown();
     update_shutdown();
+    samples_shutdown();
     ui_destroy();
     supervisor_stop();
     tray_remove();
@@ -267,6 +268,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SP_UPDATE:
         update_on_event(wp, lp);
         return 0;
+    case WM_SP_SAMPLES:
+        samples_on_event(wp, lp);
+        return 0;
     case WM_SP_TRAY:
         tray_on_message(wp, lp);
         return 0;
@@ -279,6 +283,8 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             supervisor_on_timer();
         } else if (wp == T_SHELL_UPDATE) {
             update_on_timer();
+        } else if (wp == T_SHELL_SAMPLES) {
+            samples_on_timer();
         } else if (wp == T_SHELL_STARTUP) {
             KillTimer(h, T_SHELL_STARTUP);
             startup_sync();
@@ -442,6 +448,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
 
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
     update_init();                  /* "Auto update": the first check a few minutes from now */
+    samples_init();                 /* "Sample wallpaper updates", when on */
     SetTimer(g_app.shellWnd, T_SHELL_STARTUP, 3000, NULL);   /* "Start with Windows" in step, off the start path */
     if (forward == CMD_SHOW_SETTINGS) ui_show_screensaver();
     else if (!trayOnly && !(signIn && g_app.cfg.s.launchToTray)) app_show_ui();

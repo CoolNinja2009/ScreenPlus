@@ -113,15 +113,14 @@ static int dl_progress(void *ctx, int64_t done, int64_t total)
     return 1;
 }
 
-/* The latest release: its version and, when it is newer, its installer (address, size, SHA-256). The
- * address must be this repository's download for that very version. */
-static BOOL read_release(UpdateJob *j, wchar_t *url, size_t urlCap, int64_t *size, char sha[65])
+/* GitHub's latest release (also samples_update.c): its JSON and version ("1.8.4"), or NULL with err set. */
+JVal *release_latest(wchar_t *version, size_t cap, int v[3], wchar_t *err, size_t errCap)
 {
     wchar_t why[SP_ERR_LEN];
     HttpGet *g = http_open(RELEASE_API, 0, why, SP_COUNTOF(why));
     if (!g) {
-        str_printf(j->error, SP_COUNTOF(j->error), L"Could not reach GitHub: %ls", why);
-        return FALSE;
+        str_printf(err, errCap, L"Could not reach GitHub: %ls", why);
+        return NULL;
     }
     int status = http_status(g), n = 0, got;
     char *body = status == 200 ? (char *)malloc(API_MAX) : NULL;
@@ -130,41 +129,63 @@ static BOOL read_release(UpdateJob *j, wchar_t *url, size_t urlCap, int64_t *siz
     JVal *root = body ? json_parse(body, (size_t)n) : NULL;
     free(body);
     if (!root) {
-        if (status != 200) str_printf(j->error, SP_COUNTOF(j->error), L"GitHub answered HTTP %d", status);
-        else str_copy(j->error, SP_COUNTOF(j->error), L"GitHub's answer could not be read");
-        return FALSE;
+        if (status != 200) str_printf(err, errCap, L"GitHub answered HTTP %d", status);
+        else str_copy(err, errCap, L"GitHub's answer could not be read");
+        return NULL;
     }
     wchar_t tag[40];
-    int v[3];
     json_str_w(json_get(root, "tag_name"), tag, SP_COUNTOF(tag));
-    BOOL ok = parse_version(tag, v);
-    if (!ok) str_copy(j->error, SP_COUNTOF(j->error), L"The latest release on GitHub has no version number");
-    else {
-        str_printf(j->version, SP_COUNTOF(j->version), L"%d.%d.%d", v[0], v[1], v[2]);
-        j->newer = newer_than_this(v);
+    if (!parse_version(tag, v)) {
+        str_copy(err, errCap, L"The latest release on GitHub has no version number");
+        json_free(root);
+        return NULL;
     }
-    if (ok && j->newer) {
-        wchar_t name[64], prefix[160], digest[80] = L"";
-        const JVal *assets = json_get(root, "assets"), *a = NULL;
+    str_printf(version, cap, L"%d.%d.%d", v[0], v[1], v[2]);
+    return root;
+}
+
+/* An asset of that release: its address (this repository's download for that very version), its size (at most
+ * max) and the SHA-256 GitHub lists for it. */
+BOOL release_asset(const JVal *root, const wchar_t *version, const wchar_t *name, int64_t max,
+                   wchar_t *url, size_t urlCap, int64_t *size, char sha[65])
+{
+    wchar_t prefix[160], digest[80] = L"";
+    const JVal *assets = json_get(root, "assets"), *a = NULL;
+    str_printf(prefix, SP_COUNTOF(prefix), RELEASE_DL L"%ls/", version);
+    for (int i = 0; assets && assets->t == J_ARR && i < assets->n && !a; i++) {
+        wchar_t an[96];
+        json_str_w(json_get(&assets->kids[i], "name"), an, SP_COUNTOF(an));
+        if (str_ieq(an, name)) a = &assets->kids[i];
+    }
+    url[0] = 0;
+    *size = 0;
+    if (a) {
+        json_str_w(json_get(a, "browser_download_url"), url, urlCap);
+        json_str_w(json_get(a, "digest"), digest, SP_COUNTOF(digest));
+        *size = (int64_t)json_num(json_get(a, "size"), 0);
+    }
+    BOOL ok = a && str_istarts(url, prefix) && *size > 0 && *size <= max && str_istarts(digest, L"sha256:") &&
+              wcslen(digest) == 7 + 64;
+    for (int k = 0; ok && k < 64; k++) {
+        ok = iswxdigit(digest[7 + k]) != 0;
+        sha[k] = (char)towlower(digest[7 + k]);
+    }
+    sha[64] = 0;
+    return ok;
+}
+
+/* The latest release: its version and, when it is newer, its installer (address, size, SHA-256). */
+static BOOL read_release(UpdateJob *j, wchar_t *url, size_t urlCap, int64_t *size, char sha[65])
+{
+    int v[3];
+    JVal *root = release_latest(j->version, SP_COUNTOF(j->version), v, j->error, SP_COUNTOF(j->error));
+    if (!root) return FALSE;
+    j->newer = newer_than_this(v);
+    BOOL ok = TRUE;
+    if (j->newer) {
+        wchar_t name[64];
         str_printf(name, SP_COUNTOF(name), L"ScreenPlus-Setup-%ls.exe", j->version);
-        str_printf(prefix, SP_COUNTOF(prefix), RELEASE_DL L"%ls/", j->version);
-        for (int i = 0; assets && assets->t == J_ARR && i < assets->n && !a; i++) {
-            wchar_t an[64];
-            json_str_w(json_get(&assets->kids[i], "name"), an, SP_COUNTOF(an));
-            if (str_ieq(an, name)) a = &assets->kids[i];
-        }
-        if (a) {
-            json_str_w(json_get(a, "browser_download_url"), url, urlCap);
-            json_str_w(json_get(a, "digest"), digest, SP_COUNTOF(digest));
-            *size = (int64_t)json_num(json_get(a, "size"), 0);
-        }
-        ok = a && str_istarts(url, prefix) && *size > 0 && *size <= SETUP_MAX && str_istarts(digest, L"sha256:") &&
-             wcslen(digest) == 7 + 64;
-        for (int k = 0; ok && k < 64; k++) {
-            ok = iswxdigit(digest[7 + k]) != 0;
-            sha[k] = (char)towlower(digest[7 + k]);
-        }
-        sha[64] = 0;
+        ok = release_asset(root, j->version, name, SETUP_MAX, url, urlCap, size, sha);
         if (!ok) str_printf(j->error, SP_COUNTOF(j->error), L"Screen+ %ls on GitHub has no installer this copy can verify", j->version);
     }
     json_free(root);

@@ -100,6 +100,7 @@ typedef struct Settings {
     ScrDisplays scrDisplays;
     int       scrExitOnMouse; /* a mouse move ends the screensaver (keys and clicks always do) */
     int       autoUpdate;     /* check GitHub for a newer release and install it (update.c) */
+    int       autoUpdateSamples; /* update the downloaded sample wallpapers that changed (samples_update.c) */
 } Settings;
 
 typedef struct Config {

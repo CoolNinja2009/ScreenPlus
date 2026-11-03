@@ -341,6 +341,7 @@ static int parse_text(Config *c, wchar_t *text)
                 s->scrDisplays = str_ieq(val, L"span") ? SCRD_SPAN : str_ieq(val, L"primary") ? SCRD_PRIMARY : SCRD_ALL;
             else if (str_ieq(key, L"screensaver_exit_on_mouse")) s->scrExitOnMouse = parse_bool(val, s->scrExitOnMouse);
             else if (str_ieq(key, L"auto_update")) s->autoUpdate = parse_bool(val, s->autoUpdate);
+            else if (str_ieq(key, L"auto_update_samples")) s->autoUpdateSamples = parse_bool(val, s->autoUpdateSamples);
             else if (str_ieq(key, L"theme"))
                 s->theme = str_ieq(val, L"light") ? THEME_LIGHT : str_ieq(val, L"dark") ? THEME_DARK : THEME_SYSTEM;
             break;
@@ -456,13 +457,13 @@ BOOL config_save(const Config *c, const wchar_t *path)
                   "pause_when_covered=%d\r\nsuspend_on_lock=%d\r\npause_on_battery=%d\r\naudio=%d\r\n"
                   "auto_recover=%d\r\npaused=%d\r\nhtml_mouse=%d\r\nhtml_audio=%d\r\nweb_fps=%d\r\nlively_auto_import=%d\r\n"
                   "url_import=%d\r\ninteractive_images=%d\r\ndisplay_mode=%s\r\nscreensaver_audio=%d\r\n"
-                  "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\nauto_update=%d\r\ntheme=%s\r\n",
+                  "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\nauto_update=%d\r\nauto_update_samples=%d\r\ntheme=%s\r\n",
               s->startWithWindows, s->launchToTray, s->stillWallpaper, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
               s->pauseOnBattery, s->audio, s->autoRecover, s->paused, s->htmlMouse, s->htmlAudio, s->webFps, s->livelyImport,
               s->urlImport, s->depthAll,
               s->displayMode == DM_SPAN ? "span" : s->displayMode == DM_DUPLICATE ? "duplicate" : "independent",
               s->scrAudio, s->scrDisplays == SCRD_SPAN ? "span" : s->scrDisplays == SCRD_PRIMARY ? "primary" : "all",
-              s->scrExitOnMouse, s->autoUpdate,
+              s->scrExitOnMouse, s->autoUpdate, s->autoUpdateSamples,
               s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system");
     sb_puts(&b, "depth_model=");     /* its own line: sb_printf formats into 512 bytes */
     sb_put_wide(&b, s->depthModel);

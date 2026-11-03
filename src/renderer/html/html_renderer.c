@@ -166,6 +166,9 @@ struct HtmlRenderer {
     RenderState               state;
     int                       keepFrame;
     int                       audio;
+    int                       live;        /* the page is showing (ACTIVE applied) */
+    int                       fading;      /* its sound is fading out; TIMER_FADE then applies the state */
+    int                       faded;       /* faded out: fade back in when it shows again */
     int                       readyPosted;
     int                       suspendGen;
     HBITMAP                   snapshot;    /* GDI fallback for the pause snapshot */
@@ -200,6 +203,8 @@ static void fail(HtmlRenderer *r, HRESULT hr, const wchar_t *msg)
 
 #define TIMER_PROBE_1 0x5101
 #define TIMER_PROBE_2 0x5102
+#define TIMER_FADE    0x5103
+#define FADE_OUT_MS   600
 
 static void run_js(HtmlRenderer *r, const wchar_t *js)
 {
@@ -374,11 +379,30 @@ static HRESULT on_captured(HtmlRenderer *r, void *hrv, void *unused)
 static void apply_state(HtmlRenderer *r)
 {
     if (!r->ctl || r->closed) return;
+    if (r->state != RS_ACTIVE && r->live) {
+        if (r->fading) return;                   /* TIMER_FADE applies the latest state */
+        if (r->audio && r->readyPosted && !r->faded) {
+            /* audible: fade its sound out (k_fadeJs) before the page stops, not a cut */
+            run_js(r, L"window.__spFade&&__spFade(0,600)");             /* FADE_OUT_MS */
+            r->fading = r->faded = 1;
+            SetTimer(r->hwnd, TIMER_FADE, FADE_OUT_MS + 50, NULL);
+            return;
+        }
+    }
+    if (r->fading) {
+        KillTimer(r->hwnd, TIMER_FADE);
+        r->fading = 0;
+    }
+    r->live = r->state == RS_ACTIVE;
     switch (r->state) {
     case RS_ACTIVE:
         set_memory_target(r, 0);
         ICoreWebView2Controller_put_IsVisible(r->ctl, TRUE);   /* also resumes a suspended page */
         notify_playback(r, 0);
+        if (r->faded) {
+            run_js(r, L"window.__spFade&&__spFade(1,400)");
+            r->faded = 0;
+        }
         if (r->snapshot) {
             DeleteObject(r->snapshot);
             r->snapshot = NULL;
@@ -529,6 +553,30 @@ static const wchar_t k_fpsJs[] =
     L"w.cancelAnimationFrame=function(id){var n=q.get(id);if(n!==undefined){caf.call(w,n);q.delete(id);}};"
     L"Object.defineProperty(w,'__spFps',{value:function(n){fps=n|0;}});})();";
 
+/* Pause fade: every AudioContext's output passes through a gain Screen+ owns (connect/disconnect to its destination
+ * are redirected; ctx.destination itself is untouched), and media elements are ramped by volume. __spFade(to, ms)
+ * ramps both; apply_state fades out before a page stops and back in when it shows again. */
+static const wchar_t k_fadeJs[] =
+    L"(function(){var w=window;if(w.__spFade)return;var lvl=1,gains=[],media=new Set(),timer=0;"
+    L"var N=w.AudioNode,D=w.AudioDestinationNode,O=w.OfflineAudioContext;"
+    L"if(N&&D&&w.WeakRef){var oc=N.prototype.connect,od=N.prototype.disconnect;"
+    L"var tap=function(n){if(!(n instanceof D)||(O&&n.context instanceof O))return n;var c=n.context,g=c.__spG;"
+    L"if(!g){g=c.createGain();g.gain.value=lvl;oc.call(g,n);Object.defineProperty(c,'__spG',{value:g});gains.push(new WeakRef(g));}return g;};"
+    L"N.prototype.connect=function(n){var a=Array.prototype.slice.call(arguments);a[0]=tap(n);var r=oc.apply(this,a);return n instanceof N?n:r;};"
+    L"N.prototype.disconnect=function(n){if(!arguments.length)return od.call(this);var a=Array.prototype.slice.call(arguments);a[0]=tap(n);return od.apply(this,a);};}"
+    L"var M=w.HTMLMediaElement;if(M&&w.WeakRef){var op=M.prototype.play;M.prototype.play=function(){media.add(new WeakRef(this));"
+    L"if(lvl<1&&this.__spV===undefined){this.__spV=this.volume;this.volume=this.__spV*lvl;}return op.apply(this,arguments);};}"
+    L"var els=function(){var s=[];document.querySelectorAll('audio,video').forEach(function(e){s.push(e);});"
+    L"media.forEach(function(r){var e=r.deref();if(!e)media.delete(r);else if(s.indexOf(e)<0)s.push(e);});return s;};"
+    L"Object.defineProperty(w,'__spFade',{value:function(to,ms){var from=lvl;lvl=to;"
+    L"gains=gains.filter(function(r){var g=r.deref();if(!g)return false;var t=g.context.currentTime;"
+    L"try{g.gain.cancelScheduledValues(t);g.gain.setValueAtTime(g.gain.value,t);g.gain.linearRampToValueAtTime(to,t+ms/1000);}catch(e){}return true;});"
+    L"var list=els();list.forEach(function(e){if(e.__spV===undefined)e.__spV=e.volume;});"
+    L"clearInterval(timer);var t0=performance.now();"
+    L"timer=setInterval(function(){var k=Math.min(1,(performance.now()-t0)/ms),v=from+(to-from)*k;"
+    L"list.forEach(function(e){try{e.volume=Math.max(0,Math.min(1,e.__spV*v));}catch(x){}});"
+    L"if(k>=1){clearInterval(timer);if(to>=1)list.forEach(function(e){try{e.volume=e.__spV;}catch(x){}delete e.__spV;});}},30);}});})();";
+
 void html_set_fps_cap(int fps)
 {
     g_fpsCap = fps == 30 || fps == 60 ? fps : 0;
@@ -601,6 +649,8 @@ static void configure(HtmlRenderer *r)
     wchar_t fpsJs[SP_COUNTOF(k_fpsJs) + 8];
     str_printf(fpsJs, SP_COUNTOF(fpsJs), k_fpsJs, g_fpsCap);
     ICoreWebView2_AddScriptToExecuteOnDocumentCreated(r->wv, fpsJs,
+        (ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *)&g_noopAdd);
+    ICoreWebView2_AddScriptToExecuteOnDocumentCreated(r->wv, k_fadeJs,
         (ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *)&g_noopAdd);
 }
 
@@ -929,6 +979,12 @@ static void hr_feed(Renderer *base, int what, const char *payload)
 static void hr_on_timer(Renderer *base, UINT_PTR id)
 {
     HtmlRenderer *r = (HtmlRenderer *)base;
+    if (id == TIMER_FADE) {
+        KillTimer(r->hwnd, id);
+        r->fading = 0;
+        apply_state(r);
+        return;
+    }
     if (id != TIMER_PROBE_1 && id != TIMER_PROBE_2) return;
     KillTimer(r->hwnd, id);
     probe_apis(r);
@@ -940,6 +996,7 @@ static void hr_destroy(Renderer *base)
     r->closed = 1;
     KillTimer(r->hwnd, TIMER_PROBE_1);
     KillTimer(r->hwnd, TIMER_PROBE_2);
+    KillTimer(r->hwnd, TIMER_FADE);
     if (r->wv && r->hasDownloadToken) {
         ICoreWebView2_4 *w4 = NULL;
         if (SUCCEEDED(ICoreWebView2_QueryInterface(r->wv, &IID_ICoreWebView2_4, (void **)&w4))) {
