@@ -78,6 +78,7 @@ typedef struct DepthJob {
     HANDLE  cancel;                 /* manual-reset event */
     double  lastPost;
     int     autoStart;              /* started by the setting rather than a button: quiet when it works */
+    wchar_t outFile[SP_MAX_PATH];   /* depth_make_file: the depth map goes here, no wallpaper is converted */
     int     ok;
     wchar_t error[300];
 } DepthJob;
@@ -517,13 +518,49 @@ static int render_page(const wchar_t *dir, const wchar_t *media, int model, int 
     return rc;
 }
 
+static void reencode_progress(int percent) { set_status(percent, L"Making the video playable on this PC…"); }
+
+/* A video WebView2 can't play here (webvideo.c) becomes video.mp4 (H.264), made once: kept while it is newer
+ * than the source and isn't the source itself (the hard link has the same size). */
+static int page_video(DepthJob *j, wchar_t *name, size_t cap, wchar_t *dst, size_t dcap)
+{
+    WIN32_FILE_ATTRIBUTE_DATA s, d;
+    if (!webvideo_needed(j->source)) return 0;
+    str_copy(name, cap, L"video.mp4");
+    path_join(dst, dcap, j->dir, name);
+    if (GetFileAttributesExW(j->source, GetFileExInfoStandard, &s) && GetFileAttributesExW(dst, GetFileExInfoStandard, &d) &&
+        CompareFileTime(&d.ftLastWriteTime, &s.ftLastWriteTime) > 0 &&
+        (d.nFileSizeLow != s.nFileSizeLow || d.nFileSizeHigh != s.nFileSizeHigh))
+        return 1;
+    wchar_t old[SP_MAX_PATH], part[SP_MAX_PATH], other[24];
+    str_printf(other, SP_COUNTOF(other), L"video%.8ls", path_ext(j->source));
+    path_join(old, SP_COUNTOF(old), j->dir, other);
+    DeleteFileW(old);                              /* an earlier link to the source, whatever its extension */
+    path_join(part, SP_COUNTOF(part), j->dir, L"reencode.part.mp4");
+    reencode_progress(0);
+    if (!webvideo_make(j->source, part, j->cancel, reencode_progress) || !MoveFileExW(part, dst, MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(part);
+        return -1;
+    }
+    return 1;
+}
+
 static BOOL write_page(DepthJob *j)
 {
     wchar_t dst[SP_MAX_PATH], name[24];
     const wchar_t *ext = j->video ? path_ext(j->source) : web_ext(path_ext(j->source));
-    str_printf(name, SP_COUNTOF(name), L"%ls%.8ls", j->video ? L"video" : L"image", ext ? ext : L".png");
-    path_join(dst, SP_COUNTOF(dst), j->dir, name);
-    if (ext) {
+    int re = j->video ? page_video(j, name, SP_COUNTOF(name), dst, SP_COUNTOF(dst)) : 0;
+    if (re < 0) {
+        fail(j, L"This PC's graphics can't play this HEVC video in the interactive page, and it could not be re-encoded. See screenplus.log.");
+        return FALSE;
+    }
+    if (!re) {
+        str_printf(name, SP_COUNTOF(name), L"%ls%.8ls", j->video ? L"video" : L"image", ext ? ext : L".png");
+        path_join(dst, SP_COUNTOF(dst), j->dir, name);
+    }
+    if (re) {
+        /* video.mp4 is ready */
+    } else if (ext) {
         DeleteFileW(dst);
         if (!CreateHardLinkW(dst, j->source, NULL) && !CopyFileW(j->source, dst, FALSE)) {
             fail(j, j->video ? L"The video could not be copied next to its depth." : L"The picture could not be copied next to its depth map.");
@@ -587,6 +624,30 @@ static void run(DepthJob *j)
 {
     wchar_t depthFile[SP_MAX_PATH], name[64];
     if (!ensure_assets(j)) return;
+    if (j->outFile[0]) {                           /* one picture's depth map for a wallpaper that reads it */
+        DWORD code = 0;
+        set_status(-1, L"Finding the depth of the background…");
+        model_name(j->model, L"depth", L".png", name, SP_COUNTOF(name));
+        path_join(depthFile, SP_COUNTOF(depthFile), j->dir, name);
+        if (!dir_create_recursive(j->dir)) {
+            fail(j, L"Could not create the depth folder in the data folder.");
+            return;
+        }
+        BOOL ok = infer(j, DEPTH_AUTO, 0, &code);
+        if (!ok && !cancelled(j) && code != 2 && code != 3 && code != 4) ok = infer(j, DEPTH_CRASHED, 0, &code);
+        if (!ok) {
+            fail(j, failure_text(j, code));
+            return;
+        }
+        if (!CopyFileW(depthFile, j->outFile, FALSE)) {
+            fail(j, L"The depth map could not be saved next to the wallpaper.");
+            return;
+        }
+        DeleteFileW(depthFile);
+        LOGI(L"depth: depth map of '%ls' with %ls -> %ls", path_filename(j->source), depth_model(j->model)->name, j->outFile);
+        j->ok = 1;
+        return;
+    }
     if (!j->id[0]) {
         j->ok = 1;
         return;
@@ -676,6 +737,53 @@ static BOOL start(const wchar_t *id, int autoStart)
 
 BOOL depth_start(const wchar_t *wallpaperId) { return start(wallpaperId, 0); }
 
+/* The model for a background's depth map: Depth Anything 3 Small when it is there, else the smallest model
+ * already downloaded, else the smallest model of all (downloaded now). */
+static int file_model(void)
+{
+    int best = -1, da3 = depth_model_find(L"da3-small");
+    if (da3 >= 0 && depth_model_ready(da3)) return da3;
+    for (int pass = 0; pass < 2 && best < 0; pass++)
+        for (int i = 0; i < (int)SP_COUNTOF(k_models); i++)
+            if ((pass || depth_model_ready(i)) &&
+                (best < 0 || k_models[i].size + k_models[i].dataSize < k_models[best].size + k_models[best].dataSize))
+                best = i;
+    return best;
+}
+
+BOOL depth_make_file(const wchar_t *image, const wchar_t *outPng)
+{
+    if (g_job) return FALSE;
+    DepthJob *j = (DepthJob *)calloc(1, sizeof *j);
+    if (!j) return FALSE;
+    j->model = file_model();
+    str_copy(j->source, SP_COUNTOF(j->source), image);
+    str_copy(j->outFile, SP_COUNTOF(j->outFile), outPng);
+    in_depth(j->dir, SP_COUNTOF(j->dir), L"file-job");
+    j->cancel = CreateEventW(NULL, TRUE, FALSE, NULL);
+    AcquireSRWLockExclusive(&g_lock);
+    g_state.busy = 1;
+    g_state.failed = 0;
+    g_state.percent = -1;
+    g_state.id[0] = 0;
+    str_copy(g_state.text, SP_COUNTOF(g_state.text), L"Starting…");
+    ReleaseSRWLockExclusive(&g_lock);
+    g_job = j;
+    g_thread = j->cancel ? CreateThread(NULL, 0, worker, j, 0, NULL) : NULL;
+    if (!g_thread) {
+        g_job = NULL;
+        if (j->cancel) CloseHandle(j->cancel);
+        free(j);
+        AcquireSRWLockExclusive(&g_lock);
+        g_state.busy = 0;
+        ReleaseSRWLockExclusive(&g_lock);
+        return FALSE;
+    }
+    LOGI(L"depth: depth map of '%ls' with %ls", path_filename(image), depth_model(j->model)->name);
+    ui_on_status();
+    return TRUE;
+}
+
 void depth_cancel(void)
 {
     if (g_job) SetEvent(g_job->cancel);
@@ -759,7 +867,8 @@ void depth_on_event(WPARAM wp, LPARAM lp)
     wchar_t text[400] = L"";
     int ok = j->ok && (!j->id[0] || convert(j, text, SP_COUNTOF(text)));
     int stopped = !ok && WaitForSingleObject(j->cancel, 0) == WAIT_OBJECT_0;
-    if (ok && !j->id[0]) str_copy(text, SP_COUNTOF(text), L"Interactive images are ready.");
+    if (ok && j->outFile[0]) str_copy(text, SP_COUNTOF(text), L"The background now has depth.");
+    else if (ok && !j->id[0]) str_copy(text, SP_COUNTOF(text), L"Interactive images are ready.");
     if (ok && text[0] && (!j->autoStart || !j->id[0])) app_notice(NOTICE_INFO, L"%ls", text);
     else if (!ok && !stopped) {
         LOGW(L"depth: failed: %ls", j->error);

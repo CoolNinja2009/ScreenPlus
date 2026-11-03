@@ -235,6 +235,7 @@ int  depth_entry_model(const WallpaperEntry *e);       /* the model a depth wall
 
 BOOL depth_ready(void);                                /* runtime and the chosen model are downloaded (cheap check) */
 BOOL depth_can_cool(const WallpaperEntry *e);          /* a still picture or a local video that exists (not a GIF) */
+BOOL depth_make_file(const wchar_t *image, const wchar_t *outPng);   /* a background's depth map (Rain's depth\<name>.png); FALSE: busy */
 BOOL depth_start(const wchar_t *wallpaperId);          /* "" fetches the files only; FALSE: busy or not an image */
 void depth_cancel(void);
 void depth_get(DepthState *out);
@@ -242,6 +243,8 @@ void depth_revert(const wchar_t *wallpaperId);         /* back to the plain imag
 void depth_auto(const wchar_t *wallpaperId);           /* "interactive images" setting: cool this wallpaper if it is a new image */
 void depth_auto_all(BOOL fetchMissing);                /* the same for every assigned wallpaper; fetchMissing: the user just switched it on */
 void depth_refresh_pages(void);                        /* shell start: pages made by an older build get this one's template */
+BOOL webvideo_needed(const wchar_t *path);             /* HEVC with no GPU decoder here: the depth page can't play it */
+BOOL webvideo_make(const wchar_t *src, const wchar_t *dst, HANDLE cancel, void (*progress)(int percent));  /* H.264 + AAC, at most 1080p */
 void depth_forget(const WallpaperEntry *e);            /* the entry was removed: delete its generated page */
 void depth_on_event(WPARAM wp, LPARAM lp);             /* WM_SP_DEPTH */
 void depth_shutdown(void);

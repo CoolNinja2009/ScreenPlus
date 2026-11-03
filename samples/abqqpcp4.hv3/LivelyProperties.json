@@ -1,4 +1,34 @@
 {
+  "weather": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Weather",
+    "items": [
+      "Rain",
+      "Snow"
+    ]
+  },
+  "sceneAmount": {
+    "max": 100,
+    "min": 0,
+    "text": "Falling in the distance",
+    "type": "slider",
+    "value": 60
+  },
+  "splashAmount": {
+    "max": 100,
+    "min": 0,
+    "text": "Drops landing",
+    "type": "slider",
+    "value": 30
+  },
+  "depthStrength": {
+    "max": 100,
+    "min": 0,
+    "text": "3D depth",
+    "type": "slider",
+    "value": 50
+  },
   "rainIntensity": {
     "max": 100,
     "min": 0,
@@ -37,28 +67,36 @@
   "mediaSelect": {
     "type": "folderDropdown",
     "value": "mountain-surrounded-with-fog-1772973.jpg",
-    "text": "Background (.jpg, .png, .webm)",
-    "filter": "*.jpg|*.jpeg|*.png|*.webm",
+    "text": "Background",
+    "filter": "*.jpg|*.jpeg|*.jfif|*.png|*.webp|*.bmp|*.gif|*.avif|*.webm|*.mp4",
     "folder": "media"
   },
   "mediaScaling": {
     "type": "dropdown",
     "value": 1,
     "text": "Scaling",
-    "items": ["Stretch", "Fill"]
+    "items": [
+      "Stretch",
+      "Fill"
+    ]
   },
   "blurQuality": {
     "type": "dropdown",
     "value": 1,
     "text": "Blur Quality",
-    "items": ["Off", "Low", "High", "Very High"]
+    "items": [
+      "Off",
+      "Low",
+      "High",
+      "Very High"
+    ]
   },
   "blurIntensity": {
     "max": 100,
     "min": 0,
-    "text": "Blur Intensity",
+    "text": "Glass fog",
     "type": "slider",
-    "value": 50
+    "value": 28
   },
   "parallaxIntensity": {
     "max": 5,

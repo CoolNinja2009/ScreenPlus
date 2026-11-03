@@ -188,6 +188,10 @@ Renderer details:
   Pause survival: the plain picture/video stays under the canvas (shown on `webglcontextlost`; reload on restore or
   3 s later), a picture redraws on `visibilitychange`/`resume`, a video re-plays and restarts its frame chain on them
   (generation number) and a 1 s watchdog falls back to rAF when `requestVideoFrameCallback` stops firing.
+- Customise's folderDropdown has "Choose a file…" (`prop_choose_file` → `wpapi_add_folder_file`: copied into the
+  package's folder, converted to PNG when the filter refuses its type). A package with a `depth\` folder (the bundled
+  Rainy Window, `samples\abqqpcp4.hv3`) then gets `depth\<picture>.png` from `depth_make_file` (DA3 Small if
+  downloaded, else the smallest downloaded model, else the smallest model); the page retries that file for 10 min.
 - Test the child with `SCREENPLUS_DATA_DIR=<scratch>` holding `depth\model.onnx` + `depth\ort\onnxruntime.dll`:
   `ScreenPlus.exe --depth <image> <outdir>`; read `logs\depth.log`.
 

@@ -4,7 +4,9 @@ const gui = new dat.GUI();
 let devicePixelRatio = window.devicePixelRatio || 1;
 
 let scene, camera, renderer, material;
-let settings = { fps: 30, scale: 1.0, parallaxVal: 1 };
+let settings = { fps: 30, scale: 1.0, parallaxVal: 1, depth: 0.5 };
+// Screen+: the background in 3D (depth/<picture>.png, 255 = near) and the pointer that moves it, smoothed
+let mouse = { x: 0, y: 0, tx: 0, ty: 0 };
 let videoElement;
 
 //custom events
@@ -35,6 +37,14 @@ async function init() {
       u_post_processing: { value: true, type: "b" },
       u_lightning: { value: false, type: "b" },
       u_texture_fill: { value: true, type: "b" },
+      u_depth: { value: null, type: "t" },
+      u_has_depth: { value: false, type: "b" },
+      u_mouse: { value: new THREE.Vector2(0, 0), type: "v2" },
+      u_depth_amt: { value: 0.02, type: "f" },
+      u_weather: { value: 0, type: "i" },
+      u_scene: { value: 0.6, type: "f" },
+      u_splash: { value: 0.3, type: "f" },
+      u_land: { value: null, type: "t" },
       u_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight), type: "v2" },
       u_tex0_resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight), type: "v2" },
     },
@@ -97,6 +107,9 @@ function render() {
   //reset every 6hr
   if (clock.getElapsedTime() > 21600) clock = new THREE.Clock();
   material.uniforms.u_time.value = clock.getElapsedTime();
+  mouse.x += (mouse.tx - mouse.x) * 0.12;
+  mouse.y += (mouse.ty - mouse.y) * 0.12;
+  material.uniforms.u_mouse.value.set(mouse.x, mouse.y);
 
   renderer.render(scene, camera);
 }
@@ -128,17 +141,31 @@ function livelyPropertyListener(name, val) {
     case "rainZoom":
       material.uniforms.u_zoom.value = val / 100;
       break;
+    case "weather":
+      material.uniforms.u_weather.value = val;
+      break;
+    case "sceneAmount":
+      material.uniforms.u_scene.value = val / 100;
+      break;
+    case "splashAmount":
+      material.uniforms.u_splash.value = val / 100;
+      break;
+    case "depthStrength":
+      settings.depth = val / 100;
+      material.uniforms.u_depth_amt.value = 0.06 * settings.depth;
+      break;
     case "mediaSelect":
       {
         let ext = getExtension(val);
+        loadDepth(val);
         disposeVideoElement(videoElement);
         material.uniforms.u_tex0.value?.dispose();
-        if (ext == "jpg" || ext == "jpeg" || ext == "png") {
+        if (["jpg", "jpeg", "jfif", "png", "webp", "bmp", "gif", "avif"].includes(ext)) {
           new THREE.TextureLoader().load(val, function (tex) {
             material.uniforms.u_tex0.value = tex;
             material.uniforms.u_tex0_resolution.value = new THREE.Vector2(tex.image.width, tex.image.height);
           });
-        } else if (ext == "webm") {
+        } else if (ext == "webm" || ext == "mp4") {
           videoElement = createVideoElement(val);
           let videoTexture = new THREE.VideoTexture(videoElement);
           videoElement.addEventListener(
@@ -275,8 +302,14 @@ document.getElementById("filePicker").addEventListener("change", function () {
   }
 });
 
-//parallax
+//parallax: in 3D when the picture has a depth map, else the whole picture slides
 document.addEventListener("mousemove", function (event) {
+  if (material && material.uniforms.u_has_depth.value) {
+    mouse.tx = (event.clientX / window.innerWidth - 0.5) * 2;
+    mouse.ty = -(event.clientY / window.innerHeight - 0.5) * 2;
+    if (event.clientX < 0 || event.clientY < 0) mouse.tx = mouse.ty = 0;   // Screen+ sends -16,-16 when the pointer leaves
+    return;
+  }
   if (settings.parallaxVal == 0) return;
 
   const x = (window.innerWidth - event.pageX * settings.parallaxVal) / 90;
@@ -286,6 +319,78 @@ document.addEventListener("mousemove", function (event) {
 });
 
 //helpers
+// depth/<name of the picture>.png, made by Screen+'s depth model; without one the scene counts as far everywhere.
+// A background just chosen in Screen+ gets its depth map a little later: it is looked for again for a while.
+let depthLoad = 0;
+function loadDepth(mediaPath) {
+  const name = mediaPath.replace(/\\/g, "/").split("/").pop();
+  const base = name.substring(0, name.lastIndexOf(".")) || name;
+  const load = ++depthLoad;
+  material.uniforms.u_depth.value?.dispose();
+  material.uniforms.u_depth.value = null;
+  material.uniforms.u_has_depth.value = false;
+  let tries = 0;
+  const attempt = () => {
+    if (load !== depthLoad) return;                      // another background was chosen since
+    new THREE.TextureLoader().load(
+      "depth/" + base + ".png?" + tries,
+      function (tex) {
+        if (load !== depthLoad) return tex.dispose();
+        tex.minFilter = tex.magFilter = THREE.LinearFilter;
+        tex.generateMipmaps = false;
+        material.uniforms.u_land.value?.dispose();
+        material.uniforms.u_land.value = landingMap(tex.image);
+        material.uniforms.u_depth.value = tex;
+        material.uniforms.u_has_depth.value = true;
+        container.style.transform = "";
+      },
+      undefined,
+      function () {
+        if (++tries < 120) setTimeout(attempt, 5000);     // up to 10 minutes (a model may be downloading)
+      }
+    );
+  };
+  attempt();
+}
+
+// The picture as a rough 3D surface: for every column and every distance (LAND_BINS steps, 0 near .. 1 far),
+// where a drop falling at that distance first meets something as near as it is. Row b of the texture holds,
+// per column, that point's height in the picture (0..1 from the bottom, 16 bits in R and G; 0: it never lands).
+const LAND_BINS = 32;
+function landingMap(img) {
+  const W = Math.min(img.width, 1024), H = Math.max(1, Math.round(img.height * W / img.width));
+  const cv = document.createElement("canvas");
+  cv.width = W;
+  cv.height = H;
+  const ctx = cv.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, W, H);
+  const px = ctx.getImageData(0, 0, W, H).data;
+  const out = new Uint8Array(W * LAND_BINS * 4);
+  for (let x = 0; x < W; x++) {
+    // going down the column, the nearest thing so far stops every drop at least that near: the far bins are
+    // reached first, nearer ones as nearer things appear (`reached`: the nearest bin landed so far)
+    let nearest = 1, reached = LAND_BINS;
+    for (let y = 0; y < H && reached > 0; y++) {
+      nearest = Math.min(nearest, 1 - px[(y * W + x) * 4] / 255);
+      const first = Math.max(0, Math.ceil((nearest + 0.04) * LAND_BINS - 0.5));
+      if (first >= reached) continue;
+      const v = Math.round((1 - (y + 0.5) / H) * 65535);
+      for (let b = first; b < reached; b++) {
+        const o = (b * W + x) * 4;
+        out[o] = v >> 8;
+        out[o + 1] = v & 255;
+        out[o + 3] = 255;
+      }
+      reached = first;
+    }
+  }
+  const t = new THREE.DataTexture(out, W, LAND_BINS, THREE.RGBAFormat);
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  return t;
+}
+
 function getExtension(filePath) {
   return filePath.substring(filePath.lastIndexOf(".") + 1, filePath.length).toLowerCase() || filePath;
 }

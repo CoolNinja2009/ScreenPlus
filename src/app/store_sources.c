@@ -640,12 +640,12 @@ static BOOL dh_detail_url(const StoreItem *it, wchar_t *url, size_t cap)
     return TRUE;
 }
 
-/* Its own Download button links the file itself: <a href="https://www.desktophut.com/files/<file>" download=…
- * id="primaryDownloadBtn" …> … MP4 Video · 3840x2160 · 14.51 MB … </a>. Key: the extension when the file is named
- * after the card's image (newer uploads), else the file's own name (older ones: "<10 digits>.mp4"). */
+/* Its own Download button links the file itself: <a href="https://media.desktophut.com/files/<file>" download=…
+ * id="primaryDownloadBtn" …> … MP4 Video · 3840x2160 · 14.51 MB … </a> (www. before 2026-11). Key: the extension when
+ * the file is named after the card's image (newer uploads), else the file's own name (older ones: "<10 digits>.mp4"). */
 static int dh_detail(const char *html, int len, StoreItem *it)
 {
-    static const char files[] = "<a href=\"https://www.desktophut.com/files/";
+    static const char files[] = "desktophut.com/files/";
     const char *end = html + len, *f = NULL, *fe = NULL, *te = NULL, *ae = NULL, *z = NULL;
     for (const char *p = after(html, end, files); p && !f; p = after(p, end, files)) {
         const char *ve = until(p, end, '"'), *ve2 = until(ve, end, '>');
@@ -690,8 +690,8 @@ static void dh_preview(const StoreItem *it, int big, int webp, wchar_t *url, siz
 static BOOL dh_file(const StoreItem *it, const StoreVariant *v, wchar_t *url, size_t cap)
 {
     const char *stem = strrchr(it->media, '.');
-    if (strchr(v->key, '.')) str_printf(url, cap, DH L"/files/%hs", v->key);
-    else if (stem) str_printf(url, cap, DH L"/files/%.*hs.%hs", (int)(stem - it->media), it->media, v->key);
+    if (strchr(v->key, '.')) str_printf(url, cap, L"https://media.desktophut.com/files/%hs", v->key);
+    else if (stem) str_printf(url, cap, L"https://media.desktophut.com/files/%.*hs.%hs", (int)(stem - it->media), it->media, v->key);
     else return FALSE;
     return TRUE;
 }

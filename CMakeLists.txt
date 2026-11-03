@@ -106,7 +106,7 @@ set(SOURCES
     src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
-    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/store.c src/app/update.c
+    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c
     src/app/store_sources.c
     src/tray/tray.c
     src/ui/ui_core.c src/ui/ui_pages.c src/ui/textedit.c src/ui/thumbs.c src/ui/identify.c
@@ -129,7 +129,7 @@ target_link_libraries(ScreenPlus PRIVATE
     "${WEBVIEW2_SDK_DIR}/build/native/x64/WebView2LoaderStatic.lib"
     ${FFMPEG_IMPLIBS} delayimp
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
-    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp
+    d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp mfplat mfreadwrite mfuuid
     taskschd)
 
 # Sample wallpapers besides Singularity and Aurora: setup bundles only those two and, when "Sample wallpapers" is ticked, runs

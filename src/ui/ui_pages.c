@@ -9,6 +9,7 @@
 #include "../desktop/desktop_host.h"
 #include "../common/scrnsave.h"
 #include <shellapi.h>
+#include <shobjidl.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -1240,12 +1241,61 @@ static D2D1_RECT_F hit_rect(int id)
     return u->pressedRect;
 }
 
+/* folderDropdown "Choose a file…": any picture (or the wallpaper's own types), copied into its folder. */
+#define CHOOSE_FILE_CMD 5000
+static void prop_choose_file(CustomProp *cp)
+{
+    IFileOpenDialog *dlg = NULL;
+    WallpaperEntry *e = customise_entry();
+    if (!e || FAILED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog, (void **)&dlg))) return;
+    static const COMDLG_FILTERSPEC filters[] = {
+        { L"Pictures and videos", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr;*.ico;"
+                                  L"*.webm;*.mp4" },
+        { L"Pictures", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr;*.ico" },
+        { L"All files", L"*.*" },
+    };
+    FILEOPENDIALOGOPTIONS opts = 0;
+    IFileOpenDialog_GetOptions(dlg, &opts);
+    IFileOpenDialog_SetOptions(dlg, opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST);
+    IFileOpenDialog_SetFileTypes(dlg, (UINT)SP_COUNTOF(filters), filters);
+    IFileOpenDialog_SetTitle(dlg, L"Choose a background");
+    IShellItem *it = NULL;
+    PWSTR path = NULL;
+    if (SUCCEEDED(IFileOpenDialog_Show(dlg, g_ui->hwnd)) && SUCCEEDED(IFileOpenDialog_GetResult(dlg, &it)) &&
+        SUCCEEDED(IShellItem_GetDisplayName(it, SIGDN_FILESYSPATH, &path)) && path) {
+        wchar_t added[SP_MAX_PATH], err[200], dir[SP_MAX_PATH], out[SP_MAX_PATH], base[SP_MAX_PATH];
+        if (wpapi_add_folder_file(e, cp->name, path, added, SP_COUNTOF(added), err, SP_COUNTOF(err))) {
+            /* a wallpaper that reads depth\<picture>.png (Screen+'s Rainy Window) gets this picture's depth map */
+            path_dirname(dir, SP_COUNTOF(dir), e->path);
+            path_join(dir, SP_COUNTOF(dir), dir, L"depth");
+            const wchar_t *ext = path_ext(added);
+            if (dir_exists(dir) && !str_ieq(ext, L".webm") && !str_ieq(ext, L".mp4")) {
+                str_copy(base, SP_COUNTOF(base), path_filename(added));
+                wchar_t *dot = wcsrchr(base, L'.');
+                if (dot) *dot = 0;
+                str_cat(base, SP_COUNTOF(base), L".png");
+                path_join(out, SP_COUNTOF(out), dir, base);
+                if (!depth_make_file(added, out))
+                    app_notice(NOTICE_INFO, L"Screen+ is busy with another depth job, so this background stays flat for now.");
+            }
+            prop_commit(cp, wpapi_str_value(path_filename(added)), 0);
+            cus.forceReload = 1;                 /* the list now has the new file */
+            customise_refresh();
+        } else {
+            app_notice(NOTICE_ERROR, L"%ls", err);
+        }
+        CoTaskMemFree(path);
+    }
+    SP_RELEASE(it);
+    IFileOpenDialog_Release(dlg);
+}
+
 static void prop_menu(int idx, int id)
 {
     Ui *u = g_ui;
     CustomProp *cp = &cus.props[idx];
     int n = wpapi_choice_count(cp);
-    if (n <= 0) return;
+    if (n <= 0 && cp->type != CP_FILE) return;
     HMENU m = CreatePopupMenu();
     if (!m) return;
     int cur = wpapi_choice_current(cp);
@@ -1254,12 +1304,17 @@ static void prop_menu(int idx, int id)
         wpapi_choice_label(cp, i, l, SP_COUNTOF(l));
         AppendMenuW(m, MF_STRING | (i == cur ? MF_CHECKED : 0), (UINT_PTR)i + 1, l[0] ? l : L"(unnamed)");
     }
+    if (cp->type == CP_FILE) {
+        if (n > 0) AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+        AppendMenuW(m, MF_STRING, CHOOSE_FILE_CMD, L"Choose a file…");
+    }
     D2D1_RECT_F r = hit_rect(id);
     POINT p = { (LONG)(r.left * u->scale), (LONG)((r.bottom + 4.0f) * u->scale) };
     ClientToScreen(u->hwnd, &p);
     UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, u->hwnd, NULL);
     DestroyMenu(m);
-    if (cmd && (int)cmd - 1 != cur) prop_commit(cp, wpapi_choice_value(cp, (int)cmd - 1), 0);
+    if (cmd == CHOOSE_FILE_CMD) prop_choose_file(cp);
+    else if (cmd && (int)cmd - 1 != cur) prop_commit(cp, wpapi_choice_value(cp, (int)cmd - 1), 0);
 }
 
 /* ---- colour properties: "#RRGGBB" / "0xRRGGBB" (Lively) or "r g b" floats 0..1 (Wallpaper Engine) */

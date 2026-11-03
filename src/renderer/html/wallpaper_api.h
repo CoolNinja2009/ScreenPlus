@@ -70,6 +70,12 @@ void wpapi_save_adjust(const wchar_t *wallpaperId, const WallpaperAdjust *a);
  * colour/text string). Returns 1 when the file was written. */
 int wpapi_save_override(const WallpaperEntry *wp, const char *name, const JVal *value);
 
+/* Lively folderDropdown "Choose a file": copies src into the property's folder in the package (as a PNG when
+ * the wallpaper doesn't take its type but takes PNGs; a free name, nothing replaced). outPath: the copy (its file
+ * name is the value to store). 0: err says why. */
+int wpapi_add_folder_file(const WallpaperEntry *wp, const char *name, const wchar_t *src, wchar_t *outPath, size_t cap,
+                          wchar_t *err, size_t ecap);
+
 /* Helper for changing a stored JVal clone: replaces *dst with a deep copy of src. */
 void wpapi_jval_copy(JVal **dst, const JVal *src);
 

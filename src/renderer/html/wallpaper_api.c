@@ -4,6 +4,7 @@
 #include "../../common/paths.h"
 #include "../../common/log.h"
 #include <shlwapi.h>
+#include <wincodec.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -304,6 +305,107 @@ static JVal *folder_items(const wchar_t *wpFolder, const JVal *prop)
     JVal *items = b.failed ? NULL : json_parse(b.p, b.len);
     sb_free(&b);
     return items;
+}
+
+/* A picture WIC can read, saved as a PNG (formats a web page can't show: HEIC, TIFF, JPEG XR...). */
+static BOOL convert_to_png(const wchar_t *src, const wchar_t *dst)
+{
+    IWICImagingFactory *f = NULL;
+    IWICBitmapDecoder *dec = NULL;
+    IWICBitmapFrameDecode *frame = NULL;
+    IWICFormatConverter *cv = NULL;
+    IWICStream *st = NULL;
+    IWICBitmapEncoder *enc = NULL;
+    IWICBitmapFrameEncode *fe = NULL;
+    IPropertyBag2 *pb = NULL;
+    UINT w = 0, h = 0;
+    GUID pf = GUID_WICPixelFormat32bppBGRA;
+    HRESULT hr = CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&f);
+    if (SUCCEEDED(hr)) hr = IWICImagingFactory_CreateDecoderFromFilename(f, src, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec);
+    if (SUCCEEDED(hr)) hr = IWICBitmapDecoder_GetFrame(dec, 0, &frame);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameDecode_GetSize(frame, &w, &h);
+    if (SUCCEEDED(hr)) hr = IWICImagingFactory_CreateFormatConverter(f, &cv);
+    if (SUCCEEDED(hr)) hr = IWICFormatConverter_Initialize(cv, (IWICBitmapSource *)frame, &GUID_WICPixelFormat32bppBGRA,
+                                                           WICBitmapDitherTypeNone, NULL, 0.0, WICBitmapPaletteTypeCustom);
+    if (SUCCEEDED(hr)) hr = IWICImagingFactory_CreateStream(f, &st);
+    if (SUCCEEDED(hr)) hr = IWICStream_InitializeFromFilename(st, dst, GENERIC_WRITE);
+    if (SUCCEEDED(hr)) hr = IWICImagingFactory_CreateEncoder(f, &GUID_ContainerFormatPng, NULL, &enc);
+    if (SUCCEEDED(hr)) hr = IWICBitmapEncoder_Initialize(enc, (IStream *)st, WICBitmapEncoderNoCache);
+    if (SUCCEEDED(hr)) hr = IWICBitmapEncoder_CreateNewFrame(enc, &fe, &pb);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_Initialize(fe, pb);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_SetSize(fe, w, h);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_SetPixelFormat(fe, &pf);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_WriteSource(fe, (IWICBitmapSource *)cv, NULL);
+    if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_Commit(fe);
+    if (SUCCEEDED(hr)) hr = IWICBitmapEncoder_Commit(enc);
+    SP_RELEASE(pb);
+    SP_RELEASE(fe);
+    SP_RELEASE(enc);
+    SP_RELEASE(st);
+    SP_RELEASE(cv);
+    SP_RELEASE(frame);
+    SP_RELEASE(dec);
+    SP_RELEASE(f);
+    if (FAILED(hr)) DeleteFileW(dst);
+    return SUCCEEDED(hr);
+}
+
+int wpapi_add_folder_file(const WallpaperEntry *wp, const char *name, const wchar_t *src, wchar_t *outPath, size_t cap,
+                          wchar_t *err, size_t ecap)
+{
+    wchar_t folder[SP_MAX_PATH], sub[SP_MAX_PATH], dir[SP_MAX_PATH], spec[256], base[SP_MAX_PATH], dst[SP_MAX_PATH];
+    JVal *owner = NULL;
+    const JVal *props = package_properties(wp, folder, SP_COUNTOF(folder), &owner);
+    const JVal *prop = props ? json_get(props, name) : NULL;
+    int ok = 0;
+    err[0] = 0;
+    if (!prop) {
+        str_copy(err, ecap, L"The wallpaper no longer has this setting.");
+        goto done;
+    }
+    json_str_w(json_get(prop, "folder"), sub, SP_COUNTOF(sub));
+    for (wchar_t *c = sub; *c; c++) if (*c == L'/') *c = L'\\';
+    if (sub[0]) path_join(dir, SP_COUNTOF(dir), folder, sub);
+    else str_copy(dir, SP_COUNTOF(dir), folder);
+    json_str_w(json_get(prop, "filter"), spec, SP_COUNTOF(spec));
+    if (!spec[0]) str_copy(spec, SP_COUNTOF(spec), L"*.*");
+    for (wchar_t *c = spec; *c; c++) if (*c == L'|') *c = L';';
+    const wchar_t *fname = path_filename(src);
+    /* as it is when the wallpaper takes the type; else as a PNG when it takes those */
+    int convert = !PathMatchSpecW(fname, spec);
+    if (convert && !PathMatchSpecW(L"x.png", spec)) {
+        str_printf(err, ecap, L"This wallpaper only takes %ls files.", spec);
+        goto done;
+    }
+    if (!dir_create_recursive(dir)) {
+        str_copy(err, ecap, L"The wallpaper's folder can't be written to.");
+        goto done;
+    }
+    str_copy(base, SP_COUNTOF(base), fname);
+    if (convert) {
+        wchar_t *dot = wcsrchr(base, L'.');
+        if (dot) *dot = 0;
+        str_cat(base, SP_COUNTOF(base), L".png");
+    }
+    path_join(dst, SP_COUNTOF(dst), dir, base);
+    for (int i = 2; file_exists(dst) && i < 100; i++) {          /* never replace a file already there */
+        wchar_t stem[SP_MAX_PATH], alt[SP_MAX_PATH];
+        str_copy(stem, SP_COUNTOF(stem), base);
+        wchar_t *dot = wcsrchr(stem, L'.');
+        const wchar_t *ext = dot ? path_ext(base) : L"";
+        if (dot) *dot = 0;
+        str_printf(alt, SP_COUNTOF(alt), L"%ls (%d)%ls", stem, i, ext);
+        path_join(dst, SP_COUNTOF(dst), dir, alt);
+    }
+    ok = convert ? convert_to_png(src, dst) : CopyFileW(src, dst, TRUE);
+    if (!ok) str_copy(err, ecap, convert ? L"That picture could not be read." : L"The file could not be copied into the wallpaper's folder.");
+    else {
+        str_copy(outPath, cap, dst);
+        LOGI(L"wallpaper: %ls added to %ls%ls", fname, dir, convert ? L" (as a PNG)" : L"");
+    }
+done:
+    json_free(owner);
+    return ok;
 }
 
 /* Rewrites the overrides file with `key` set to the raw JSON in `valueJson` (NULL: remove
