@@ -18,7 +18,8 @@
 ; Optional feature "Sample wallpapers" (default installation; on unless /NOSAMPLES): setup bundles only Singularity and Aurora and
 ; runs `ScreenPlus.com samples install`, which downloads this release's ScreenPlus-<version>-samples.zip from GitHub
 ; (~35 MB, size and SHA-256 pinned at build time) into $INSTDIR\samples, so this installer stays small; the app adds
-; them to the library on its next start. An update ("keep") neither offers nor changes them.
+; them to the library on its next start. An update ("keep") offers it (ticked) only when the samples it downloaded
+; earlier changed (samples\samples.id vs SAMPLES_ID); the new files then replace theirs, and the library is left as it is.
 ; Prerequisite of "Make wallpaper cooler" (ONNX Runtime): the Microsoft Visual C++ 2015-2022 runtime (x64) 14.44 or
 ; newer. When it is missing or older, the Optional Features page offers it (ticked); setup then runs
 ; `ScreenPlus.com vcredist install`, which downloads Microsoft's installer (SHA-256 verified) and runs it; Windows
@@ -52,6 +53,9 @@ SetCompressor /SOLID lzma
 !endif
 !ifndef SAMPLES_DL_MB
   !define SAMPLES_DL_MB 35
+!endif
+!ifndef SAMPLES_ID
+  !define SAMPLES_ID unknown
 !endif
 !define /math SAMPLES_MB ${SAMPLES_KB} / 1024
 !define URL_TOOLS_KB 20500   ; yt-dlp + QuickJS-NG, in the data folder
@@ -96,7 +100,8 @@ Var InstMode        ; "keep" (update in place) | "default" | "clean"
 Var OptStartup      ; 1 = start with Windows
 Var OptDesktop      ; 1 = desktop shortcut
 Var OptUrl          ; 1 = video import from web links (downloads yt-dlp + QuickJS-NG)
-Var OptSamples      ; 1 = download the other sample wallpapers (default installation)
+Var OptSamples      ; 1 = download the other sample wallpapers (default installation, or an update when they changed)
+Var SamplesStale    ; 1 = the folder holds downloaded samples older than this release's
 Var VcNeeded        ; 1 = the Visual C++ runtime that Make wallpaper cooler needs is missing or too old
 Var OptVc           ; 1 = install it now
 Var Relaunch        ; 1 = /UPDATE: Screen+'s auto update ran this setup; start Screen+ again afterwards
@@ -200,6 +205,26 @@ FunctionEnd
 
 ; $VcNeeded = 1 unless the Visual C++ 2015-2022 runtime (x64) 14.44 or newer is installed: ONNX Runtime ("Make
 ; wallpaper cooler") is built with that toolset. Keep in step with VCRUN_MIN_MINOR in src/common/webfetch.c.
+; $SamplesStale = 1 when the folder on the stack holds downloaded samples that differ from this release's: samples.id
+; is their content (SAMPLES_ID); 1.9.4 and older wrote download.sha256 instead.
+Function CheckSamples
+  Exch $R0
+  Push $R1
+  StrCpy $SamplesStale 0
+  ${If} ${FileExists} "$R0\samples\download.sha256"
+    StrCpy $SamplesStale 1
+  ${ElseIf} ${FileExists} "$R0\samples\samples.id"
+    FileOpen $R1 "$R0\samples\samples.id" r
+    FileRead $R1 $R0 64
+    FileClose $R1
+    ${If} $R0 != "${SAMPLES_ID}"
+      StrCpy $SamplesStale 1
+    ${EndIf}
+  ${EndIf}
+  Pop $R1
+  Pop $R0
+FunctionEnd
+
 Function NeedVcRuntime
   StrCpy $VcNeeded 1
   SetRegView 64
@@ -407,11 +432,24 @@ Function OptionsPage
     Abort
   ${EndIf}
   StrCpy $1 0                   ; top of the next option, in dialog units
-  ${If} $InstMode == "default"  ; not offered on an update or a clean installation
+  StrCpy $hSamples ""
+  StrCpy $SamplesStale 0
+  ${If} $InstMode == "keep"
+    Push $Existing
+    Call CheckSamples
+  ${EndIf}
+  ${If} $InstMode == "default"  ; an update offers it only when its samples changed; a clean installation never
     ${NSD_CreateCheckbox} 0 0 100% 12u "&Sample wallpapers (recommended)"
     Pop $hSamples
     ${NSD_CreateLabel} 13u 13u -13u 16u "Downloads more sample wallpapers (about ${SAMPLES_DL_MB} MB, ${SAMPLES_MB} MB on disk)."
     Pop $0
+  ${ElseIf} $SamplesStale == 1
+    ${NSD_CreateCheckbox} 0 0 100% 12u "&Update the sample wallpapers (recommended)"
+    Pop $hSamples
+    ${NSD_CreateLabel} 13u 13u -13u 16u "The sample wallpapers have changed. Downloads about ${SAMPLES_DL_MB} MB; your library stays as it is."
+    Pop $0
+  ${EndIf}
+  ${If} $hSamples != ""
     ${If} $OptSamples == 1
       ${NSD_Check} $hSamples
     ${EndIf}
@@ -440,7 +478,7 @@ Function OptionsPage
 FunctionEnd
 
 Function OptionsLeave
-  ${If} $InstMode == "default"
+  ${If} $hSamples != ""
     ${NSD_GetState} $hSamples $OptSamples
   ${EndIf}
   ${NSD_GetState} $hUrl $OptUrl
@@ -552,9 +590,17 @@ Section "-UrlImport" SecUrl
 SectionEnd
 
 ; Optional: the sample wallpapers besides Singularity and Aurora, downloaded from this release on GitHub (not embedded).
+; An update downloads them only over older downloaded ones (also when silent, unless /NOSAMPLES).
 Section "-Samples" SecSamples
-  ${If} $InstMode == "default"                        ; never on an update: it leaves the samples as they are
-  ${AndIf} $OptSamples == 1
+  StrCpy $SamplesStale 0
+  ${If} $InstMode == "default"
+    StrCpy $SamplesStale 1                            ; a new installation: every sample is new
+  ${ElseIf} $InstMode == "keep"
+    Push $INSTDIR
+    Call CheckSamples
+  ${EndIf}
+  ${If} $OptSamples == 1
+  ${AndIf} $SamplesStale == 1
     DetailPrint "Downloading sample wallpapers..."
     nsExec::ExecToLog '"$INSTDIR\ScreenPlus.com" samples install'
     Pop $0

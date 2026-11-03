@@ -163,16 +163,24 @@ endif()
 file(SHA256 "${SAMPLES_ZIP}" SAMPLES_SHA256)
 file(SIZE "${SAMPLES_ZIP}" SAMPLES_SIZE)
 # The installer's space figures: the samples download unpacked, and the download itself (sizes.nsh beside the build).
+# SAMPLES_ID: the samples' content (names + SHA-256s). Unlike the zip's hash it stays the same from build to build until a
+# sample changes; `samples install` keeps it in samples\samples.id and setup offers an update when it differs.
 set(SAMPLES_UNPACKED 0)
+set(_ids "")
 foreach(f IN LISTS SAMPLE_FILES)
     if(NOT f MATCHES "/samples/(Aurora|Singularity)/")
         file(SIZE "${f}" _s)
         math(EXPR SAMPLES_UNPACKED "${SAMPLES_UNPACKED} + ${_s}")
+        file(SHA256 "${f}" _h)
+        file(RELATIVE_PATH _r "${CMAKE_SOURCE_DIR}/samples" "${f}")
+        string(APPEND _ids "${_r} ${_h}\n")
     endif()
 endforeach()
+string(SHA256 SAMPLES_ID "${_ids}")
 math(EXPR SAMPLES_KB "${SAMPLES_UNPACKED} / 1024")
 math(EXPR SAMPLES_DL_MB "(${SAMPLES_SIZE} + 524288) / 1048576")
-file(WRITE "${CMAKE_BINARY_DIR}/sizes.nsh" "!define SAMPLES_KB ${SAMPLES_KB}\n!define SAMPLES_DL_MB ${SAMPLES_DL_MB}\n")
+file(WRITE "${CMAKE_BINARY_DIR}/sizes.nsh"
+     "!define SAMPLES_KB ${SAMPLES_KB}\n!define SAMPLES_DL_MB ${SAMPLES_DL_MB}\n!define SAMPLES_ID ${SAMPLES_ID}\n")
 
 # Terminal companion, shipped as ScreenPlus.com next to ScreenPlus.exe: a terminal resolves
 # `screenplus` to the .com first (PATHEXT order), shortcuts and the startup entry name the .exe.
@@ -182,7 +190,8 @@ set_target_properties(ScreenPlusCli PROPERTIES OUTPUT_NAME ScreenPlus SUFFIX ".c
 target_include_directories(ScreenPlusCli PRIVATE src)
 target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
                                                  _CRT_SECURE_NO_WARNINGS SP_VERSION_STR="${PROJECT_VERSION}"
-                                                 SP_SAMPLES_SIZE=${SAMPLES_SIZE} SP_SAMPLES_SHA256="${SAMPLES_SHA256}")
+                                                 SP_SAMPLES_SIZE=${SAMPLES_SIZE} SP_SAMPLES_SHA256="${SAMPLES_SHA256}"
+                                                 SP_SAMPLES_ID="${SAMPLES_ID}")
 target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /wd4221 /wd4100)
 target_link_options(ScreenPlusCli PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /INCREMENTAL:NO)
 target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 oleaut32 advapi32 bcrypt winhttp taskschd)

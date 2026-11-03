@@ -469,10 +469,11 @@ static int cmd_tools(const wchar_t *sub)
     return EXIT_USAGE;
 }
 
-/* ---- samples: the sample wallpapers besides Singularity and Aurora, setup's optional download (default installations only,
- * ticked by default). This release's ScreenPlus-<version>-samples.zip, pinned by size and SHA-256 when it was
- * built (CMakeLists.txt), is unpacked into <program>\samples with Windows' tar.exe; download.sha256 there makes
- * a second run skip it. The app adds them to a new library itself (library_add_samples). */
+/* ---- samples: the sample wallpapers besides Singularity and Aurora, setup's optional download (ticked by default on a
+ * default installation, and on an update when they changed). This release's ScreenPlus-<version>-samples.zip, pinned
+ * by size and SHA-256 when it was built (CMakeLists.txt), is unpacked over <program>\samples with Windows' tar.exe;
+ * samples.id there (their content, SP_SAMPLES_ID) makes a second run skip it until a sample changes. The app adds
+ * them to a new library itself (library_add_samples); an update changes their files, never the library. */
 static const UrlTool k_samples = {
     L"samples.zip", L"the sample wallpapers",
     L"https://github.com/CoolNinja2009/ScreenPlus/releases/download/v" SP_VERSION_W L"/ScreenPlus-" SP_VERSION_W
@@ -489,14 +490,14 @@ static int cmd_samples(const wchar_t *sub)
     wchar_t dir[SP_MAX_PATH], zip[SP_MAX_PATH], mark[SP_MAX_PATH], tar[SP_MAX_PATH], cmd[4 * SP_MAX_PATH], e[320];
     path_join(dir, SP_COUNTOF(dir), paths_exe_dir(), L"samples");
     path_join(zip, SP_COUNTOF(zip), dir, k_samples.file);
-    path_join(mark, SP_COUNTOF(mark), dir, L"download.sha256");
+    path_join(mark, SP_COUNTOF(mark), dir, L"samples.id");
     char have[65] = "";
     FILE *f = _wfopen(mark, L"rb");
     if (f) {
         have[fread(have, 1, 64, f)] = 0;
         fclose(f);
     }
-    if (!strcmp(have, k_samples.sha256)) {
+    if (!strcmp(have, SP_SAMPLES_ID)) {
         out(L"The sample wallpapers are up to date.\n");
         return EXIT_OK;
     }
@@ -524,9 +525,11 @@ static int cmd_samples(const wchar_t *sub)
     }
     f = _wfopen(mark, L"wb");
     if (f) {
-        fputs(k_samples.sha256, f);
+        fputs(SP_SAMPLES_ID, f);
         fclose(f);
     }
+    path_join(mark, SP_COUNTOF(mark), dir, L"download.sha256");   /* 1.9.4 and older: the zip's hash */
+    DeleteFileW(mark);
     out(L"Ready: the sample wallpapers are in %ls\n"
         L"A new library gets them by itself; to add them to yours: screenplus import \"%ls\"\n", dir, dir);
     return EXIT_OK;
