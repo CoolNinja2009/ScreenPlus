@@ -600,7 +600,7 @@ static BOOL dh_list(const StoreQuery *q, int page, const char *tag, wchar_t *url
 }
 
 /* <a href="/<slug>" class="wallpaper-card" …> <img src="https://www.desktophut.com/images/<image>" …> …
- * <span class="badge-res">3840x2160</span> (or WEB) … <h3 class="card-title">Title</h3> … </a>; ref: slug, media: the
+ * <span class="badge-res">3840x2160</span> (or WEB, Scene) … <h3 class="card-title">Title</h3> … </a>; ref: slug, media: the
  * image. A search with nothing (left) to show says "No matches for …" and lists the site's popular ones instead. */
 static void dh_parse(const StoreQuery *q, int page, const char *tag, const char *html, int len, StoreList *out)
 {
@@ -617,7 +617,7 @@ static void dh_parse(const StoreQuery *q, int page, const char *tag, const char 
         const char *m = after(he, ce, "<img src=\"https://www.desktophut.com/images/"), *mv = until(m, ce, '"');
         const char *t = after(he, ce, "class=\"card-title\">"), *tv = t ? find(t, ce, "</h3>") : NULL;
         const char *r = after(he, ce, "class=\"badge-res\">");
-        int web = r && ce - r >= 3 && !memcmp(r, "WEB", 3);     /* a web wallpaper's .zip, which Download can't import */
+        int web = r && !is_digit(*r);                    /* "WEB" or "Scene": a web or scene wallpaper's .zip, which Download can't import */
         StoreItem *it = mv && tv && !web ? add(out) : NULL;
         if (it) {
             copy_of(p, he, it->ref, sizeof it->ref);

@@ -625,6 +625,8 @@ Section "Uninstall"
   Delete "$LOCALAPPDATA\ScreenPlus\depth\model.onnx*"    ; downloaded depth model + ONNX Runtime (not user data)
   Delete "$LOCALAPPDATA\ScreenPlus\depth\ort\*"
   RMDir "$LOCALAPPDATA\ScreenPlus\depth\ort"
+  RMDir /r "$LOCALAPPDATA\ScreenPlus\depth\models"       ; the other downloaded models (up to ~1 GB each)
+  Delete "$LOCALAPPDATA\ScreenPlus\depth\backend.json"
 
   Delete "$SMPROGRAMS\${APP_NAME}.lnk"
   Delete "$DESKTOP\${APP_NAME}.lnk"

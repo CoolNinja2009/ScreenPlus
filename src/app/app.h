@@ -143,7 +143,7 @@ enum { STOREDL_IDLE = 0, STOREDL_WAIT, STOREDL_RUNNING, STOREDL_DONE, STOREDL_FA
 enum { SKIND_LIVE = 1, SKIND_STILL = 2 };
 enum { SF_CATEGORY = 0, SF_RES, SF_SORT, SF_KIND, SF_SOURCE, SF_COUNT };   /* filters; values index store_filter_names */
 typedef struct StoreVariant {
-    char  key[16];                     /* the site's name for this file: "4k", "3840x2160", "mp4" */
+    char  key[128];                    /* the site's name for this file: "4k", "3840x2160", "mp4", or a file name */
     int   w, h;
     float mb;                          /* size as the site states it (MiB), 0 unknown */
 } StoreVariant;
