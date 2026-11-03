@@ -207,8 +207,60 @@ function livelyPropertyListener(name, val) {
       if (val) gui.show();
       else gui.hide();
       break;
+    case "soundSelect":
+      setSound(val);
+      break;
+    case "soundVolume":
+      setVolume(val / 100);
+      break;
   }
 }
+
+// Screen+: a looping sound. sounds/rain.ogg is cut before its fade-out and crossfaded into its start, so it
+// loops without a seam; a decoded buffer loops sample-exactly where <audio loop> leaves a gap. Volume 0 stops it.
+let sound = { ctx: null, gain: null, src: null, file: "", buf: null, bufFile: "", volume: 0.5, gen: 0 };
+
+async function setSound(file) {
+  sound.file = file;
+  const gen = ++sound.gen;
+  sound.src?.stop();
+  sound.src = null;
+  if (!file || sound.volume <= 0) return;
+  if (!sound.ctx) {
+    sound.ctx = new AudioContext();
+    sound.gain = sound.ctx.createGain();
+    sound.gain.gain.value = sound.volume * sound.volume;
+    sound.gain.connect(sound.ctx.destination);
+  }
+  try {
+    if (sound.bufFile != file) {
+      const buf = await sound.ctx.decodeAudioData(await (await fetch(file)).arrayBuffer());
+      if (gen != sound.gen) return;
+      sound.buf = buf;
+      sound.bufFile = file;
+    }
+    const src = sound.ctx.createBufferSource();
+    src.buffer = sound.buf;
+    src.loop = true;
+    src.connect(sound.gain);
+    src.start();
+    sound.src = src;
+  } catch (e) {
+    console.warn("sound:", file, e);
+  }
+}
+
+function setVolume(v) {
+  const was = sound.volume;
+  sound.volume = v;
+  if (sound.gain) sound.gain.gain.value = v * v;
+  if (was > 0 != v > 0) setSound(sound.file);
+}
+
+// paused or covered: no mixing while hidden
+document.addEventListener("visibilitychange", () => {
+  if (sound.ctx) document.hidden ? sound.ctx.suspend() : sound.ctx.resume();
+});
 
 //web
 function datUI() {

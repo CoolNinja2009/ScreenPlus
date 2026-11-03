@@ -192,6 +192,9 @@ Renderer details:
   package's folder, converted to PNG when the filter refuses its type). A package with a `depth\` folder (the bundled
   Rainy Window, `samples\abqqpcp4.hv3`) then gets `depth\<picture>.png` from `depth_make_file` (DA3 Small if
   downloaded, else the smallest downloaded model, else the smallest model); the page retries that file for 10 min.
+  Only pictures get one (`is_picture_ext`): Rainy Window's Sound dropdown (`sounds\`, `rain.ogg` = the rain track cut
+  before its 5 s fade-out, 3 s crossfaded into its start, Opus) loops a Web Audio buffer; Volume 0 stops it, and like
+  any page it is muted unless Sound is on.
 - Test the child with `SCREENPLUS_DATA_DIR=<scratch>` holding `depth\model.onnx` + `depth\ort\onnxruntime.dll`:
   `ScreenPlus.exe --depth <image> <outdir>`; read `logs\depth.log`.
 

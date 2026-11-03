@@ -80,6 +80,20 @@
       "Fill"
     ]
   },
+  "soundSelect": {
+    "type": "folderDropdown",
+    "value": "rain.ogg",
+    "text": "Sound",
+    "filter": "*.ogg|*.opus|*.mp3|*.wav|*.m4a|*.aac|*.flac|*.weba",
+    "folder": "sounds"
+  },
+  "soundVolume": {
+    "max": 100,
+    "min": 0,
+    "text": "Volume",
+    "type": "slider",
+    "value": 50
+  },
   "blurQuality": {
     "type": "dropdown",
     "value": 1,

@@ -1243,6 +1243,16 @@ static D2D1_RECT_F hit_rect(int id)
 
 /* folderDropdown "Choose a file…": any picture (or the wallpaper's own types), copied into its folder. */
 #define CHOOSE_FILE_CMD 5000
+
+/* only pictures get a depth map: not videos, nor a sound picked for the same wallpaper */
+static BOOL is_picture_ext(const wchar_t *ext)
+{
+    static const wchar_t *k[] = { L".jpg", L".jpeg", L".jfif", L".png", L".webp", L".bmp", L".gif", L".avif" };
+    for (size_t i = 0; i < SP_COUNTOF(k); i++)
+        if (str_ieq(ext, k[i])) return TRUE;
+    return FALSE;
+}
+
 static void prop_choose_file(CustomProp *cp)
 {
     IFileOpenDialog *dlg = NULL;
@@ -1269,7 +1279,7 @@ static void prop_choose_file(CustomProp *cp)
             path_dirname(dir, SP_COUNTOF(dir), e->path);
             path_join(dir, SP_COUNTOF(dir), dir, L"depth");
             const wchar_t *ext = path_ext(added);
-            if (dir_exists(dir) && !str_ieq(ext, L".webm") && !str_ieq(ext, L".mp4")) {
+            if (dir_exists(dir) && is_picture_ext(ext)) {
                 str_copy(base, SP_COUNTOF(base), path_filename(added));
                 wchar_t *dot = wcsrchr(base, L'.');
                 if (dot) *dot = 0;
