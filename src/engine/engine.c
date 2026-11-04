@@ -20,7 +20,7 @@
 #define WM_SP_HOST_LOST  (WM_APP + 41)
 #define WM_SP_SHELL_GONE (WM_APP + 42)
 
-enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS };
+enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS, T_RESTACK };
 
 #define MAX_RETRIES 3
 #define SAFETY_MS   2000
@@ -65,6 +65,7 @@ static struct {
     uint64_t      processStart, firstFrame;
     double        initMs, startMs;
     int           rehostAttempts;
+    int           restackTicks;   /* T_RESTACK checks left after a Windows wallpaper change */
     wchar_t       lastError[SP_ERR_LEN];
     wchar_t       webview[48];
     HANDLE        shellProcess, shellWait;
@@ -351,6 +352,16 @@ static void rehost(void)
     }
     E.rehostAttempts = 0;
     reconcile_slots();
+}
+
+/* Keeps every wallpaper above the system wallpaper (desktop_host_restack). */
+static void restack(void)
+{
+    for (int i = 0; i < SP_MAX_MONITORS; i++) {
+        Slot *s = &E.slots[i];
+        if (s->used && s->hwnd && desktop_host_restack(&E.host, s->hwnd, &s->mon.rect))
+            LOGI(L"display %d: the Windows wallpaper covered the wallpaper; moved back on top", i + 1);
+    }
 }
 
 /* ================================================================ adaptive state */
@@ -926,12 +937,17 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         case T_SAFETY:
             update_occlusion();
             if (!desktop_host_valid(&E.host)) SetTimer(h, T_REHOST, 500, NULL);
+            else restack();
             break;
         case T_DISPLAY:
             KillTimer(h, T_DISPLAY);
             if (!desktop_host_valid(&E.host)) rehost();
             else reconcile_slots();
             update_occlusion();
+            break;
+        case T_RESTACK:
+            if (--E.restackTicks <= 0) KillTimer(h, T_RESTACK);
+            if (desktop_host_valid(&E.host)) restack();
             break;
         case T_REHOST:
             KillTimer(h, T_REHOST);
@@ -972,6 +988,10 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SETTINGCHANGE:
         if (wp == SPI_SETWORKAREA || wp == SPI_SETDESKWALLPAPER) SetTimer(h, T_DISPLAY, 600, NULL);
+        if (wp == SPI_SETDESKWALLPAPER) {        /* its fade ends, and its WorkerW arrives, seconds later */
+            E.restackTicks = 80;
+            SetTimer(h, T_RESTACK, 100, NULL);
+        }
         return 0;
     case WM_POWERBROADCAST:
         if (wp == PBT_APMSUSPEND) {

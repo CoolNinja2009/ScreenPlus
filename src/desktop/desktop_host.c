@@ -162,6 +162,19 @@ void desktop_host_position(const DesktopHost *h, HWND w, const RECT *screenRect)
     SetWindowPos(w, after, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE);
 }
 
+BOOL desktop_host_restack(DesktopHost *h, HWND w, const RECT *screenRect)
+{
+    if (h->mode != HOSTMODE_PROGMAN || !h->defView || GetParent(w) != h->parent) return FALSE;
+    for (HWND p = GetWindow(w, GW_HWNDPREV); p; p = GetWindow(p, GW_HWNDPREV)) {
+        wchar_t cls[32];
+        if (p == h->defView) return FALSE;                 /* straight under the icons: fine */
+        if (GetClassNameW(p, cls, SP_COUNTOF(cls)) && wcscmp(cls, L"WorkerW") == 0) break;
+    }
+    h->workerw = FindWindowExW(h->progman, NULL, L"WorkerW", NULL);
+    desktop_host_position(h, w, screenRect);
+    return TRUE;
+}
+
 void desktop_host_refresh(const DesktopHost *h)
 {
     HWND target = h->workerw ? h->workerw : h->parent;

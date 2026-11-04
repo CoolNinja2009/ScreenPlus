@@ -80,7 +80,7 @@ the report.
 | `src/common/scrnsave.c` | Windows screensaver registration, timeout, lock-on-resume, `.scr` sync, Preview launch |
 | `src/ui/identify.c` | Displays page **Identify**: each display's number in its corner |
 | `src/engine/` | `engine.c` (slots, state machine; span = one slot `SP_SPAN_ID` over the bounding box of `E.mons`), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c`, `stills.c` (`still_wallpaper`: a still per display, made once per wallpaper/look/size, becomes the Windows wallpaper via `IDesktopWallpaper`; pages via `html_grab`, the rest from the file graded like `video.hlsl`; the user's own wallpaper kept in `original.txt` and restored when the setting goes off) |
-| `src/desktop/desktop_host.c` | Hosting behind the icons: Progman (24H2+), WorkerW, or fallback |
+| `src/desktop/desktop_host.c` | Hosting behind the icons: Progman (24H2+), WorkerW, or fallback. A wallpaper set in Windows Settings replaces the system WorkerW above ours, seconds later and unannounced: `desktop_host_restack` (T_RESTACK for 8 s after SPI_SETDESKWALLPAPER, then T_SAFETY) |
 | `src/renderer/renderer.h` | Renderer vtable (set_state, resize, set_audio, paint, describe, destroy, wants, input, feed, on_timer, apply); all calls on the engine window thread |
 | `src/renderer/video/` | `video_renderer.c`, `video_audio.c`, `video_stream.c`, `ffmpeg_thumb.c` (UI thumbnails), `video.hlsl` (NV12/I420/RGB + grading); details below |
 | `src/renderer/html/` | `html_renderer.c` (WebView2), `wallpaper_api.c` (Lively/WE JS APIs, author properties); details below |

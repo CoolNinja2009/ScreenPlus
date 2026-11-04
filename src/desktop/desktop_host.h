@@ -26,5 +26,8 @@ BOOL desktop_host_valid(const DesktopHost *h);
 /* Re-parents a hidden popup window into the desktop host and positions it on screenRect. */
 BOOL desktop_host_attach(const DesktopHost *h, HWND w, const RECT *screenRect, BOOL layered);
 void desktop_host_position(const DesktopHost *h, HWND w, const RECT *screenRect);
+/* Windows replaces the system wallpaper WorkerW when the wallpaper changes, some time after telling anyone, and
+ * the new one lands above our windows. Puts w back under the icons if so; TRUE when it had to. */
+BOOL desktop_host_restack(DesktopHost *h, HWND w, const RECT *screenRect);
 void desktop_host_refresh(const DesktopHost *h);
 const wchar_t *desktop_host_mode_name(int mode);
