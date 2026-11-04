@@ -223,6 +223,9 @@ Renderer details:
   SHARP's 1536 limit softens big pictures (edge energy 0.38 of a 3738 px original), so fragments add the picture's own
   high frequencies at the Gaussian's rest position; `autoDetail` from picture size was fitted on real outputs (none up to
   1920 px). Only by `sharp_weights` (the record's last word): without it the sky beside a leaf carries the leaf's outline when it moves.
+  GPU: a frame is ~4 ms on an RTX 5070 at 2560x1440, two thirds of it pixels, so Frame rate (default 60) sets the cost;
+  none at rest. Don't prune "hidden" Gaussians: neighbours on a surface overlap, so it punches holes, and doing it safely
+  saved 0-2%.
   A shader local named like a varying breaks it quietly: check the program links. Settings follow ml-sharp: almost no 2D
   low-pass (0.3 cost more sharpness than anything else), EXIF lens, focus at the 10% depth, motion from the 0.1% depth. Colours
   blend in sRGB, not ml-sharp's linear: opacity is ~1 almost everywhere, so a float target isn't worth its cost.

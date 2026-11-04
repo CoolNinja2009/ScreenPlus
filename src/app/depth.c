@@ -81,7 +81,8 @@ static const char k_splatProps[] =
     "\"autoMove\":{\"type\":\"checkbox\",\"text\":\"Auto move\",\"value\":false},"
     "\"autoSpeed\":{\"type\":\"slider\",\"text\":\"Auto move speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100},"
     "\"quality\":{\"type\":\"slider\",\"text\":\"Quality\",\"min\":50,\"max\":100,\"step\":5,\"value\":100},"
-    "\"detail\":{\"type\":\"slider\",\"text\":\"Detail\",\"min\":0,\"max\":200,\"step\":10,\"value\":100}}";
+    "\"detail\":{\"type\":\"slider\",\"text\":\"Detail\",\"min\":0,\"max\":200,\"step\":10,\"value\":100},"
+    "\"fps\":{\"type\":\"slider\",\"text\":\"Frame rate\",\"min\":30,\"max\":120,\"step\":10,\"value\":60}}";
 
 typedef struct DepthJob {
     wchar_t id[SP_ID_LEN];          /* wallpaper to convert; empty: only fetch the files */

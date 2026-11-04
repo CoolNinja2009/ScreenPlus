@@ -13,7 +13,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
  * Plain WebGL2, no libraries. What keeps it light:
  *  - the file is already sorted far to near and laid out as a texture, so loading is one upload and nothing ever
  *    sorts: the camera only moves a little around the picture's own viewpoint, where that order holds;
- *  - frames are drawn only while something moves, so an idle desktop costs no GPU time;
+ *  - frames are drawn only while something moves, so an idle desktop costs no GPU time, and at most Frame rate a second:
+ *    a frame is about 4 ms on an RTX 5070 at 2560x1440, so a 200 Hz display would otherwise keep the GPU 80% busy;
  *  - each Gaussian's quad is cut where its alpha reaches 1/255, and off-screen or invisible ones are dropped in the
  *    vertex shader before they reach a pixel;
  *  - when moving is too slow the resolution drops, comes back when it can, and the last frame is drawn at full quality.
@@ -29,7 +30,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
    * through the gap in the colours around it; a black background would show as black edges */
   var gl = cv.getContext('webgl2', { antialias: false, alpha: true, premultipliedAlpha: true, depth: false, stencil: false, powerPreference: 'high-performance' });
   if (!gl) return;
-  var P = { strength: 40, autoMove: false, autoSpeed: 100, quality: 100, detail: 100 };
+  var P = { strength: 40, autoMove: false, autoSpeed: 100, quality: 100, detail: 100, fps: 60 };
   window.livelyPropertyListener = function (n, v) {
     if (!(n in P)) return;
     P[n] = v;
@@ -94,6 +95,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
   gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   gl.clearColor(0, 0, 0, 0);
 
+  var drawn = 0;
   var ready = 0, run = 0, last = 0, ph = 0, mx = 0, my = 0, tx = 0, ty = 0;
   var count = 0, iw = 1, ih = 1, tanX = 1, tanY = 1, focus = 1, moveScale = 1, slow = 16, autoDetail = 0, near = 0;
   function detailAmount() { return Math.max(0, autoDetail + (P.detail - 100) / 200); }
@@ -130,11 +132,14 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
   }
   function frame(now) {
     run = 0;
+    var every = 1000 / P.fps;
+    if (now - drawn < every - 1) { kick(); return; }
+    drawn = now - drawn > every * 2 ? now : drawn + every;   /* keeps the average on a display that doesn't divide evenly */
     var gap = last ? now - last : 16, moving = step(now);
     if (moving) {
       slow += (gap - slow) * 0.15;
-      if (slow > 30 && moveScale > 0.6) { moveScale -= 0.1; slow = 20; }      /* under ~33 fps: fewer pixels */
-      else if (slow < 20 && moveScale < 1) { moveScale = Math.min(1, moveScale + 0.05); slow = 24; }
+      if (slow > every * 1.5 && moveScale > 0.6) { moveScale -= 0.1; slow = every * 1.2; }   /* falling behind: fewer pixels */
+      else if (slow < every * 1.2 && moveScale < 1) { moveScale = Math.min(1, moveScale + 0.05); slow = every * 1.4; }
       size(moveScale);
       draw();
       kick();

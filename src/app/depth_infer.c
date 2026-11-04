@@ -790,7 +790,8 @@ done:
  * The page adds the picture's fine detail to each Gaussian (splat.html). That is only right for what the picture shows
  * at that spot: a Gaussian of the sky next to a leaf would take the leaf's edge with it and leave its outline in the air
  * when the leaf moves away. So the weight is how visible it is in the picture's own view, and nothing for anything
- * clearly behind a nearer surface within SHARP_REACH cells, the reach of the page's blur. */
+ * clearly behind a nearer surface within SHARP_REACH cells, the reach of the page's blur.
+ */
 #define SHARP_SIZE   1536
 #define SHARP_COV    1e4f       /* keeps sigma/z of 1e-4 .. 0.5 inside a half's normal range */
 #define SHARP_ALPHA  0.02f      /* fainter ones add nothing visible but still cost their pixels */
@@ -848,11 +849,13 @@ static uint8_t *sharp_weights(const float *mean, const float *sv, const float *o
         wt[k] = (uint8_t)(see[at[k]] * 255.0f + 0.5f);
         const float *s = sv + i * 3;
         float sig = SP_MAX(s[0], SP_MAX(s[1], s[2])) * SP_MAX(sx / tanX, sy / tanY) / z * G * 0.5f;
-        int r = SP_MIN((int)sig, 8);
+        int r = SP_MIN((int)(sig * 2.0f), 8);
+        float fall = -0.5f / SP_MAX(sig * sig, 0.25f);
         for (int y = SP_MAX(cy - r, 0); y <= SP_MIN(cy + r, G - 1); y++) {
             for (int x = SP_MAX(cx - r, 0); x <= SP_MIN(cx + r, G - 1); x++) {
                 size_t c = (size_t)y * G + x;
-                see[c] *= 1.0f - a;
+                float dx = (float)(x - cx), dy = (float)(y - cy);
+                see[c] *= 1.0f - a * expf(fall * (dx * dx + dy * dy));
                 if (see[c] < 0.5f && front[c] == 0.0f) front[c] = z;
             }
         }
@@ -927,9 +930,9 @@ static BOOL sharp_write(const float *mean, const float *sv, const float *quat, c
     }
     if (!kept) goto done;
     qsort(key, kept, sizeof(SharpKey), cmp_far_first);
+    if (!(wt = sharp_weights(mean, sv, op, key, kept, sx, sy, tanX, tanY))) goto done;
     size_t padded = (kept + 1023) / 1024 * 1024;
     if (!(rec = (uint32_t *)calloc(padded * 8 + 8, sizeof(uint32_t)))) goto done;
-    if (!(wt = sharp_weights(mean, sv, op, key, kept, sx, sy, tanX, tanY))) goto done;
     float focus = key[kept - 1 - kept / 10].z, nearZ = key[kept - 1 - kept / 1000].z;
     memcpy(&rec[0], "SPGS", 4);
     rec[1] = (uint32_t)kept;
@@ -939,6 +942,7 @@ static BOOL sharp_write(const float *mean, const float *sv, const float *quat, c
     rec[5] = w;
     rec[6] = h;
     memcpy(&rec[7], &nearZ, 4);
+    uint32_t *o = rec + 8;
     for (size_t k = 0; k < kept; k++) {
         size_t i = key[k].i;
         const float *q = quat + i * 4, *s = sv + i * 3, *c = col + i * 3;
@@ -956,12 +960,12 @@ static BOOL sharp_write(const float *mean, const float *sv, const float *quat, c
             cov[e] = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) * SHARP_COV / (z * z);
         }
         float pos[3] = { mean[i * 3] * sx, mean[i * 3 + 1] * sy, z };
-        uint32_t *o = rec + 8 + k * 8;
         memcpy(o, pos, sizeof pos);
         o[3] = (uint32_t)srgb_byte(c[0]) | (uint32_t)srgb_byte(c[1]) << 8 | (uint32_t)srgb_byte(c[2]) << 16 |
                (uint32_t)(uint8_t)(SP_MIN(op[i], 1.0f) * 255.0f + 0.5f) << 24;
         for (int e = 0; e < 3; e++) o[4 + e] = (uint32_t)half_of(cov[e * 2]) | (uint32_t)half_of(cov[e * 2 + 1]) << 16;
         o[7] = wt[k];
+        o += 8;
     }
     HANDLE f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f == INVALID_HANDLE_VALUE) goto done;
@@ -969,7 +973,7 @@ static BOOL sharp_write(const float *mean, const float *sv, const float *quat, c
     CloseHandle(f);
     ok = wrote && MoveFileExW(tmp, out, MOVEFILE_REPLACE_EXISTING);
     if (!ok) DeleteFileW(tmp);
-    LOGI(L"depth: SHARP kept %llu Gaussians, focus at %.2f", (unsigned long long)kept, focus);
+    LOGI(L"depth: SHARP kept %llu Gaussians of %llu, focus at %.2f", (unsigned long long)kept, (unsigned long long)n, focus);
 done:
     free(wt);
     free(rec);
