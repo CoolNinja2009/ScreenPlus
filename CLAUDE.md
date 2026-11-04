@@ -4,6 +4,11 @@ Native Windows live-wallpaper app (C17, Win32, MSVC) that plays video, GIF, imag
 behind the desktop icons, aiming at Lively Wallpaper compatibility. Use this map instead of exploring the
 repository; open only the files a change touches. README.md is the user-facing documentation.
 
+**CLI parity (always):** every change to the app — a new feature, setting, action or behaviour change — must also
+reach the CLI where it applies, in the same change: a command in `src/app/cli_server.c` (or `src/cli/cli_main.c`
+for local ones), a settings key in `k_settings`, and the CLI help text. If it doesn't apply to the CLI, say so in
+the report.
+
 ## Build
 - `cmd.exe /c "<repo>\build.cmd" Release <x.y.z>`. Call it by full path; PowerShell can't resolve it relatively.
   It needs VS 2022 Build Tools + the Windows SDK. FFmpeg is prebuilt in `third_party/ffmpeg`; only
@@ -66,7 +71,7 @@ repository; open only the files a change touches. README.md is the user-facing d
 | `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
-| `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, backiee, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
+| `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
 | `src/app/startup.c`, `supervisor.c` | Start with Windows (`startup_sync` 3 s after start moves a Run entry to the logon task); engine process lifecycle |
 | `src/app/samples_update.c` | Sample wallpaper updates (see Build): latest release's samples list vs the downloaded samples, changed files unpacked from its zip (`WM_SP_SAMPLES`, `T_SHELL_SAMPLES`); uses update.c's `release_latest`/`release_asset` |
 | `src/app/update.c` | Auto update (`auto_update`, Settings Check now, `screenplus update`): GitHub's latest release vs `SP_VERSION_W`, the setup asset downloaded into `<data>\updates` and checked against the size + SHA-256 GitHub lists, run as `/S /UPDATE` (setup closes the app and relaunches it `--tray`). Installed copies only (`uninstall.exe` beside the exe); waits while the window is open |

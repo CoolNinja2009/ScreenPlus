@@ -53,7 +53,7 @@ Silent install: `ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/NOURL] 
 
 - **Library**: import files or a folder, or drag them onto the window. For a web wallpaper, import the folder that
   contains `index.html`. The link button adds a video, image or web page from a URL.
-- **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, backiee and Wallhaven. Sites that don't allow
+- **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut and Wallhaven. Sites that don't allow
   direct downloads open in your browser.
 - **Displays**: choose Independent, Duplicate or Span.
 - **Customise**: adjust colours and the wallpaper's own properties. **Make wallpaper cooler** works on pictures and

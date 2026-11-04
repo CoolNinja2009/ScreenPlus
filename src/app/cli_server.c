@@ -973,6 +973,25 @@ static void cmd_update(Reply *r, const Req *q)
     sb_puts(&r->data, "}");
 }
 
+/* samples check: which downloaded samples changed; samples update: update them; samples status (samples_update.c).
+ * `samples install` runs in ScreenPlus.com itself. */
+static void cmd_samples(Reply *r, const Req *q)
+{
+    const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
+    if (str_ieq(sub, L"check") || str_ieq(sub, L"update")) samples_check(str_ieq(sub, L"update"));
+    else if (!str_ieq(sub, L"status")) {
+        fail(r, L"Usage: screenplus samples [check | update | status | install]");
+        return;
+    }
+    SamplesState st;
+    samples_get(&st);
+    say(r, L"Sample wallpapers: %ls\n", st.text);
+    sb_printf(&r->data, "{\"busy\":%s,\"pending\":%s,\"autoUpdate\":%s,\"text\":", st.busy ? "true" : "false",
+              st.pending ? "true" : "false", g_app.cfg.s.autoUpdateSamples ? "true" : "false");
+    jstr(&r->data, st.text);
+    sb_puts(&r->data, "}");
+}
+
 static void cmd_settings(Reply *r, const Req *q)
 {
     const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
@@ -1104,6 +1123,8 @@ static void run(Reply *r, const Req *q)
         cmd_settings(r, q);
     } else if (str_ieq(c, L"update")) {
         cmd_update(r, q);
+    } else if (str_ieq(c, L"samples")) {
+        cmd_samples(r, q);
     } else {
         fail(r, L"Unknown command \"%ls\". See: screenplus help", c);
     }

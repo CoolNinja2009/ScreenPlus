@@ -45,17 +45,14 @@ download limit, and accounts for unlimited downloads.
 - **mylivewallpapers.com.** A Sucuri/CloudProxy firewall (`Server: Sucuri/Cloudproxy`) answers every
   non-browser request with HTTP 307 and a "You are being redirected…" JavaScript challenge. Even its listings
   can't be read without defeating that bot protection.
-- **backiee's live wallpapers.** backiee's web pages offer no download for them; they point to backiee's
-  Microsoft Store app. The pages play the original video, but no download is intended there, so the Store
-  takes only backiee's still pictures.
+- **backiee.com.** Removed 2026-11-04. Cloudflare answers non-browser requests for its listings, wallpaper pages
+  and images with "Sorry, you have been blocked" (403), though browsers get through. It can't be read without
+  defeating that bot protection.
 
 ## Not protections, but worth knowing
 
-- **backiee:** every picture's page lists 1080p, 4K, 5K and 8K, but only sizes up to the original exist (the
-  rest return 404). The Store reads the original size from the page's JSON-LD (`"width"`, `"height"`) and
-  downloads the largest real file. The site's own Download button does the same with `data-file-url`.
 - **DesktopHut** links the file itself from its Download button (`/files/…`, served by the web server). Its
   robots.txt bans only `/download/` (the mobile crop job, with a 60 s wait) and `/track-download/` (a counter),
   which the Store never asks for.
-- **Six sites sit behind Cloudflare** (all but DesktopHut), but only as a CDN with its passive script: plain requests (curl and
+- **Five sites sit behind Cloudflare** (all but DesktopHut), but only as a CDN with its passive script: plain requests (curl and
   WinHTTP) get the real pages, with no challenge.

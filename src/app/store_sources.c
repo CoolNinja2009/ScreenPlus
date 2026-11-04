@@ -698,117 +698,6 @@ static BOOL dh_file(const StoreItem *it, const StoreVariant *v, wchar_t *url, si
 
 static void dh_page(const StoreItem *it, wchar_t *url, size_t cap) { str_printf(url, cap, DH L"/%hs", it->ref); }
 
-/* ---------------------------------------------------------------- backiee (backiee.com): still pictures to 8K */
-
-#define BK L"https://backiee.com"
-static const char *const k_bkCats[CAT_COUNT] = { NULL, "anime", NULL, "nature", "car", "space", "animals", "fantasy", "city",
-                                                 "abstract", NULL, "sport", "technics", NULL };
-static const char *const k_bkRes[SR_COUNT] = { NULL, "hd", "hd", "4k", "5k", "8k" };
-static const char *const k_bkSort[SQ_COUNT] = { NULL, "date", "rating", "downloads" };
-
-static BOOL bk_list(const StoreQuery *q, int page, const char *tag, wchar_t *url, size_t cap)
-{
-    const char *c = q->category ? k_bkCats[q->category] : NULL, *r = k_bkRes[q->res], *s = k_bkSort[q->sort];
-    wchar_t w[100], e[400], args[96];
-    (void)tag;
-    str_printf(args, SP_COUNTOF(args), L"?page=%d%hs%hs%hs%hs", page, r ? "&resolution=" : "", r ? r : "",
-               s ? "&sort=" : "", s ? s : "");
-    words(q, c, w, SP_COUNTOF(w));
-    if (w[0]) {
-        encode(w, e, SP_COUNTOF(e));
-        str_printf(url, cap, BK L"/search/%ls%ls%hs%hs", e, args, c && q->text[0] ? "&category=" : "", c && q->text[0] ? c : "");
-    } else if (c) {
-        str_printf(url, cap, BK L"/categories/%hs%ls", c, args);
-    } else {
-        str_printf(url, cap, BK L"/%hs%ls", q->sort == SQ_POPULAR ? "popular-wallpapers" : "latest", args);
-    }
-    return TRUE;
-}
-
-/* <article class="wall-card …"> <a class="wall-link" href="https://backiee.com/wallpaper/<slug>/<id>"> …
- * …/static/wallpapers/456x257/<image>.webp … <h3>Title</h3> … </article>; ref: <slug>/<id>, media: the image id.
- * Live wallpapers (/live-wallpaper/) are left out: the site hands those to its app, not to a download. */
-static void bk_parse(const StoreQuery *q, int page, const char *tag, const char *html, int len, StoreList *out)
-{
-    const char *end = html + len, *p = html;
-    (void)q;
-    (void)tag;
-    while ((p = find(p, end, "<article class=\"wall-card")) != NULL) {
-        const char *ce = find(p + 8, end, "</article>");
-        if (!ce) break;
-        const char *h = after(p, ce, "href=\"https://backiee.com/wallpaper/"), *hv = until(h, ce, '"');
-        const char *m = after(p, ce, "/static/wallpapers/456x257/"), *mv = m;
-        const char *t = after(p, ce, "<h3>"), *tv = t ? find(t, ce, "</h3>") : NULL;
-        while (mv && mv < ce && is_digit(*mv)) mv++;
-        StoreItem *it = hv && mv && mv > m && tv ? add(out) : NULL;
-        if (it) {
-            copy_of(h, hv, it->ref, sizeof it->ref);
-            copy_of(m, mv, it->media, sizeof it->media);
-            text_of(t, tv, it->title, SP_COUNTOF(it->title));
-            it->kind = SKIND_STILL;
-            if (it->title[0]) out->count++;
-        }
-        p = ce;
-    }
-    char pat[24];
-    snprintf(pat, sizeof pat, "page=%d", page + 1);
-    out->more = has_next(html, end, pat);
-}
-
-static BOOL bk_detail_url(const StoreItem *it, wchar_t *url, size_t cap)
-{
-    str_printf(url, cap, BK L"/wallpaper/%hs", it->ref);
-    return TRUE;
-}
-
-/* The sizes its page lists (…/static/wallpapers/<W>x<H>/<image>.jpg, 1280 wide and up) that exist: every page
- * lists the same 1080p to 8K set, but only those up to the original (its JSON-LD "width"/"height") are files.
- * Without that, the size its own Download button fetches (data-file-url). */
-static int bk_detail(const char *html, int len, StoreItem *it)
-{
-    const char *end = html + len, *ow = after(html, end, "\"width\":"), *oh = ow ? after(ow, SP_MIN(end, ow + 24), "\"height\":") : NULL;
-    const char *fu = after(html, end, "data-file-url=\"https://backiee.com/static/wallpapers/");
-    int maxW = 0, maxH = 0;
-    if (oh) {
-        maxW = number(&ow, end);
-        maxH = number(&oh, end);
-    } else if (fu) {
-        res_at(fu, end, &maxW, &maxH);
-    }
-    char tail[48];
-    snprintf(tail, sizeof tail, "/%s.jpg", it->media);
-    size_t tn = strlen(tail);
-    it->varCount = 0;
-    for (const char *p = after(html, end, "/static/wallpapers/"); p && it->varCount < STORE_VARIANTS; p = after(p, end, "/static/wallpapers/")) {
-        int w = 0, h = 0, dup = 0;
-        const char *slash = until(p, SP_MIN(end, p + 12), '/');
-        if (!slash || end - slash < (ptrdiff_t)tn || memcmp(slash, tail, tn) || !res_at(p, slash, &w, &h) || w < 1280) continue;
-        if (!maxW || w > maxW || h > maxH) continue;
-        for (int i = 0; i < it->varCount; i++) dup |= it->var[i].w == w && it->var[i].h == h;
-        if (dup) continue;
-        StoreVariant *v = &it->var[it->varCount++];
-        ZeroMemory(v, sizeof *v);
-        snprintf(v->key, sizeof v->key, "%dx%d", w, h);
-        v->w = w;
-        v->h = h;
-    }
-    return it->varCount > 0;
-}
-
-static void bk_preview(const StoreItem *it, int big, int webp, wchar_t *url, size_t cap)
-{
-    (void)big;
-    str_printf(url, cap, BK L"/static/wallpapers/456x257/%hs%ls", it->media, webp ? L".webp" : L".jpg");
-}
-
-static BOOL bk_file(const StoreItem *it, const StoreVariant *v, wchar_t *url, size_t cap)
-{
-    str_printf(url, cap, BK L"/static/wallpapers/%hs/%hs.jpg", v->key, it->media);
-    return TRUE;
-}
-
-static void bk_page(const StoreItem *it, wchar_t *url, size_t cap) { str_printf(url, cap, BK L"/wallpaper/%hs", it->ref); }
-
 /* ---------------------------------------------------------------- Wallhaven (wallhaven.cc/help/api): safe for work only */
 
 #define WH L"https://wallhaven.cc"
@@ -885,7 +774,6 @@ const StoreSource k_sources[] = {
     { L"MoeWalls", SKIND_LIVE, SR_4K, 0, mw_list, mw_parse, NULL, NULL, mw_preview, NULL, mw_page },
     { L"wallsflow", SKIND_LIVE, SR_4K, 0, wf_list, wf_parse, wf_detail_url, wf_detail, wf_preview, NULL, wf_page },
     { L"DesktopHut", SKIND_LIVE, SR_4K, 0, dh_list, dh_parse, dh_detail_url, dh_detail, dh_preview, dh_file, dh_page },
-    { L"backiee", SKIND_STILL, SR_8K, 0, bk_list, bk_parse, bk_detail_url, bk_detail, bk_preview, bk_file, bk_page },
     { L"Wallhaven", SKIND_STILL, SR_8K, 0, wh_list, wh_parse, NULL, NULL, wh_preview, wh_file, wh_page },
 };
 const int k_sourceCount = (int)SP_COUNTOF(k_sources);

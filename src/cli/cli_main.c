@@ -4,7 +4,7 @@
  * the .com first (PATHEXT order) while shortcuts and the startup entry name the .exe, the same
  * arrangement as devenv.com/devenv.exe. Commands run inside the running app: each one is sent as
  * IPC_CLI_REQUEST and the app's IPC_CLI_REPLY is printed (src/app/cli_server.c). A few work
- * without the app: help, version, start, logs, paths, path, tools, samples, vcredist, startup, screensaver (but use). No arguments: an interactive prompt.
+ * without the app: help, version, start, logs, paths, path, tools, samples install, vcredist, startup, screensaver (but use). No arguments: an interactive prompt.
  *
  * Exit codes: 0 ok, 1 the command failed, 2 bad usage, 3 Screen+ is not running. */
 #include "../common/common.h"
@@ -312,6 +312,7 @@ static const wchar_t k_help[] =
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"
     L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
     L"  samples install                        the sample wallpapers besides Singularity and Aurora (setup's optional download)\n"
+    L"  samples [check | update | status]      which downloaded samples changed in the latest release; update: replace them\n"
     L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
     L"  startup [on | off]                     start Screen+ when you sign in (a logon task)\n"
     L"  screensaver [on | off | preview]       Screen+ as the Windows screensaver\n"
@@ -484,7 +485,7 @@ static const UrlTool k_samples = {
 static int cmd_samples(const wchar_t *sub)
 {
     if (!sub || !str_ieq(sub, L"install")) {
-        err(L"Usage: screenplus samples install\n");
+        err(L"Usage: screenplus samples [install | check | update | status]\n");
         return EXIT_USAGE;
     }
     wchar_t dir[SP_MAX_PATH], zip[SP_MAX_PATH], mark[SP_MAX_PATH], tar[SP_MAX_PATH], cmd[4 * SP_MAX_PATH], e[320];
@@ -904,7 +905,7 @@ static int run_command(int argc, wchar_t **in)
     if (str_ieq(c, L"paths")) return cmd_paths();
     if (str_ieq(c, L"path")) return cmd_path(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"tools")) return cmd_tools(n > 1 ? argv[1] : NULL);
-    if (str_ieq(c, L"samples")) return cmd_samples(n > 1 ? argv[1] : NULL);
+    if (str_ieq(c, L"samples") && (n < 2 || str_ieq(argv[1], L"install"))) return cmd_samples(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"vcredist")) return cmd_vcredist(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"startup")) return cmd_startup(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"screensaver") && !(n > 1 && str_ieq(argv[1], L"use"))) return cmd_screensaver(n, argv);

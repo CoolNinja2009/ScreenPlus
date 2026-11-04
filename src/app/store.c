@@ -592,7 +592,8 @@ static void rebuild_view(void)
 
 static uint32_t item_key(int source, const char *ref)
 {
-    uint32_t h = 2166136261u ^ (uint32_t)source;
+    /* Blocked cards keep these keys: sites after backiee, which was 5 before it left, keep their old numbers. */
+    uint32_t h = 2166136261u ^ (uint32_t)(source >= 5 ? source + 1 : source);
     for (const unsigned char *c = (const unsigned char *)ref; *c; c++) h = (h ^ *c) * 16777619u;
     return h;
 }

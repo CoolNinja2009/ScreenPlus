@@ -16,7 +16,7 @@
 #define WINHTTP_PROTOCOL_FLAG_HTTP2         0x1
 #endif
 
-/* A browser's: backiee's Cloudflare answers 403 to "compatible; ScreenPlus". */
+/* A browser's: some servers refuse unknown clients. */
 #define USER_AGENT L"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " \
                    L"Chrome/142.0.0.0 Safari/537.36"
 
