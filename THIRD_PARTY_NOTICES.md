@@ -81,3 +81,9 @@ folder keeps its own license file and its source link (`LivelyInfo.json`).
 
 Direct3D 11, DXGI, Direct2D, DirectWrite, WIC, WASAPI, DWM and the Segoe fonts are part of
 Windows and are not redistributed.
+
+## SHARP — not included
+
+Screen+ contains no part of Apple's SHARP model and does not download it. The SHARP option loads an ONNX file the user
+supplies; that file stays under Apple's licence, and following it is up to the user. The preprocessing and file
+conversion in `src/app/depth_infer.c` were written for Screen+ from the behaviour of https://github.com/apple/ml-sharp.

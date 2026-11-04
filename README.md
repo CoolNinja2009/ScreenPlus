@@ -120,6 +120,8 @@ MIT, see [LICENSE](LICENSE). Third-party components are listed in [THIRD_PARTY_N
 - [FFmpeg](https://ffmpeg.org) (LGPL-2.1-or-later, dynamically linked)
 - [WebView2 SDK](https://developer.microsoft.com/microsoft-edge/webview2/) (BSD-3-Clause)
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense) and [QuickJS-NG](https://github.com/quickjs-ng/quickjs) (MIT), optional
+- SHARP is not included or downloaded. Its weights are Apple's and limited by Apple's licence, so you supply your own
+  `.onnx` and are responsible for following that licence.
 - [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) and the depth models, each downloaded when it is first
   picked: [Depth Anything V2](https://huggingface.co/onnx-community/depth-anything-v2-small) Small (Apache-2.0), Base and
   Large (CC BY-NC 4.0); [Depth Anything 3](https://huggingface.co/onnx-community/depth-anything-v3-small) Small, Base and

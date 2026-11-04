@@ -1,0 +1,219 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SHARP wallpaper</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000}
+#bg,#c{position:fixed;left:0;top:0;width:100%;height:100%}
+#bg{background:url(__IMG__) center/cover no-repeat;transform:scale(1.0638)}
+#c{opacity:0;transition:opacity .4s}
+</style>
+<div id="bg"></div><canvas id="c"></canvas>
+<script>
+/* True 3D wallpaper made by Screen+ with SHARP: __DEPTH__ holds the picture's 3D Gaussians (depth_infer.c, "SHARP").
+ * Plain WebGL2, no libraries. What keeps it light:
+ *  - the file is already sorted far to near and laid out as a texture, so loading is one upload and nothing ever
+ *    sorts: the camera only moves a little around the picture's own viewpoint, where that order holds;
+ *  - frames are drawn only while something moves, so an idle desktop costs no GPU time;
+ *  - each Gaussian's quad is cut where its alpha reaches 1/255, and off-screen or invisible ones are dropped in the
+ *    vertex shader before they reach a pixel;
+ *  - when moving is too slow the resolution drops, comes back when it can, and the last frame is drawn at full quality.
+ * SHARP works at 1536x1536 and places a Gaussian every two of those pixels, softer than the picture. So each Gaussian
+ * also carries the picture's own fine detail: the fragment finds where it sat in the picture and adds the picture minus
+ * its blur at the Gaussians' spacing, by a weight the file gives each Gaussian: nothing for what the picture doesn't show
+ * there, or the sky beside a leaf would carry the leaf's outline away with it. Measured on real output at 2560x1440, a
+ * picture up to 1920 px needs none (its error is lowest without), a 3738 px one about 70%; Detail moves that up or down.
+ * If WebGL2 or the file fails, the plain picture stays. */
+(function () {
+  var cv = document.getElementById('c'), bg = document.getElementById('bg');
+  /* alpha: where near surfaces slide apart there are no Gaussians, and the picture under the canvas, softened, shows
+   * through the gap in the colours around it; a black background would show as black edges */
+  var gl = cv.getContext('webgl2', { antialias: false, alpha: true, premultipliedAlpha: true, depth: false, stencil: false, powerPreference: 'high-performance' });
+  if (!gl) return;
+  var P = { strength: 40, autoMove: false, autoSpeed: 100, quality: 100, detail: 100 };
+  window.livelyPropertyListener = function (n, v) {
+    if (!(n in P)) return;
+    P[n] = v;
+    if (n === 'autoMove' && !v) tx = ty = 0;
+    if (n === 'quality') { moveScale = 1; if (ready) { size(1); draw(); } }
+    if (n === 'detail') gl.uniform1f(U.D, detailAmount());
+    kick();
+  };
+
+  var VS = '#version 300 es\nprecision highp float;precision highp int;precision highp usampler2D;\n' +
+    'uniform usampler2D T;uniform vec2 F,V,E,K,N;uniform float Z;out vec2 u,w;flat out vec4 c;flat out float dw;\n' +
+    'void main(){\n' +
+    ' gl_Position=vec4(2.,2.,2.,1.);\n' +                         // dropped: outside the clip space
+    ' int i=gl_InstanceID*2;ivec2 t=ivec2(i&2047,i>>11);\n' +
+    ' uvec4 a=texelFetch(T,t,0),b=texelFetch(T,t+ivec2(1,0),0);\n' +
+    ' vec3 p=uintBitsToFloat(a.xyz);\n' +
+    ' float al=float(a.w>>24u)/255.;\n' +
+    ' if(al<.0079)return;\n' +
+    ' vec3 q=p-vec3(E,0.);float z=q.z;\n' +
+    ' vec2 r=q.xy/z,n=F*(r+E/Z);\n' +                             // off-axis: the focus plane stays still
+    ' if(abs(n.x)>1.3||abs(n.y)>1.3)return;\n' +
+    ' vec2 h0=unpackHalf2x16(b.x),h1=unpackHalf2x16(b.y),h2=unpackHalf2x16(b.z);\n' +
+    ' float k=z*z*1e-4;\n' +
+    ' float xx=h0.x*k,xy=h0.y*k,xz=h1.x*k,yy=h1.y*k,yz=h2.x*k,zz=h2.y*k;\n' +
+    ' vec2 f=F*V*.5/z;\n' +                                       // pixels per unit at this depth
+    ' vec3 j0=vec3(f.x,0.,-f.x*r.x),j1=vec3(0.,f.y,-f.y*r.y);\n' +
+    ' vec3 s0=vec3(xx*j0.x+xy*j0.y+xz*j0.z,xy*j0.x+yy*j0.y+yz*j0.z,xz*j0.x+yz*j0.y+zz*j0.z);\n' +
+    ' vec3 s1=vec3(xx*j1.x+xy*j1.y+xz*j1.z,xy*j1.x+yy*j1.y+yz*j1.z,xz*j1.x+yz*j1.y+zz*j1.z);\n' +
+    ' float A=dot(j0,s0)+.1,B=dot(j0,s1),C=dot(j1,s1)+.1;\n' +    // ml-sharp adds none; this only keeps the maths safe
+    ' float m=.5*(A+C),d=sqrt(max(m*m-(A*C-B*B),1e-12));\n' +
+    ' float l1=m+d,l2=max(m-d,.05);\n' +
+    ' vec2 e=abs(B)<1e-7?(A>=C?vec2(1.,0.):vec2(0.,1.)):normalize(vec2(B,l1-A));\n' +
+    ' float R=sqrt(2.*log(al*255.));\n' +                         // where alpha reaches 1/255
+    ' float w1=R*sqrt(l1),w2=R*sqrt(l2);\n' +
+    ' if(w1>max(V.x,V.y)*.75)return;\n' +
+    ' vec2 g=vec2(float((gl_VertexID&1)*2-1),float((gl_VertexID>>1)*2-1));\n' +
+    ' vec2 o=(g.x*w1*e+g.y*w2*vec2(-e.y,e.x))*2./V;\n' +
+    ' u=g*R;\n' +
+    ' dw=float(b.w&255u)/255.;\n' +
+    ' w=.5+.5*(p.xy/p.z/N+o*K);\n' +                             // where this sat in the picture
+    ' c=vec4(float(a.w&255u),float((a.w>>8u)&255u),float((a.w>>16u)&255u),255.*al)/255.;\n' +
+    ' gl_Position=vec4(n.x+o.x,-(n.y+o.y),0.,1.);}';
+  var FS = '#version 300 es\nprecision highp float;uniform sampler2D I;uniform float D,L;in vec2 u,w;flat in vec4 c;flat in float dw;out vec4 o;\n' +
+    'void main(){float a=c.a*exp(-.5*dot(u,u));\n' +
+    ' vec3 h=texture(I,w).rgb-textureLod(I,w,L).rgb;\n' +
+    ' o=vec4(clamp(c.rgb+D*dw*h,0.,1.)*a,a);}';
+  function shader(t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; }
+  var pr = gl.createProgram();
+  gl.attachShader(pr, shader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(pr, shader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(pr);
+  if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return;
+  gl.useProgram(pr);
+  var U = {};
+  ['T', 'F', 'V', 'E', 'Z', 'K', 'N', 'I', 'D', 'L'].forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
+  gl.uniform1i(U.T, 0);
+  gl.uniform1i(U.I, 1);
+  gl.uniform1f(U.D, 0);
+  gl.bindVertexArray(gl.createVertexArray());
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.clearColor(0, 0, 0, 0);
+
+  var ready = 0, run = 0, last = 0, ph = 0, mx = 0, my = 0, tx = 0, ty = 0;
+  var count = 0, iw = 1, ih = 1, tanX = 1, tanY = 1, focus = 1, moveScale = 1, slow = 16, autoDetail = 0, near = 0;
+  function detailAmount() { return Math.max(0, autoDetail + (P.detail - 100) / 200); }
+  function size(scale) {
+    var d = (window.devicePixelRatio || 1) * P.quality / 100 * scale;
+    var w = Math.max(1, Math.round(innerWidth * d)), h = Math.max(1, Math.round(innerHeight * d));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    var sa = innerWidth / innerHeight, ia = iw / ih;
+    var kx = Math.min(sa / ia, 1) * 0.94, ky = Math.min(ia / sa, 1) * 0.94;   /* cover the screen, 6% closer */
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(U.V, w, h);
+    gl.uniform2f(U.F, 1 / (tanX * kx), 1 / (tanY * ky));
+    gl.uniform2f(U.K, kx, ky);
+  }
+  function draw() {
+    /* ml-sharp's own limit at the default strength: 8% of the view's diagonal at the nearest depth */
+    var s = near ? P.strength / 40 * 0.08 * 2 * Math.hypot(tanX, tanY) * near : P.strength / 100 * 0.12 * focus;
+    gl.uniform2f(U.E, mx * s, -my * s);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
+  }
+  function step(now) {                   /* the pointer's smoothing; true while it still moves */
+    var dt = last ? Math.min((now - last) / 1000, 0.1) : 0.016;
+    last = now;
+    if (P.autoMove) {
+      ph += dt * P.autoSpeed / 100;
+      tx = Math.sin(ph * 1.2) * 0.75;
+      ty = Math.cos(ph * 0.8) * 0.45;
+    }
+    var k = 1 - Math.exp(-dt * 5);
+    mx += (tx - mx) * k;
+    my += (ty - my) * k;
+    return P.autoMove || Math.abs(tx - mx) > 5e-4 || Math.abs(ty - my) > 5e-4;
+  }
+  function frame(now) {
+    run = 0;
+    var gap = last ? now - last : 16, moving = step(now);
+    if (moving) {
+      slow += (gap - slow) * 0.15;
+      if (slow > 30 && moveScale > 0.6) { moveScale -= 0.1; slow = 20; }      /* under ~33 fps: fewer pixels */
+      else if (slow < 20 && moveScale < 1) { moveScale = Math.min(1, moveScale + 0.05); slow = 24; }
+      size(moveScale);
+      draw();
+      kick();
+    } else {
+      last = 0;
+      size(1);                           /* at rest: the sharp frame */
+      draw();
+    }
+  }
+  function kick() { if (ready && !run) run = requestAnimationFrame(frame); }
+  function aim(x, y) { tx = x; ty = y; kick(); }
+
+  addEventListener('mousemove', function (e) {
+    if (P.autoMove) return;
+    var w = innerWidth, h = innerHeight;
+    if (e.clientX < 0 || e.clientY < 0 || e.clientX > w || e.clientY > h) aim(0, 0);   /* Screen+ sends -16,-16 on leave */
+    else aim((e.clientX / w - 0.5) * 2, -(e.clientY / h - 0.5) * 2);
+  }, { passive: true });
+  document.documentElement.addEventListener('mouseleave', function () { if (!P.autoMove) aim(0, 0); });
+  addEventListener('resize', function () { if (ready) { size(1); draw(); } });
+  /* A lost GPU context: the plain picture under the canvas shows at once and a reload builds everything again. */
+  var lost = 0;
+  function rebuild() { if (lost && !document.hidden) setTimeout(function () { if (lost && !document.hidden) location.reload(); }, 3000); }
+  cv.addEventListener('webglcontextlost', function (e) {
+    e.preventDefault();
+    lost = 1;
+    cv.style.transition = 'none';
+    cv.style.opacity = 0;
+    bg.style.filter = 'none';
+    rebuild();
+  });
+  cv.addEventListener('webglcontextrestored', function () { location.reload(); });
+  document.addEventListener('visibilitychange', rebuild);
+  /* shown again after a freeze: the canvas may have been dropped meanwhile */
+  function redraw() { if (ready && !lost && !document.hidden) { size(1); draw(); } }
+  document.addEventListener('visibilitychange', redraw);
+  document.addEventListener('resume', redraw);
+
+  var load = new Promise(function (ok) { var i = new Image(); i.onload = function () { ok(i); }; i.onerror = function () { ok(null); }; i.src = '__IMG__'; });
+  Promise.all([fetch('__DEPTH__').then(function (r) { return r.arrayBuffer(); }), load]).then(function (got) {
+    var ab = got[0], dv = new DataView(ab);
+    if (ab.byteLength < 32 || dv.getUint32(0, true) !== 0x53475053) return;      /* "SPGS" */
+    count = dv.getUint32(4, true);
+    tanX = dv.getFloat32(8, true);
+    tanY = dv.getFloat32(12, true);
+    focus = dv.getFloat32(16, true);
+    iw = dv.getUint32(20, true);
+    ih = dv.getUint32(24, true);
+    near = dv.getFloat32(28, true);
+    var rows = Math.ceil(count / 1024);
+    if (!count || rows > gl.getParameter(gl.MAX_TEXTURE_SIZE) || ab.byteLength < 32 + rows * 32768) return;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, 2048, rows, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, new Uint32Array(ab, 32, rows * 8192));
+    gl.uniform1f(U.Z, focus);
+    gl.uniform2f(U.N, tanX, tanY);
+    if (got[1]) {                        /* no picture: the Gaussians alone */
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+      gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, got[1]);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      var lod = Math.max(0.5, Math.log2(Math.max(iw, ih) / 768));            /* the Gaussians' spacing, in the picture */
+      autoDetail = Math.min(0.75, Math.max(0, 0.75 * (lod - 1.32)));
+      gl.uniform1f(U.L, lod);
+      gl.uniform1f(U.D, detailAmount());
+    }
+    if (gl.getError()) return;           /* e.g. out of GPU memory: keep the plain picture */
+    ready = 1;
+    size(1);
+    draw();
+    bg.style.filter = 'blur(10px)';      /* only the gaps show it */
+    cv.style.opacity = 1;                /* the plain one stays under it: the fallback if the GPU context is lost */
+    kick();                              /* the pointer may have moved while it loaded */
+  }).catch(function () {});
+})();
+</script>

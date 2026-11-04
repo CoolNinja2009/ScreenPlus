@@ -68,7 +68,7 @@ the report.
 | `src/app/app.c` | Shell window proc (`shell_proc`), `app_notice`, apply/pause/audio, setup handoff (`apply_setup_choice`) |
 | `src/app/library.c` | Imports (files, folders, Lively/WE packages, Lively auto-discovery), remove, missing check |
 | `src/app/url_import.c` | Link button job on a worker thread: direct downloads, yt-dlp streams/downloads, live pages |
-| `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
+| `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` and `splat.html` (SHARP) are the page templates (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
 | `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
@@ -211,6 +211,21 @@ Renderer details:
   Only pictures get one (`is_picture_ext`): Rainy Window's Sound dropdown (`sounds\`, `rain.ogg` = the rain track cut
   before its 5 s fade-out, 3 s crossfaded into its start, Opus) loops a Web Audio buffer; Volume 0 stops it, and like
   any page it is muted unless Sound is on.
+- SHARP (`k_models` key `sharp`, `user` + `splat`): one picture to ~1.2M 3D Gaussians. Its licence is non-commercial, so
+  nothing of it ships or downloads: never add weights, an export or a download link. The user picks their own ONNX
+  export (Customise's model list or `screenplus sharp <file.onnx>`); the path waits in `depth\models\sharp\path.txt`, or
+  any `.onnx` is put in that folder. `keep_user_model` (next job, or link-only at start) then hard-links or copies it
+  and the weights its graph names (`weight_files` reads them from the .onnx) into that folder and drops `path.txt`, so it stays if the original goes. Over 2 GB an
+  export is `x.onnx` + `x.onnx.data`: never rename them (the graph names its weights file). Pictures only. `depth_infer.c`'s "SHARP" section finds tensors by rank and name,
+  follows ml-sharp's preprocessing and writes `depth-sharp.bin` ("SPGS": pruned, covariances built, sRGB, sorted far to
+  near, texture-shaped). `resources/splat.html` (`IDR_SPLAT_HTML`) never sorts, draws only while moving, drops resolution
+  while moving when slow (and recovers), and has a transparent canvas over the blurred picture so gaps aren't black.
+  SHARP's 1536 limit softens big pictures (edge energy 0.38 of a 3738 px original), so fragments add the picture's own
+  high frequencies at the Gaussian's rest position; `autoDetail` from picture size was fitted on real outputs (none up to
+  1920 px). Only by `sharp_weights` (the record's last word): without it the sky beside a leaf carries the leaf's outline when it moves.
+  A shader local named like a varying breaks it quietly: check the program links. Settings follow ml-sharp: almost no 2D
+  low-pass (0.3 cost more sharpness than anything else), EXIF lens, focus at the 10% depth, motion from the 0.1% depth. Colours
+  blend in sRGB, not ml-sharp's linear: opacity is ~1 almost everywhere, so a float target isn't worth its cost.
 - Test the child with `SCREENPLUS_DATA_DIR=<scratch>` holding `depth\model.onnx` + `depth\ort\onnxruntime.dll`:
   `ScreenPlus.exe --depth <image> <outdir>`; read `logs\depth.log`.
 

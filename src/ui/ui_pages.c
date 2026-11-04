@@ -2005,7 +2005,8 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     else if (cool && !g_app.cfg.s.htmlMouse) note = L"Mouse interaction is off in Settings.";
     else if (!cool && !busy && !depth_ready()) {
         depth_size_text(depth_model(chosen)->size + depth_model(chosen)->dataSize, size, SP_COUNTOF(size));
-        str_printf(noteBuf, SP_COUNTOF(noteBuf), L"%ls downloads %ls the first time.", depth_model(chosen)->name, size);
+        if (depth_model(chosen)->user) str_printf(noteBuf, SP_COUNTOF(noteBuf), L"%ls needs your own .onnx file.", depth_model(chosen)->name);
+        else str_printf(noteBuf, SP_COUNTOF(noteBuf), L"%ls downloads %ls the first time.", depth_model(chosen)->name, size);
         note = noteBuf;
     }
     const float rowH = 58.0f;
@@ -2053,7 +2054,9 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
                 str_copy(line, SP_COUNTOF(line), L"Can't run: not enough memory");
             }
             ui_text(line, u->fSmall, rectf(cx + 52, r.top + 8, colW - 52, 18), est.level > 1 ? t->text : col(k_levelColours[est.level], 1.0f));
-            if (ready) {
+            if (m->user) {
+                str_copy(line, SP_COUNTOF(line), ready ? L"Your file" : L"Choose your .onnx");
+            } else if (ready) {
                 str_copy(line, SP_COUNTOF(line), L"Downloaded");
             } else {
                 depth_size_text(m->size + m->dataSize, size, SP_COUNTOF(size));
@@ -2355,6 +2358,15 @@ void pages_activate(int id, int dbl)
         depth_estimate(data, e ? depth_entry_seconds(e) : 0.0, &est);
         if (est.level == 0) {
             app_notice(NOTICE_ERROR, L"%ls needs more memory than this PC has.", depth_model(data)->name);
+            ui_invalidate();
+            break;
+        }
+        if (depth_model(data)->splat && e && depth_entry_seconds(e) > 0) {
+            app_notice(NOTICE_ERROR, L"%ls works on pictures only.", depth_model(data)->name);
+            ui_invalidate();
+            break;
+        }
+        if (depth_model(data)->user && !depth_model_ready(data) && !depth_choose_model(data, u->hwnd)) {
             ui_invalidate();
             break;
         }
