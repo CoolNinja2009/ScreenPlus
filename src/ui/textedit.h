@@ -1,6 +1,8 @@
 #pragma once
+#ifdef _WIN32
 #include <d2d1.h>
 #include "dwrite_c.h"
+#endif
 
 /* Single-line text engine behind every field the user can type into (search box, link, card name,
  * Customise text and value fields). One control is active at a time; the buffered text lives in the

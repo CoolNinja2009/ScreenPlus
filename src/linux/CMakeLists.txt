@@ -14,13 +14,25 @@ set(SHARED
 
 add_executable(screenplus cli.c service.c desktop_kde.c url_import.c ${SHARED}
     ${ROOT}/app/cli_server.c ${ROOT}/app/library.c)
-target_link_libraries(screenplus PRIVATE m pthread)
+target_link_libraries(screenplus PRIVATE m pthread ${CMAKE_DL_LIBS})
+set_target_properties(screenplus PROPERTIES ENABLE_EXPORTS ON)   # screenplus-ui.so calls back into it
 
 add_compile_definitions(_GNU_SOURCE SP_VERSION_STR="${SCREENPLUS_VERSION}")
 target_compile_options(screenplus PRIVATE -Wall -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas)
 
+option(SCREENPLUS_UI "Build screenplus-ui.so, the window (needs SDL3, Cairo, Pango, fontconfig)" ON)
+find_package(PkgConfig REQUIRED)
+if(SCREENPLUS_UI)
+    pkg_check_modules(UI REQUIRED IMPORTED_TARGET sdl3 cairo pangocairo fontconfig)
+    add_library(screenplus-ui MODULE ui_sdl.c ui_thumbs.c ui_stubs.c d2d_cairo.c
+        ${ROOT}/ui/ui_core.c ${ROOT}/ui/ui_pages.c ${ROOT}/ui/textedit.c)
+    set_target_properties(screenplus-ui PROPERTIES PREFIX "")
+    target_link_libraries(screenplus-ui PRIVATE PkgConfig::UI m pthread)
+    target_link_options(screenplus-ui PRIVATE -Wl,-Bsymbolic)   # its ui_* must not resolve to the service's forwarders
+    target_compile_options(screenplus-ui PRIVATE -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas)
+endif()
+
 if(SCREENPLUS_ENGINE)
-    find_package(PkgConfig REQUIRED)
     # gtk4-layer-shell has to come before libwayland-client on the link line
     pkg_check_modules(ENGINE REQUIRED IMPORTED_TARGET gtk4-layer-shell-0 gtk4 webkitgtk-6.0 mpv epoxy)
     add_executable(screenplus-engine engine_gtk.c ${SHARED})
@@ -31,6 +43,10 @@ endif()
 install(TARGETS screenplus DESTINATION lib/screenplus)
 if(SCREENPLUS_ENGINE)
     install(TARGETS screenplus-engine DESTINATION lib/screenplus)
+endif()
+if(SCREENPLUS_UI)
+    install(TARGETS screenplus-ui DESTINATION lib/screenplus)
+    install(DIRECTORY ${CMAKE_SOURCE_DIR}/resources/fonts DESTINATION lib/screenplus)
 endif()
 install(DIRECTORY kde DESTINATION lib/screenplus)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/samples DESTINATION lib/screenplus)

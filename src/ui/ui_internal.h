@@ -1,10 +1,17 @@
 #pragma once
 #include "../app/app.h"
 #include "ui.h"
+#ifndef _WIN32
+#include "../linux/d2d_cairo.h"
+#endif
 #include "textedit.h"
 #include "thumbs.h"
+#ifdef _WIN32
 #include "dwrite_c.h"
 #include "d2d_c.h"
+#else
+#include "../linux/d2d_cairo.h"
+#endif
 #include "../renderer/html/wallpaper_api.h"
 
 #define UI_MAX_HITS 768

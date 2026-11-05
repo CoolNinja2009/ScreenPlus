@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake ninja-build meson pkg-config \
-            libgtk-4-dev libwebkitgtk-6.0-dev libmpv-dev libepoxy-dev \
+            libgtk-4-dev libwebkitgtk-6.0-dev libmpv-dev libepoxy-dev libcairo2-dev libpango1.0-dev libfontconfig-dev \
             libwayland-dev wayland-protocols
 
       # Ubuntu 24.04 has no gtk4-layer-shell package. Users get it from their distro (same soname).
@@ -32,6 +32,16 @@ jobs:
           meson setup "$RUNNER_TEMP/gls/build" "$RUNNER_TEMP/gls" --prefix=/usr \
             -Dintrospection=false -Dvapi=false -Ddocs=false -Dtests=false -Dexamples=false
           sudo meson install -C "$RUNNER_TEMP/gls/build"
+          sudo ldconfig
+
+      # Nor SDL3. The window needs it at run time only; machines without it keep the CLI and the wallpapers.
+      - name: Build SDL3
+        run: |
+          git clone --depth 1 --branch release-3.2.30 https://github.com/libsdl-org/SDL.git "$RUNNER_TEMP/sdl"
+          cmake -S "$RUNNER_TEMP/sdl" -B "$RUNNER_TEMP/sdl/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr -DSDL_TESTS=OFF -DSDL_UNIX_CONSOLE_BUILD=ON
+          cmake --build "$RUNNER_TEMP/sdl/build"
+          sudo cmake --install "$RUNNER_TEMP/sdl/build"
           sudo ldconfig
 
       - name: Build
@@ -54,7 +64,9 @@ jobs:
         run: |
           name="ScreenPlus-$VERSION-linux-x86_64"
           mkdir -p "dist/$name" release
-          cp build-linux/src/linux/screenplus build-linux/src/linux/screenplus-engine "dist/$name/"
+          cp build-linux/src/linux/screenplus build-linux/src/linux/screenplus-engine build-linux/src/linux/screenplus-ui.so "dist/$name/"
+          mkdir -p "dist/$name/fonts"
+          cp resources/fonts/*.ttf "dist/$name/fonts/"
           cp -r src/linux/kde samples LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
           cp src/linux/install.sh "dist/$name/"
           chmod +x "dist/$name/install.sh"

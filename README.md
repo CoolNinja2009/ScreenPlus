@@ -100,7 +100,7 @@ different folder.
 
 ## Linux
 
-KDE Plasma 6 and Hyprland, command line only for now (no window or tray). GNOME isn't supported yet.
+KDE Plasma 6 and Hyprland. GNOME isn't supported yet. The window is `screenplus show`; there's no tray, Store or depth wallpapers yet.
 Unpack `ScreenPlus-<version>-linux-x86_64.tar.gz`, run `./install.sh`, then:
 
 ```bash
@@ -109,7 +109,7 @@ screenplus import ~/Videos/rain.mp4 --apply
 ```
 
 `screenplus help` lists the commands. KDE needs Qt Multimedia, plus Qt WebEngine for web wallpapers. Hyprland needs
-GTK 4, gtk4-layer-shell, libmpv and WebKitGTK. Video links need yt-dlp.
+GTK 4, gtk4-layer-shell, libmpv and WebKitGTK. The window needs SDL3, Cairo, Pango and ffmpeg. Video links need yt-dlp.
 
 ## Building
 

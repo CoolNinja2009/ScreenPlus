@@ -8,6 +8,7 @@
 #include "../common/paths.h"
 #include "../common/util.h"
 #include "../ui/ui.h"
+#include <dlfcn.h>
 #include <errno.h>
 #include <poll.h>
 #include <signal.h>
@@ -226,7 +227,48 @@ void app_restart_renderer(void)
 }
 
 void app_exit(void) { g_quit = 1; }
-void app_show_ui(void) { LOGI(L"no window on Linux yet"); }
+
+/* The window lives in screenplus-ui.so, loaded the first time it opens: the service itself needs only libc, and
+ * a machine without SDL3 still has the wallpapers and the CLI. The module sees this program's symbols. */
+static struct {
+    void *lib;
+    BOOL (*show)(void);
+    void (*destroy)(void);
+    BOOL (*is_open)(void);
+    void (*on_config)(void);
+    void (*on_customise)(void);
+    void (*on_status)(void);
+    void (*pump)(void);
+} g_ui_mod;
+
+static int ui_load(void)
+{
+    if (g_ui_mod.lib) return 1;
+    char *dir = sp_path_utf8(paths_exe_dir()), path[MAX_PATH];
+    snprintf(path, sizeof path, "%s/screenplus-ui.so", dir ? dir : ".");
+    free(dir);
+    void *lib = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    if (!lib) {
+        wchar_t *why = wide_from_utf8(dlerror(), -1);
+        app_notice(NOTICE_ERROR, L"The window could not load: %ls", why ? why : L"");
+        free(why);
+        return 0;
+    }
+    *(void **)&g_ui_mod.show = dlsym(lib, "ui_show");
+    *(void **)&g_ui_mod.destroy = dlsym(lib, "ui_destroy");
+    *(void **)&g_ui_mod.is_open = dlsym(lib, "ui_is_open");
+    *(void **)&g_ui_mod.on_config = dlsym(lib, "ui_on_config_changed");
+    *(void **)&g_ui_mod.on_customise = dlsym(lib, "ui_on_customise_changed");
+    *(void **)&g_ui_mod.on_status = dlsym(lib, "ui_on_status");
+    *(void **)&g_ui_mod.pump = dlsym(lib, "ui_pump");
+    g_ui_mod.lib = lib;
+    return 1;
+}
+
+void app_show_ui(void)
+{
+    if (ui_load() && g_ui_mod.show) g_ui_mod.show();
+}
 
 void app_notice(int kind, const wchar_t *fmt, ...)
 {
@@ -280,10 +322,14 @@ void supervisor_sample_stats(void)
 }
 
 /* Not on Linux yet. cli_server.c and library.c call these. */
-void ui_destroy(void) {}
-void ui_on_config_changed(void) {}
-void ui_on_customise_changed(void) { push_to_desktop(); }
-void ui_on_status(void) {}
+void ui_destroy(void) { if (g_ui_mod.destroy) g_ui_mod.destroy(); }
+void ui_on_config_changed(void) { if (g_ui_mod.on_config) g_ui_mod.on_config(); }
+void ui_on_customise_changed(void)
+{
+    if (g_ui_mod.on_customise) g_ui_mod.on_customise();
+    push_to_desktop();
+}
+void ui_on_status(void) { if (g_ui_mod.on_status) g_ui_mod.on_status(); }
 void depth_auto_all(BOOL fetchMissing) { (void)fetchMissing; }
 void depth_forget(const WallpaperEntry *e) { (void)e; }
 void update_schedule(BOOL soon) { (void)soon; }
@@ -384,12 +430,15 @@ int service_main(void)
     if (g_desk == DESK_KDE) kde_install_plugin();
     else engine_start();
     push_to_desktop();
+    g_app.processStart = filetime_now();
     LOGI(L"service started (%ls)", g_desk == DESK_KDE ? L"KDE Plasma" : L"Hyprland");
 
     double nextPoll = time_ms() + 5000;
     while (!g_quit) {
         struct pollfd p = { ls, POLLIN, 0 };
-        int r = poll(&p, 1, 500);
+        int open = g_ui_mod.is_open && g_ui_mod.is_open();
+        int r = poll(&p, 1, open ? 15 : 500);
+        if (open) g_ui_mod.pump();
         if (r > 0 && (p.revents & POLLIN)) {
             int c = accept4(ls, NULL, NULL, SOCK_CLOEXEC);
             if (c >= 0) serve_client(c);
@@ -411,6 +460,7 @@ int service_main(void)
     }
 
     LOGI(L"service stopping");
+    ui_destroy();
     if (g_desk == DESK_KDE) kde_restore();
     else engine_stop();
     close(ls);

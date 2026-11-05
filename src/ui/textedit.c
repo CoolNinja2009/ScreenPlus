@@ -174,6 +174,15 @@ static void te_nav(int dir, int word, int shift)   /* dir -1 left, +1 right; wor
 static void te_get_clip(wchar_t *out, size_t cap)
 {
     out[0] = 0;
+#ifndef _WIN32
+    wchar_t *clip = sp_clipboard_get();
+    if (clip) {
+        str_copy(out, cap, clip);
+        str_sanitize_line(out);
+        free(clip);
+    }
+    return;
+#else
     HWND h = g_ui ? g_ui->hwnd : NULL;
     if (!h || !OpenClipboard(h)) return;
     HANDLE d = GetClipboardData(CF_UNICODETEXT);
@@ -184,11 +193,22 @@ static void te_get_clip(wchar_t *out, size_t cap)
         GlobalUnlock(d);
     }
     CloseClipboard();
+#endif
 }
 
 static void te_set_clip(const wchar_t *s, int n)
 {
     if (n <= 0) return;
+#ifndef _WIN32
+    wchar_t *copy = (wchar_t *)malloc(((size_t)n + 1) * sizeof(wchar_t));
+    if (copy) {
+        wmemcpy(copy, s, (size_t)n);
+        copy[n] = 0;
+        sp_clipboard_set(copy);
+        free(copy);
+    }
+    return;
+#else
     HWND h = g_ui ? g_ui->hwnd : NULL;
     if (!h || !OpenClipboard(h)) return;
     EmptyClipboard();
@@ -203,6 +223,7 @@ static void te_set_clip(const wchar_t *s, int n)
         GlobalFree(g);
     }
     CloseClipboard();
+#endif
 }
 
 static void te_copy_sel(void)

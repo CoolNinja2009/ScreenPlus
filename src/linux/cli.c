@@ -27,6 +27,7 @@ static const char k_help[] =
     "With no command: an interactive prompt.\n"
     "\n"
     "Service\n"
+    "  show | hide            Open or close the window\n"
     "  start                  Start Screen+ in the background\n"
     "  stop                   Stop it and give the desktop its wallpaper back\n"
     "  restart                Restart the wallpapers\n"
@@ -229,6 +230,14 @@ static int send_command(int argc, char **argv)
     return ok ? EXIT_OK : EXIT_FAILED;
 }
 
+static int connect_probe(void)
+{
+    int fd = connect_service();
+    if (fd < 0) return EXIT_NOT_RUNNING;
+    close(fd);
+    return EXIT_OK;
+}
+
 static int dispatch(int argc, char **argv)
 {
     const char *c = argv[0];
@@ -240,7 +249,8 @@ static int dispatch(int argc, char **argv)
     if (!strcmp(c, "path")) return cmd_path(argc > 1 ? argv[1] : NULL);
     if (!strcmp(c, "tools")) return cmd_tools();
     if (!strcmp(c, "startup")) return cmd_startup(argc > 1 ? argv[1] : NULL);
-    if (!strcmp(c, "show") || !strcmp(c, "hide") || !strcmp(c, "screensaver")) {
+    if (!strcmp(c, "show") && connect_probe() != EXIT_OK && cmd_start() != EXIT_OK) return EXIT_FAILED;
+    if (!strcmp(c, "screensaver")) {
         fputs("Not available on Linux yet.\n", stderr);
         return EXIT_FAILED;
     }
