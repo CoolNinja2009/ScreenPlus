@@ -1,0 +1,67 @@
+# Builds Screen+ for Linux into a tar.gz. Pushes to cross-platform build it on their own (nothing is released);
+# release.yml calls this file with the release's version and attaches the result.
+name: Linux build
+
+on:
+  push:
+    branches: [cross-platform]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        required: true
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build meson pkg-config \
+            libgtk-4-dev libwebkitgtk-6.0-dev libmpv-dev libepoxy-dev \
+            libwayland-dev wayland-protocols
+
+      # Ubuntu 24.04 has no gtk4-layer-shell package. Users get it from their distro (same soname).
+      - name: Build gtk4-layer-shell
+        run: |
+          git clone --depth 1 --branch v1.0.4 https://github.com/wmww/gtk4-layer-shell.git "$RUNNER_TEMP/gls"
+          meson setup "$RUNNER_TEMP/gls/build" "$RUNNER_TEMP/gls" --prefix=/usr \
+            -Dintrospection=false -Dvapi=false -Ddocs=false -Dtests=false -Dexamples=false
+          sudo meson install -C "$RUNNER_TEMP/gls/build"
+          sudo ldconfig
+
+      - name: Build
+        run: |
+          base=$(sed -n 's/^set(SCREENPLUS_VERSION "\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' CMakeLists.txt)
+          ver="${{ inputs.version }}"
+          ver="${ver:-$base}"
+          echo "VERSION=$ver" >> "$GITHUB_ENV"
+          cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCREENPLUS_VERSION="$ver"
+          cmake --build build-linux
+
+      - name: Check the CLI runs
+        run: |
+          ldd build-linux/src/linux/screenplus-engine | grep -E 'layer-shell|mpv|webkit'
+          build-linux/src/linux/screenplus version
+          build-linux/src/linux/screenplus help > /dev/null
+          SCREENPLUS_DATA_DIR="$RUNNER_TEMP/sp" build-linux/src/linux/screenplus paths
+
+      - name: Package
+        run: |
+          name="ScreenPlus-$VERSION-linux-x86_64"
+          mkdir -p "dist/$name" release
+          cp build-linux/src/linux/screenplus build-linux/src/linux/screenplus-engine "dist/$name/"
+          cp -r src/linux/kde samples LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+          cp src/linux/install.sh "dist/$name/"
+          chmod +x "dist/$name/install.sh"
+          tar -C dist -czf "release/$name.tar.gz" "$name"
+          (cd release && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenPlus-linux
+          path: release/*

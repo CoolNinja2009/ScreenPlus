@@ -2,6 +2,7 @@
 #pragma once
 #include "../common/common.h"
 #include "../common/ipc.h"
+#include "../common/util.h"
 #include "../settings/config.h"
 #include "../monitor/monitor.h"
 #include "../diagnostics/diag.h"
@@ -94,6 +95,7 @@ void supervisor_restart(void);
 void supervisor_sample_stats(void);
 
 /* cli_server.c: one ScreenPlus.com request (IPC_CLI_REQUEST), answered to replyTo */
+int  cli_server_run(const void *request, DWORD size, StrBuf *out);   /* the reply JSON; 1: quit afterwards */
 void cli_server_handle(HWND replyTo, const void *request, DWORD size);
 
 /* startup.c */

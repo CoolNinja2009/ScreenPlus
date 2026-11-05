@@ -4,10 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#ifdef _WIN32
 #include <bcrypt.h>
 #include <shlwapi.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#endif
 
 const wchar_t *wallpaper_type_name(WallpaperType t)
 {
@@ -153,7 +155,7 @@ void path_join(wchar_t *dst, size_t cap, const wchar_t *dir, const wchar_t *name
     wchar_t tmp[SP_MAX_PATH];
     str_copy(tmp, SP_COUNTOF(tmp), dir);
     size_t n = wcslen(tmp);
-    if (n && tmp[n - 1] != L'\\' && tmp[n - 1] != L'/') str_cat(tmp, SP_COUNTOF(tmp), L"\\");
+    if (n && tmp[n - 1] != L'\\' && tmp[n - 1] != L'/') str_cat(tmp, SP_COUNTOF(tmp), SP_SEP_W);
     str_cat(tmp, SP_COUNTOF(tmp), name);
     str_copy(dst, cap, tmp);
 }
@@ -215,20 +217,26 @@ uint64_t filetime_now(void)
     return ((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
 }
 
+#ifdef _WIN32
 uint64_t process_creation_filetime(HANDLE process)
 {
     FILETIME c, e, k, u;
     if (!GetProcessTimes(process, &c, &e, &k, &u)) return 0;
     return ((uint64_t)c.dwHighDateTime << 32) | c.dwLowDateTime;
 }
+#endif
 
 void random_id(wchar_t out[SP_ID_LEN])
 {
     uint8_t b[8];
+#ifdef _WIN32
     if (BCryptGenRandom(NULL, b, sizeof b, BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0) {
         uint64_t t = filetime_now() ^ ((uint64_t)GetCurrentProcessId() << 32);
         memcpy(b, &t, sizeof b);
     }
+#else
+    sp_random_bytes(b, sizeof b);
+#endif
     static const wchar_t hex[] = L"0123456789abcdef";
     for (int i = 0; i < 8; i++) {
         out[i * 2] = hex[b[i] >> 4];
@@ -273,6 +281,7 @@ int url_encode_path(char *dst, size_t cap, const wchar_t *path)
     return 1;
 }
 
+#ifdef _WIN32
 DWORD windows_build_number(void)
 {
     static DWORD build;
@@ -302,6 +311,7 @@ void shell_reveal(const wchar_t *path)
         shell_open(dir);
     }
 }
+#endif
 
 void sb_append(StrBuf *b, const char *s, size_t n)
 {

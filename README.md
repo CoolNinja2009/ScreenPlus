@@ -98,6 +98,19 @@ Add `--json` for machine-readable output.
 Settings, logs and downloads are stored in `%LOCALAPPDATA%\ScreenPlus`. Set `SCREENPLUS_DATA_DIR` to use a
 different folder.
 
+## Linux
+
+KDE Plasma 6 and Hyprland, command line only for now (no window or tray). GNOME isn't supported yet.
+Unpack `ScreenPlus-<version>-linux-x86_64.tar.gz`, run `./install.sh`, then:
+
+```bash
+screenplus start
+screenplus import ~/Videos/rain.mp4 --apply
+```
+
+`screenplus help` lists the commands. KDE needs Qt Multimedia, plus Qt WebEngine for web wallpapers. Hyprland needs
+GTK 4, gtk4-layer-shell, libmpv and WebKitGTK. Video links need yt-dlp.
+
 ## Building
 
 Requirements: Visual Studio 2022 Build Tools (C++ and Windows SDK), [MSYS2](https://www.msys2.org) UCRT64 with

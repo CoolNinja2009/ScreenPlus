@@ -9,8 +9,10 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/json.h"
+#ifdef _WIN32
 #include <shobjidl.h>
 #include <shlobj.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -93,7 +95,7 @@ static BOOL lively_known(const wchar_t *folder)
     const wchar_t *name = path_filename(folder);
     if (!name[0]) return FALSE;
     wchar_t seg[SP_MAX_PATH];
-    str_printf(seg, SP_COUNTOF(seg), L"\\%ls\\", name);
+    str_printf(seg, SP_COUNTOF(seg), SP_SEP_W L"%ls" SP_SEP_W, name);
     for (int i = 0; i < g_app.cfg.count; i++)
         if (g_app.cfg.items[i].format == WPF_LIVELY && str_icontains(g_app.cfg.items[i].path, seg)) return TRUE;
     return FALSE;
@@ -306,6 +308,9 @@ static int add_root(wchar_t roots[][SP_MAX_PATH], int n, int max, const wchar_t 
     return n + 1;
 }
 
+#ifndef _WIN32
+static int lively_roots(wchar_t roots[][SP_MAX_PATH], int max) { (void)roots; (void)max; return 0; }   /* Lively is Windows-only */
+#else
 static int lively_roots(wchar_t roots[][SP_MAX_PATH], int max)
 {
     PWSTR local = NULL;
@@ -361,6 +366,8 @@ static int lively_roots(wchar_t roots[][SP_MAX_PATH], int max)
 /* Runs on every normal launch. This is intentionally quiet and incremental:
  * config_find_path prevents duplicates, and only Lively's known library paths
  * are enumerated. It does not scan arbitrary disks or assign a new wallpaper. */
+#endif
+
 int library_auto_import_lively(void)
 {
     wchar_t roots[8][SP_MAX_PATH];
@@ -408,6 +415,18 @@ int library_add_samples(void)
     return st.added;
 }
 
+#ifndef _WIN32
+static int steam_libraries(wchar_t libs[][SP_MAX_PATH], int max)
+{
+    wchar_t home[SP_MAX_PATH], p[SP_MAX_PATH];
+    int n = 0;
+    if (!GetEnvironmentVariableW(L"HOME", home, SP_COUNTOF(home))) return 0;
+    path_join(p, SP_COUNTOF(p), home, L".local/share/Steam");
+    n = add_root(libs, n, max, p);
+    path_join(p, SP_COUNTOF(p), home, L".steam/steam");
+    return add_root(libs, n, max, p);
+}
+#else
 static int steam_libraries(wchar_t libs[][SP_MAX_PATH], int max)
 {
     int n = 0;
@@ -454,6 +473,8 @@ static int steam_libraries(wchar_t libs[][SP_MAX_PATH], int max)
     return n;
 }
 
+#endif
+
 void library_import_lively(void)
 {
     wchar_t roots[8][SP_MAX_PATH];
@@ -497,6 +518,7 @@ void library_import_wallpaper_engine(void)
     report(&st, L"Wallpaper Engine", before, TRUE);
 }
 
+#ifdef _WIN32
 void library_import_dialog(HWND owner, BOOL folder)
 {
     IFileOpenDialog *dlg = NULL;
@@ -546,6 +568,8 @@ void library_import_dialog(HWND owner, BOOL folder)
     }
     IFileOpenDialog_Release(dlg);
 }
+
+#endif
 
 void library_remove(const wchar_t *id)
 {
@@ -616,7 +640,7 @@ static void pending_add(const wchar_t *path, BOOL folder)
 {
     wchar_t list[SP_MAX_PATH], line[SP_MAX_PATH + 4];
     pending_list(list, SP_COUNTOF(list));
-    str_printf(line, SP_COUNTOF(line), L"%ls%ls\n", path, folder ? L"\\" : L"");
+    str_printf(line, SP_COUNTOF(line), L"%ls%ls\n", path, folder ? SP_SEP_W : L"");
     int n = 0;
     char *u = utf8_from_wide(line, &n);
     HANDLE h = CreateFileW(list, FILE_APPEND_DATA, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -650,7 +674,7 @@ static BOOL used_again(const wchar_t *path, BOOL folder)
     for (int i = 0; i < g_app.cfg.count; i++) {
         const wchar_t *p[2] = { g_app.cfg.items[i].path, g_app.cfg.items[i].thumb };
         for (int k = 0; k < 2; k++)
-            if (folder ? _wcsnicmp(p[k], path, n) == 0 && p[k][n] == L'\\' : str_ieq(p[k], path)) return TRUE;
+            if (folder ? _wcsnicmp(p[k], path, n) == 0 && p[k][n] == SP_SEP_W[0] : str_ieq(p[k], path)) return TRUE;
     }
     return FALSE;
 }
@@ -677,7 +701,7 @@ void library_purge(void)
         else next = line + wcslen(line);
         size_t len = wcslen(line);
         if (len && line[len - 1] == L'\r') line[--len] = 0;
-        BOOL folder = len && line[len - 1] == L'\\';
+        BOOL folder = len && line[len - 1] == SP_SEP_W[0];
         if (folder) line[--len] = 0;
         if (!len || !made_here(line) || used_again(line, folder)) continue;
         if (delete_now(line, folder)) n++;

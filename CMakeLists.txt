@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.21)
 set(SCREENPLUS_VERSION "1.9.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
 project(ScreenPlus VERSION ${SCREENPLUS_VERSION} LANGUAGES C)
 
+if(NOT WIN32)
+    add_subdirectory(src/linux)
+    return()
+endif()
+
 if(NOT MSVC)
     message(FATAL_ERROR "Screen+ is built with MSVC (Visual Studio 2022 Build Tools or newer).")
 endif()

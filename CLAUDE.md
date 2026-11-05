@@ -9,6 +9,21 @@ reach the CLI where it applies, in the same change: a command in `src/app/cli_se
 for local ones), a settings key in `k_settings`, and the CLI help text. If it doesn't apply to the CLI, say so in
 the report.
 
+## Linux (`src/linux/`, branch `cross-platform`)
+KDE Plasma 6 and Hyprland, CLI only: no window, tray, GNOME or screensaver. `compat.h`/`compat.c` stand in for the Win32 the
+shared code uses, so `config.c`, `json.c`, `log.c`, `util.c`, `paths.c`, `library.c`, `cli_server.c` and `wallpaper_api.c` build
+unchanged (guards are `#ifdef _WIN32`; `SP_SEP_W` is the path separator; every compat file call turns `\` into `/`).
+Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on Windows.
+- `screenplus` = `cli.c` (client, entry point) + `service.c` (`--daemon`: owns config.ini, Unix socket
+  `$XDG_RUNTIME_DIR/screenplus.sock`, the `app_*` API, stubs for what isn't ported). Plain libc.
+- KDE: `desktop_kde.c` copies `kde/org.screenplus.wallpaper` into Plasma and writes its config through `evaluateScript`
+  (dbus-send). Playback is QML inside plasmashell (Qt Multimedia, Qt WebEngine); no engine process.
+- Hyprland: `screenplus-engine` = `engine_gtk.c`, a layer-shell window per display, libmpv (video, images) or WebKitGTK (pages).
+  Reads config.ini itself; SIGUSR1 reloads. `desktop_hypr.c` reads Hyprland's socket. Load files only after mpv's render context exists.
+- Build: `cmake -S . -B build-linux -G Ninja`. CI: `.github/workflows/linux.yml` (pushes to cross-platform; `release.yml` calls it).
+- KWin has layer-shell, so the engine can be tried on KDE with plasmashell stopped. In a VM, idle dimming and screen-off make screenshots dark or black: rule that out first.
+- Not ported: depth, Store, auto update, sample updates, audio visualizer, now playing, stills, Lively discovery, stream links.
+
 ## Build
 - `cmd.exe /c "<repo>\build.cmd" Release <x.y.z>`. Call it by full path; PowerShell can't resolve it relatively.
   It needs VS 2022 Build Tools + the Windows SDK. FFmpeg is prebuilt in `third_party/ffmpeg`; only

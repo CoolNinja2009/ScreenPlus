@@ -218,6 +218,8 @@ static void cmd_status(Reply *r)
         say(r, L"Renderer   pid %lu, %ls host, WebView2 %ls, %d of %d display(s) rendering%ls\n", g_app.enginePid,
             have ? host_mode_name(st->hostMode) : L"(starting)", have && st->webviewVersion[0] ? st->webviewVersion : L"n/a",
             have ? st->activeRenderers : 0, g_app.monCount, g_app.safeMode ? L", SAFE MODE" : L"");
+    else if (have && st->hostMode == HOSTMODE_PLASMA)
+        say(r, L"Renderer   inside Plasma, %d of %d display(s) rendering\n", st->activeRenderers, g_app.monCount);
     else
         say(r, L"Renderer   not running%ls\n", g_app.engineGaveUp ? L" (gave up after repeated failures: screenplus restart)" : L"");
     wchar_t cond[256] = L"";
@@ -1130,10 +1132,9 @@ static void run(Reply *r, const Req *q)
     }
 }
 
-void cli_server_handle(HWND replyTo, const void *request, DWORD size)
+/* One request in, its reply JSON in *out (sb_free it). Returns 1 when the app should quit afterwards. */
+int cli_server_run(const void *request, DWORD size, StrBuf *out)
 {
-    wchar_t cls[32] = L"";
-    if (!replyTo || !GetClassNameW(replyTo, cls, SP_COUNTOF(cls)) || !str_ieq(cls, SP_CLI_CLASS)) return;
     Req q;
     ZeroMemory(&q, sizeof q);
     Reply r = { 1 };
@@ -1173,17 +1174,27 @@ void cli_server_handle(HWND replyTo, const void *request, DWORD size)
 
     run(&r, &q);
 
-    StrBuf out = { 0 };
-    sb_printf(&out, "{\"ok\":%s,\"text\":", r.ok ? "true" : "false");
-    json_write_string(&out, r.text.p ? r.text.p : "");
-    sb_puts(&out, ",\"data\":");
-    sb_puts(&out, r.ok && r.data.len && !r.data.failed ? r.data.p : "null");
-    sb_puts(&out, "}");
-    if (!out.failed) ipc_send(g_app.shellWnd, replyTo, IPC_CLI_REPLY, out.p, (DWORD)out.len, 5000);
-    sb_free(&out);
+    sb_printf(out, "{\"ok\":%s,\"text\":", r.ok ? "true" : "false");
+    json_write_string(out, r.text.p ? r.text.p : "");
+    sb_puts(out, ",\"data\":");
+    sb_puts(out, r.ok && r.data.len && !r.data.failed ? r.data.p : "null");
+    sb_puts(out, "}");
     sb_free(&r.text);
     sb_free(&r.data);
     for (int i = 0; i < q.argc; i++) free(q.argv[i]);
     for (int i = 0; i < q.flagCount; i++) free(q.flags[i]);
-    if (r.exitAfter) PostMessageW(g_app.shellWnd, WM_SP_SHELLCMD, CMD_EXIT, 0);
+    return r.exitAfter;
 }
+
+#ifdef _WIN32
+void cli_server_handle(HWND replyTo, const void *request, DWORD size)
+{
+    wchar_t cls[32] = L"";
+    if (!replyTo || !GetClassNameW(replyTo, cls, SP_COUNTOF(cls)) || !str_ieq(cls, SP_CLI_CLASS)) return;
+    StrBuf out = { 0 };
+    int exitAfter = cli_server_run(request, size, &out);
+    if (!out.failed) ipc_send(g_app.shellWnd, replyTo, IPC_CLI_REPLY, out.p, (DWORD)out.len, 5000);
+    sb_free(&out);
+    if (exitAfter) PostMessageW(g_app.shellWnd, WM_SP_SHELLCMD, CMD_EXIT, 0);
+}
+#endif

@@ -59,7 +59,7 @@ typedef struct IpcHello {
     uint64_t processStart;
 } IpcHello;
 
-enum { HOSTMODE_NONE = 0, HOSTMODE_WORKERW = 1, HOSTMODE_PROGMAN = 2, HOSTMODE_FALLBACK = 3 };
+enum { HOSTMODE_NONE = 0, HOSTMODE_WORKERW = 1, HOSTMODE_PROGMAN = 2, HOSTMODE_FALLBACK = 3, HOSTMODE_PLASMA = 4 };
 
 enum {
     ENGINE_FLAG_PAUSED      = 0x01,
@@ -100,6 +100,7 @@ typedef struct IpcEngineStatus {
     IpcMonitorStatus monitors[SP_MAX_MONITORS];
 } IpcEngineStatus;
 
+#ifdef _WIN32
 /* Sends a WM_COPYDATA payload with a bounded timeout. Returns FALSE on failure/timeout. */
 static __inline BOOL ipc_send(HWND from, HWND to, ULONG_PTR id, const void *data, DWORD size, UINT timeoutMs)
 {
@@ -114,3 +115,4 @@ static __inline BOOL ipc_send(HWND from, HWND to, ULONG_PTR id, const void *data
     return SendMessageTimeoutW(to, WM_COPYDATA, (WPARAM)from, (LPARAM)&cds,
                                SMTO_ABORTIFHUNG | SMTO_NORMAL, timeoutMs, &result) != 0;
 }
+#endif

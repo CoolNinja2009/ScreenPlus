@@ -1,0 +1,11 @@
+{
+    "KPlugin": {
+        "Id": "org.screenplus.wallpaper",
+        "Name": "Screen+",
+        "Description": "Live wallpapers from Screen+",
+        "Icon": "preferences-desktop-wallpaper",
+        "Authors": [ { "Name": "Screen+" } ]
+    },
+    "KPackageStructure": "Plasma/Wallpaper",
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

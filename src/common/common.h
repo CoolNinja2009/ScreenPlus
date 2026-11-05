@@ -19,7 +19,13 @@
 #define NOMINMAX
 #endif
 
+#ifdef _WIN32
 #include <windows.h>
+#define SP_SEP_W        L"\\"
+#else
+#include "../linux/compat.h"
+#define SP_SEP_W        L"/"
+#endif
 #include <stdint.h>
 #include <stddef.h>
 
