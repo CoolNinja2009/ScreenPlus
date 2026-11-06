@@ -8,6 +8,7 @@
 #include "../common/json.h"
 #include "../common/paths.h"
 #include "../common/util.h"
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <locale.h>
@@ -42,6 +43,8 @@ static const char k_help[] =
     "  remove <wallpaper>     Remove it from the library\n"
     "  displays               Connected displays\n"
     "  mode [independent|duplicate|span]\n"
+    "  store [search <words> | more | get <n>]   The Store: list, search, download\n"
+    "  sharp [file.onnx]      Your own SHARP model for Make wallpaper cooler (not included)\n"
     "\n"
     "Playback\n"
     "  pause | resume | toggle\n"
@@ -116,6 +119,11 @@ static int cmd_logs(int argc, char **argv)
     path_join(lp, SP_COUNTOF(lp), paths_logs(), L"screenplus.log");
     char *p = sp_path_utf8(lp), n[16];
     snprintf(n, sizeof n, "%d", lines);
+    if (!file_exists(lp)) {
+        puts("Nothing logged yet.");
+        free(p);
+        return EXIT_OK;
+    }
     fflush(stdout);
     if (follow) execlp("tail", "tail", "-n", n, "-f", p, (char *)NULL);
     else execlp("tail", "tail", "-n", n, p, (char *)NULL);
@@ -305,11 +313,27 @@ int sp_autostart_get(void)
     return autostart_path(p, sizeof p) && access(p, F_OK) == 0;
 }
 
+/* Plasma starts its systemd units before the XDG autostart ones, so on a systemd session the service comes up beside
+ * plasmashell (it waits for it, service.c). The autostart entry stays for sessions without that target. */
+static int unit_paths(char *unit, char *link, size_t cap)
+{
+    const char *x = getenv("XDG_CONFIG_HOME"), *h = getenv("HOME");
+    char base[MAX_PATH];
+    if (x && x[0]) snprintf(base, sizeof base, "%s/systemd/user", x);
+    else snprintf(base, sizeof base, "%s/.config/systemd/user", h ? h : "");
+    int a = snprintf(unit, cap, "%s/screenplus.service", base), b = snprintf(link, cap, "%s/plasma-core.target.wants/screenplus.service", base);
+    return a > 0 && (size_t)a < cap && b > 0 && (size_t)b < cap;
+}
+
 int sp_autostart_set(int on)
 {
-    char p[MAX_PATH];
-    if (!autostart_path(p, sizeof p)) return 0;
-    if (!on) return unlink(p) == 0 || errno == ENOENT;
+    char p[MAX_PATH], unit[MAX_PATH + 64], link_[MAX_PATH + 64];
+    if (!autostart_path(p, sizeof p) || !unit_paths(unit, link_, sizeof unit)) return 0;
+    if (!on) {
+        unlink(link_);
+        unlink(unit);
+        return unlink(p) == 0 || errno == ENOENT;
+    }
     wchar_t *w = wide_from_utf8(p, -1), dir[SP_MAX_PATH];
     path_dirname(dir, SP_COUNTOF(dir), w);
     dir_create_recursive(dir);
@@ -317,14 +341,45 @@ int sp_autostart_set(int on)
     FILE *f = fopen(p, "w");
     if (!f) return 0;
     char *exe = sp_path_utf8(paths_exe());
-    fprintf(f, "[Desktop Entry]\nType=Application\nName=Screen+\nExec=\"%s\" start\nX-KDE-autostart-phase=2\nNoDisplay=true\n", exe ? exe : "screenplus");
+    fprintf(f, "[Desktop Entry]\nType=Application\nName=Screen+\nExec=\"%s\" --daemon --startup\nX-KDE-autostart-phase=1\nNoDisplay=true\n", exe ? exe : "screenplus");
+    int ok = fclose(f) == 0;
+    if (desktop_detect() == DESK_KDE) {
+        w = wide_from_utf8(link_, -1);
+        path_dirname(dir, SP_COUNTOF(dir), w);
+        dir_create_recursive(dir);
+        free(w);
+        if ((f = fopen(unit, "w"))) {
+            fprintf(f, "[Unit]\nDescription=Screen+\nPartOf=graphical-session.target\n\n[Service]\nExecStart=\"%s\" --daemon --startup\n", exe ? exe : "screenplus");
+            ok = fclose(f) == 0 && ok;
+            unlink(link_);
+            if (symlink(unit, link_)) ok = 0;
+        }
+    }
     free(exe);
-    return fclose(f) == 0;
+    return ok;
 }
 
 int main(int argc, char **argv)
 {
     setlocale(LC_CTYPE, "");
-    if (argc > 1 && !strcmp(argv[1], "--daemon")) return service_main();
+    if (argc > 1 && !strcmp(argv[1], "--daemon")) {
+        g_startupLaunch = argc > 2 && !strcmp(argv[2], "--startup");
+        return service_main();
+    }
+    if (argc > 1 && !strcmp(argv[1], "--depth")) {
+        char mod[MAX_PATH];
+        paths_init();
+        char *dir = sp_path_utf8(paths_exe_dir());
+        snprintf(mod, sizeof mod, "%s/screenplus-depth.so", dir ? dir : ".");
+        free(dir);
+        void *lib = dlopen(mod, RTLD_NOW | RTLD_LOCAL);
+        int (*run)(int, char **) = NULL;
+        if (lib) *(void **)&run = dlsym(lib, "depth_child_main");
+        if (!run) {
+            fprintf(stderr, "%s\n", dlerror());
+            return 3;
+        }
+        return run(argc, argv);
+    }
     return cli_main(argc, argv);
 }

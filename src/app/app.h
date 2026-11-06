@@ -19,6 +19,7 @@
 #define WM_SP_SAMPLES       (WM_APP + 67)   /* wParam 0: progress, 1: check finished (lParam: the job) */
 #define T_SHELL_SAMPLES     4               /* shell window timer: the next sample wallpaper update check */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
+#define WM_SP_ENGINE_RESYNC (WM_APP + 71)   /* the engine connected after commands went unsent */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
 
@@ -34,6 +35,7 @@ typedef struct AppState {
 
     /* supervisor */
     HWND             engineWnd;
+    int              engineMissed;   /* a command had no engine window to go to */
     DWORD            enginePid;
     HANDLE           engineProcess;
     HANDLE           engineWait;
@@ -90,6 +92,7 @@ void supervisor_on_hello(const IpcHello *h);
 void supervisor_on_exit(DWORD code, DWORD pid);
 void supervisor_on_timer(void);
 BOOL supervisor_send(uint32_t cmd, uint32_t arg);
+void supervisor_resync(void);
 void supervisor_stop(void);
 void supervisor_restart(void);
 void supervisor_sample_stats(void);
@@ -221,6 +224,8 @@ typedef struct DepthModel {
     int            shortSide;      /* the model's working resolution: the picture's shorter side */
     float          cost;           /* compute per frame against Depth Anything 2 Small */
     float          gb;             /* memory one run needs */
+    int            user;           /* not downloaded: the user supplies the .onnx (depth_choose_model) */
+    int            splat;          /* SHARP: gives 3D Gaussians for splat.html, pictures only */
 } DepthModel;
 #define DEPTH_VIDEO_FPS    15      /* depth frames per second of video at most */
 #define DEPTH_VIDEO_FRAMES 3600    /* ... and per video: longer ones get fewer per second */
@@ -230,6 +235,9 @@ int               depth_model_find(const wchar_t *key);  /* -1: unknown */
 BOOL              depth_model_ready(int i);            /* its files are downloaded */
 void              depth_model_file(int i, wchar_t *out, size_t cap);   /* model.onnx */
 void              depth_model_dir(int i, wchar_t *out, size_t cap);    /* its folder: backend record, weights */
+BOOL              depth_choose_model(int i, HWND owner);               /* a user model: asks for its .onnx; FALSE: cancelled */
+BOOL              depth_set_model_file(int i, const wchar_t *path);    /* a user model: remembers its .onnx */
+BOOL              depth_model_has_weights(const wchar_t *onnx);        /* FALSE: a small graph with no weights file beside it */
 /* How well this PC runs a model: level 5 very good .. 1 very hard, 0 can't run; seconds: the estimated time
  * for one picture, or for `videoSeconds` of video when that is > 0. */
 typedef struct DepthEstimate { int level; double seconds; int gpu; } DepthEstimate;

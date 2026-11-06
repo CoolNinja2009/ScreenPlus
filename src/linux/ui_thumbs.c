@@ -2,6 +2,7 @@
  * decodes pictures and videos and crops them to the requested size; a web wallpaper uses its preview picture.
  * Wallpapers that move then get a second, animated result, once every still is done. */
 #include "../ui/thumbs.h"
+#include "../app/preview.h"
 #include "../common/json.h"
 #include "../common/log.h"
 #include "../common/util.h"
@@ -51,6 +52,9 @@ static void source_of(const WallpaperEntry *e, wchar_t *out, size_t cap)
             return;
         }
     }
+    preview_paths(e->id, NULL, p, SP_COUNTOF(p));       /* recorded, or to be */
+    if (file_exists(p)) str_copy(out, cap, p);
+    else preview_request(e->id, g_notify);
 }
 
 static int is_gif(const wchar_t *path)
@@ -73,8 +77,7 @@ static int manifest_gif(const wchar_t *dir, const wchar_t *manifest, const char 
     return is_gif(out) && file_exists(out);
 }
 
-/* As in src/ui/thumbs.c: the package's preview GIF, a GIF wallpaper, or the video itself. A page without a preview GIF
- * keeps its still: recording one isn't ported. */
+/* As in src/ui/thumbs.c: the package's preview GIF, a GIF wallpaper, or the video itself. Else a recorded one (preview.c). */
 static int anim_source(const WallpaperEntry *e, wchar_t *out, size_t cap)
 {
     if (e->flags & WPFLAG_DEPTH) return 0;
@@ -98,6 +101,8 @@ static int anim_source(const WallpaperEntry *e, wchar_t *out, size_t cap)
             path_join(out, cap, dir, names[i]);
             if (file_exists(out)) return 1;
         }
+        preview_paths(e->id, out, NULL, cap);
+        if (e->type == WP_HTML && file_exists(out)) return 1;
     }
     if (e->type == WP_VIDEO && file_exists(e->path)) {
         str_copy(out, cap, e->path);

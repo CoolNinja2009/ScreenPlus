@@ -113,9 +113,6 @@ static void draw_sidebar(Ui *u)
     static const wchar_t icons[] = { GL_LIBRARY, GL_DISPLAY, GL_COLOR, GL_STORE, GL_SETTINGS };
     float y = 84;
     for (int i = 0; i < PAGE_COUNT; i++) {
-#ifndef _WIN32
-        if (i == PAGE_STORE) continue;      /* not on Linux yet */
-#endif
         int id = HIT_ID(HK_NAV, i);
         D2D1_RECT_F r = rectf(12, y, SIDEBAR_W - 24, 40);
         int sel = u->page == i, hot = ui_is_hot(id);
@@ -930,10 +927,17 @@ static void draw_settings(Ui *u, float cx, float cw)
 
     y = section(u, x, y, L"GENERAL");
     {
+#ifndef _WIN32
+        int idxL[] = { TOG_STARTUP, TOG_TRAY };
+        const wchar_t *lL[] = { L"Start with Linux", L"Keep the window closed at sign-in" };
+        int vL[] = { s->startWithWindows, s->launchToTray };
+        y = toggle_group(u, x, y, w, idxL, lL, NULL, vL, 2);
+#else
         int idx[] = { TOG_STARTUP, TOG_TRAY, TOG_STILL };
         const wchar_t *l[] = { L"Start with Windows", L"Start minimised to the tray", L"Show a still while Screen+ starts" };
         int v[] = { s->startWithWindows, s->launchToTray, s->stillWallpaper };
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 3);
+#endif
     }
     y += 10;
     {
@@ -1038,6 +1042,14 @@ static void draw_settings(Ui *u, float cx, float cw)
     {
         DepthState ds;
         depth_get(&ds);
+#ifndef _WIN32                          /* Lively is Windows-only */
+        int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_URL, TOG_DEPTH_ALL };
+        const wchar_t *l[] = { L"Allow desktop mouse interaction", L"Enable audio-reactive spectrum",
+                               L"Import wallpapers from web links", L"Make image wallpapers interactive" };
+        const wchar_t *d[] = { NULL, NULL, NULL, ds.busy && !ds.id[0] ? ds.text : NULL };
+        int v[] = { s->htmlMouse, s->htmlAudio, s->urlImport, s->depthAll };
+        y = toggle_group(u, x, y, w, idx, l, d, v, 4);
+#else
         int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_DEPTH_ALL };
         const wchar_t *l[] = { L"Allow desktop mouse interaction", L"Enable audio-reactive spectrum",
                                L"Import Lively wallpapers automatically", L"Import wallpapers from web links",
@@ -1045,6 +1057,7 @@ static void draw_settings(Ui *u, float cx, float cw)
         const wchar_t *d[] = { NULL, NULL, NULL, NULL, ds.busy && !ds.id[0] ? ds.text : NULL };
         int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport, s->urlImport, s->depthAll };
         y = toggle_group(u, x, y, w, idx, l, d, v, 5);
+#endif
     }
     y += 10;
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
@@ -1391,7 +1404,10 @@ static UINT_PTR CALLBACK colour_dialog_hook(HWND dlg, UINT msg, WPARAM wp, LPARA
 static void prop_pick_colour(int idx)
 {
 #ifndef _WIN32
-    (void)idx;                          /* no colour dialog on Linux yet: `screenplus props` sets it */
+    CustomProp *cp = &cus.props[idx];
+    int style;
+    uint32_t rgb = wpapi_color_get(cp, &style);
+    if (sp_pick_colour(&rgb)) prop_commit(cp, wpapi_color_value(rgb, style), 0);
 #else
     CustomProp *cp = &cus.props[idx];
     int style;
@@ -2045,13 +2061,15 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     int n = depth_model_count(), chosen = SP_MAX(0, depth_model_find(g_app.cfg.s.depthModel)), used = depth_entry_model(e);
     double secs = depth_entry_seconds(e);
     wchar_t noteBuf[200], size[24], line[200];
+    if (secs > 0 && depth_model(chosen)->splat) chosen = 0;   /* what a video really gets (depth.c's start) */
     const wchar_t *note = NULL;
     if (failed) note = st.text;
     else if (st.busy && !mine) note = L"Busy with another wallpaper.";
     else if (cool && !g_app.cfg.s.htmlMouse) note = L"Mouse interaction is off in Settings.";
     else if (!cool && !busy && !depth_ready()) {
         depth_size_text(depth_model(chosen)->size + depth_model(chosen)->dataSize, size, SP_COUNTOF(size));
-        str_printf(noteBuf, SP_COUNTOF(noteBuf), L"%ls downloads %ls the first time.", depth_model(chosen)->name, size);
+        if (depth_model(chosen)->user) str_printf(noteBuf, SP_COUNTOF(noteBuf), L"%ls needs your own .onnx file.", depth_model(chosen)->name);
+        else str_printf(noteBuf, SP_COUNTOF(noteBuf), L"%ls downloads %ls the first time.", depth_model(chosen)->name, size);
         note = noteBuf;
     }
     const float rowH = 58.0f;
@@ -2079,35 +2097,41 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
         for (int i = 0; i < n; i++) {
             const DepthModel *m = depth_model(i);
             D2D1_RECT_F r = rectf(x + 18, cy, w - 36, rowH - 4);
-            int id = HIT_ID(HK_DEPTH_MODEL, i), ready = depth_model_ready(i);
+            int id = HIT_ID(HK_DEPTH_MODEL, i), ready = depth_model_ready(i), off = m->splat && secs > 0;   /* no use for a video */
             depth_estimate(i, secs, &est);
             if (i == chosen) ui_rrect(r, 8, t->highlight);
-            else if (ui_is_hot(id)) ui_rrect(r, 8, t->panelHover);
+            else if (!off && ui_is_hot(id)) ui_rrect(r, 8, t->panelHover);
             if (i == chosen) ui_icon(GL_CHECK, u->fIconS, rectf(r.left + 6, r.top, 22, rowH - 4), t->accent);
             str_copy(line, SP_COUNTOF(line), m->name);
             if (i == used) str_cat(line, SP_COUNTOF(line), L"  (in use)");
-            ui_text(line, u->fBodyB, rectf(r.left + 32, r.top + 7, r.right - r.left - colW - 44, 20), t->text);
-            ui_text(m->desc, u->fSmall, rectf(r.left + 32, r.top + 29, r.right - r.left - colW - 44, 18), t->text2);
+            ui_text(line, u->fBodyB, rectf(r.left + 32, r.top + 7, r.right - r.left - colW - 44, 20), off ? t->text3 : t->text);
+            ui_text(m->desc, u->fSmall, rectf(r.left + 32, r.top + 29, r.right - r.left - colW - 44, 18), off ? t->text3 : t->text2);
             /* right column: meter and verdict, then the time and the download */
             float cx = right - colW;
-            depth_meter(u, cx, r.top + 17, est.level);
-            if (est.level > 0) {
+            if (!off) depth_meter(u, cx, r.top + 17, est.level);
+            if (off) {
+                str_copy(line, SP_COUNTOF(line), L"Pictures only");
+            } else if (est.level > 0) {
                 wchar_t tm[32];
                 depth_time_text(est.seconds, tm, SP_COUNTOF(tm));
                 str_printf(line, SP_COUNTOF(line), L"%ls  ·  %ls%ls", k_levelNames[est.level], tm, secs > 0 ? L" for this video" : L"");
             } else {
                 str_copy(line, SP_COUNTOF(line), L"Can't run: not enough memory");
             }
-            ui_text(line, u->fSmall, rectf(cx + 52, r.top + 8, colW - 52, 18), est.level > 1 ? t->text : col(k_levelColours[est.level], 1.0f));
-            if (ready) {
+            ui_text(line, u->fSmall, rectf(cx + 52, r.top + 8, colW - 52, 18), off ? t->text3 : est.level > 1 ? t->text : col(k_levelColours[est.level], 1.0f));
+            if (m->user) {
+                str_copy(line, SP_COUNTOF(line), ready ? L"Your file" : L"Choose your .onnx");
+            } else if (ready) {
                 str_copy(line, SP_COUNTOF(line), L"Downloaded");
             } else {
                 depth_size_text(m->size + m->dataSize, size, SP_COUNTOF(size));
                 str_printf(line, SP_COUNTOF(line), L"Download %ls", size);
             }
             ui_text(line, u->fSmall, rectf(cx + 52, r.top + 29, colW - 52, 18), t->text3);
-            ui_hit(id, r, 1, 1);
-            ui_focus_ring(r, 8, id);
+            if (!off) {
+                ui_hit(id, r, 1, 1);
+                ui_focus_ring(r, 8, id);
+            }
             cy += rowH;
         }
         cy += 8;
@@ -2211,7 +2235,7 @@ static void toggle_setting(int idx)
     switch (idx) {
     case TOG_STARTUP:
         if (startup_set_enabled(!s->startWithWindows)) s->startWithWindows = !s->startWithWindows;
-        else app_notice(NOTICE_ERROR, L"Could not update the Windows startup entry.");
+        else app_notice(NOTICE_ERROR, L"Could not update the startup entry.");
         break;
     case TOG_TRAY:       s->launchToTray = !s->launchToTray; break;
     case TOG_STILL:      s->stillWallpaper = !s->stillWallpaper; break;
@@ -2403,6 +2427,10 @@ void pages_activate(int id, int dbl)
         depth_estimate(data, e ? depth_entry_seconds(e) : 0.0, &est);
         if (est.level == 0) {
             app_notice(NOTICE_ERROR, L"%ls needs more memory than this PC has.", depth_model(data)->name);
+            ui_invalidate();
+            break;
+        }
+        if (depth_model(data)->user && !depth_model_ready(data) && !depth_choose_model(data, u->hwnd)) {
             ui_invalidate();
             break;
         }

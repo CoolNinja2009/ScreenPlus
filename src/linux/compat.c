@@ -10,6 +10,13 @@
 #include <time.h>
 #include <unistd.h>
 
+static void sp_filetime(time_t t, FILETIME *ft)
+{
+    uint64_t v = ((uint64_t)t + 11644473600ull) * 10000000ull;
+    ft->dwLowDateTime = (DWORD)v;
+    ft->dwHighDateTime = (DWORD)(v >> 32);
+}
+
 #define FD_HANDLE(fd) ((HANDLE)(intptr_t)((fd) + 1))
 #define HANDLE_FD(h)  ((int)((intptr_t)(h) - 1))
 
@@ -204,6 +211,7 @@ BOOL WriteFile(HANDLE f, const void *buf, DWORD n, DWORD *wrote, void *ov)
 
 BOOL CloseHandle(HANDLE h)
 {
+    if (sp_obj_close(h)) return TRUE;
     return h && h != INVALID_HANDLE_VALUE && close(HANDLE_FD(h)) == 0;
 }
 
@@ -282,6 +290,7 @@ BOOL GetFileAttributesExW(LPCWSTR path, GET_FILEEX_INFO_LEVELS level, void *out)
     d->dwFileAttributes = attrs_of(&st);
     d->nFileSizeHigh = (DWORD)((uint64_t)st.st_size >> 32);
     d->nFileSizeLow = (DWORD)st.st_size;
+    sp_filetime(st.st_mtime, &d->ftLastWriteTime);
     return TRUE;
 }
 
@@ -303,6 +312,7 @@ static int find_next(Find *f, WIN32_FIND_DATAW *out)
         if (!stat(full, &st)) {
             out->dwFileAttributes = attrs_of(&st);
             out->size.QuadPart = st.st_size;
+            sp_filetime(st.st_mtime, &out->ftLastWriteTime);
         } else {
             out->dwFileAttributes = FILE_ATTRIBUTE_NORMAL;
         }
@@ -417,4 +427,20 @@ void sp_random_bytes(void *p, size_t n)
         uint64_t t = (uint64_t)time(NULL) ^ ((uint64_t)getpid() << 32);
         memcpy(p, &t, n < sizeof t ? n : sizeof t);
     }
+}
+
+char *sp_utf8_dup(const wchar_t *w)
+{
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, NULL, 0, NULL, NULL);
+    char *p = n > 0 ? (char *)malloc((size_t)n) : NULL;
+    if (p) WideCharToMultiByte(CP_UTF8, 0, w, -1, p, n, NULL, NULL);
+    return p;
+}
+
+BOOL sp_hard_link(const wchar_t *to, const wchar_t *from)
+{
+    char *a = sp_path_utf8(to), *b = sp_path_utf8(from);
+    BOOL ok = a && b && link(b, a) == 0;
+    free(a); free(b);
+    return ok;
 }

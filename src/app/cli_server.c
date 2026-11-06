@@ -535,6 +535,65 @@ static void look_print(Reply *r, const WallpaperEntry *e, const WallpaperAdjust 
               a->tint & 0xFFFFFF, a->tintLift, a->tintBrightness);
 }
 
+/* The Store from the terminal: it reads in the background, so listing again shows what has come in. */
+static void cmd_store(Reply *r, const Req *q)
+{
+    const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
+    store_open();
+    if (str_ieq(sub, L"search")) {
+        store_search(q->argc > 2 ? q->argv[2] : L"");
+        say(r, L"Searching. See: screenplus store\n");
+        return;
+    }
+    if (str_ieq(sub, L"more")) {
+        store_more();
+        say(r, L"Reading the next pages. See: screenplus store\n");
+        return;
+    }
+    const StoreState *s = store_get();
+    if (str_ieq(sub, L"get")) {
+        int n = q->argc > 2 ? _wtoi(q->argv[2]) : 0;
+        if (n < 1 || n > s->viewCount) {
+            fail(r, L"Usage: screenplus store get <number from the list>");
+            return;
+        }
+        store_download(s->view[n - 1]);
+        say(r, L"\"%ls\": downloading into the library, or opening its page if the site has no direct file.\n", s->items[s->view[n - 1]].title);
+        return;
+    }
+    if (s->failed) say(r, L"The Store could not be read: %ls\n", s->error);
+    for (int i = 0; i < s->viewCount && i < 60; i++) {
+        const StoreItem *it = &s->items[s->view[i]];
+        say(r, L"%4d  %-12ls %-5ls %ls\n", i + 1, store_source_name(it->source), it->kind == SKIND_LIVE ? L"live" : L"still", it->title);
+    }
+    say(r, L"%d shown%ls\n", s->viewCount, s->loading ? L", still loading" : L"");
+}
+
+/* SHARP isn't downloaded: this names the user's own .onnx and makes it the chosen model. */
+static void cmd_sharp(Reply *r, const Req *q)
+{
+    int i = depth_model_find(L"sharp");
+    wchar_t f[SP_MAX_PATH];
+    if (q->argc > 1) {
+        if (!file_exists(q->argv[1]) || !str_ieq(path_ext(q->argv[1]), L".onnx")) {
+            say(r, L"No .onnx file there. Give its full path.\n");
+            return;
+        }
+        if (!depth_model_has_weights(q->argv[1])) {
+            say(r, L"Its weights are missing. Keep the .onnx.data file beside the .onnx.\n");
+            return;
+        }
+        if (!depth_set_model_file(i, q->argv[1])) {
+            say(r, L"The path could not be saved.\n");
+            return;
+        }
+        str_copy(g_app.cfg.s.depthModel, SP_COUNTOF(g_app.cfg.s.depthModel), L"sharp");
+        app_save_config();
+    }
+    depth_model_file(i, f, SP_COUNTOF(f));
+    say(r, depth_model_ready(i) ? L"SHARP model: %ls\n" : L"No SHARP model yet: screenplus sharp <file.onnx>\n", f);
+}
+
 static void cmd_look(Reply *r, const Req *q)
 {
     const MonitorInfo *mon;
@@ -903,9 +962,18 @@ static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary",
 static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
 enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS };
 static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames };
+#ifdef _WIN32
+#define SP_LAUNCH_DESC L"Keep the window closed when it starts with Windows"
+#else
+#define SP_LAUNCH_DESC L"Keep the window closed when it starts at sign-in"
+#endif
 static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *desc; } k_settings[] = {
+#ifdef _WIN32
     { L"start_with_windows",  offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
-    { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Keep the window closed when it starts with Windows" },
+#else
+    { L"start_with_linux",    offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
+#endif
+    { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  SP_LAUNCH_DESC },
     { L"still_wallpaper",     offsetof(Settings, stillWallpaper),    SK_BOOL,  L"Show a still of the wallpaper while Screen+ starts" },
     { L"pause_on_fullscreen", offsetof(Settings, pauseOnFullscreen), SK_BOOL,  L"Pause the display a fullscreen app or game is on" },
     { L"pause_when_covered",  offsetof(Settings, pauseWhenCovered),  SK_BOOL,  L"Stop rendering while windows cover the desktop" },
@@ -941,13 +1009,11 @@ static const wchar_t *setting_text(int kind, int v)
 #ifdef _WIN32
 static int setting_listed(const wchar_t *key) { (void)key; return 1; }
 #else
-/* Nothing on Linux reads these yet, so they aren't offered. */
+/* These mean nothing on Linux: Plasma starts the wallpaper by itself, Lively is Windows-only, there's no screensaver. */
 static int setting_listed(const wchar_t *key)
 {
     static const wchar_t *const hidden[] = {
-        L"launch_to_tray", L"still_wallpaper", L"pause_when_covered", L"suspend_on_lock", L"html_audio", L"web_fps",
-        L"lively_auto_import", L"interactive_images", L"screensaver_audio", L"screensaver_displays",
-        L"screensaver_exit_on_mouse", L"auto_update", L"auto_update_samples",
+        L"still_wallpaper", L"lively_auto_import", L"screensaver_audio", L"screensaver_displays", L"screensaver_exit_on_mouse",
     };
     for (size_t i = 0; i < SP_COUNTOF(hidden); i++) if (str_ieq(key, hidden[i])) return 0;
     return 1;
@@ -1177,6 +1243,10 @@ static void run(Reply *r, const Req *q)
         r->exitAfter = 1;
     } else if (str_ieq(c, L"mode")) {
         cmd_mode(r, q);
+    } else if (str_ieq(c, L"sharp")) {
+        cmd_sharp(r, q);
+    } else if (str_ieq(c, L"store")) {
+        cmd_store(r, q);
     } else if (str_ieq(c, L"look") || str_ieq(c, L"grade")) {
         cmd_look(r, q);
     } else if (str_ieq(c, L"props") || str_ieq(c, L"prop") || str_ieq(c, L"properties")) {

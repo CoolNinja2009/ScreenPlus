@@ -32,7 +32,7 @@ int sp_socket_path(char *out, size_t cap)
 int sp_run_read(const char *const *argv, char *out, size_t cap, size_t *got)
 {
     int fd[2] = { -1, -1 };
-    if (out && pipe(fd)) return -1;
+    if (out && pipe2(fd, O_CLOEXEC)) return -1;
     pid_t pid = fork();
     if (pid < 0) {
         if (out) { close(fd[0]); close(fd[1]); }
@@ -96,17 +96,19 @@ static int read_small(const char *path, char *out, size_t cap)
 
 int sp_on_battery(void)
 {
-    DIR *d = opendir("/sys/class/power_supply");
+    const char *power = getenv("SCREENPLUS_POWER_DIR");     /* tests */
+    if (!power) power = "/sys/class/power_supply";
+    DIR *d = opendir(power);
     if (!d) return 0;
     int mains = 0, online = 0;
     struct dirent *e;
     while ((e = readdir(d))) {
         char p[512], v[32];
         if (e->d_name[0] == '.') continue;
-        snprintf(p, sizeof p, "/sys/class/power_supply/%s/type", e->d_name);
+        snprintf(p, sizeof p, "%s/%s/type", power, e->d_name);
         if (!read_small(p, v, sizeof v) || strncmp(v, "Mains", 5)) continue;
         mains = 1;
-        snprintf(p, sizeof p, "/sys/class/power_supply/%s/online", e->d_name);
+        snprintf(p, sizeof p, "%s/%s/online", power, e->d_name);
         if (read_small(p, v, sizeof v) && v[0] == '1') online = 1;
     }
     closedir(d);
@@ -129,4 +131,40 @@ char *sp_file_uri(const wchar_t *path)
     }
     free(p);
     return o;
+}
+
+/* The port and token kept in `path`; 0 and the token as it was when there are none. */
+int sp_keep_port(const wchar_t *path, char *token, size_t cap)
+{
+    char *p = sp_path_utf8(path), t[64];
+    FILE *f = p ? fopen(p, "r") : NULL;
+    int port = 0;
+    free(p);
+    if (f) {
+        if (fscanf(f, "%d %63s", &port, t) == 2 && strlen(t) + 1 == cap) snprintf(token, cap, "%s", t);
+        else port = 0;
+        fclose(f);
+    }
+    return port;
+}
+
+void sp_save_port(const wchar_t *path, int port, const char *token)
+{
+    char *p = sp_path_utf8(path);
+    int fd = p ? open(p, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600) : -1;
+    free(p);
+    if (fd < 0) return;
+    dprintf(fd, "%d %s\n", port, token);
+    close(fd);
+}
+
+/* The web_fps setting: requestAnimationFrame held to the limit, before the page's own scripts. */
+void sp_fps_js(int fps, char *out, size_t cap)
+{
+    if (fps <= 0) { out[0] = 0; return; }
+    snprintf(out, cap, "(function(){var r=window.requestAnimationFrame.bind(window),q={},id=0,pend=false,last=0,ms=1000/%d;"
+                       "function run(t){if(t-last<ms-2){r(run);return;}pend=false;last=t;var o=q;q={};"
+                       "for(var k in o){try{o[k](t);}catch(e){setTimeout(function(){throw e;});}}}"
+                       "window.requestAnimationFrame=function(f){q[++id]=f;if(!pend){pend=true;r(run);}return id;};"
+                       "window.cancelAnimationFrame=function(i){delete q[i];};})();\n", fps);
 }

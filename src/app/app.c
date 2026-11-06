@@ -248,6 +248,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SP_SHELLCMD:
         handle_shell_command((uint32_t)wp);
         return 0;
+    case WM_SP_ENGINE_RESYNC:
+        supervisor_resync();
+        return 0;
     case WM_SP_STATUS:
         tray_update();
         ui_on_status();

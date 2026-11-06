@@ -11,6 +11,21 @@ mkdir -p "$app" "$bin"
 cp -r "$here"/. "$app"/
 ln -sf "$app/screenplus" "$bin/screenplus"
 
+cat > "$app/update.sh" <<'EOF'
+#!/bin/sh
+# Auto update: called with the verified release tarball. Waits for Screen+ to close, installs it, starts it again.
+set -u
+exec >/dev/null 2>&1
+tmp=$(mktemp -d)
+tar -xzf "$1" -C "$tmp" --strip-components 1 || exit 1
+"$HOME/.local/bin/screenplus" stop
+sleep 2
+"$tmp/install.sh"
+rm -rf "$tmp"
+"$HOME/.local/bin/screenplus" start
+EOF
+chmod +x "$app/update.sh"
+
 echo "Installed. Start it with: screenplus start"
 case ":$PATH:" in
     *":$bin:"*) ;;
@@ -44,3 +59,4 @@ case "${XDG_CURRENT_DESKTOP:-}" in
         echo "KDE needs Qt Multimedia, and Qt WebEngine for web wallpapers (Fedora: qt6-qtmultimedia qt6-qtwebengine)" ;;
 esac
 echo "The window needs SDL3, Cairo, Pango and ffmpeg. Open it with: screenplus show"
+echo "Also used when present: curl (Store), yt-dlp (links), bsdtar (sample updates), pw-record (audio for pages), notify-send, kdialog or zenity."

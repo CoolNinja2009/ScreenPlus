@@ -15,6 +15,8 @@
 #include <pthread.h>
 
 #define WINAPI
+#define CALLBACK
+#define VOID void
 #define __inline inline
 #ifndef TRUE
 #define TRUE  1
@@ -37,6 +39,7 @@ typedef void          *HANDLE, *HWND, *HINSTANCE, *HMONITOR, *HMODULE, *PVOID, *
 typedef wchar_t        WCHAR, *PWSTR, *LPWSTR;
 typedef const wchar_t *PCWSTR, *LPCWSTR;
 typedef long long      LONGLONG;
+typedef void          *HDC, *HBITMAP;
 
 typedef struct RECT { LONG left, top, right, bottom; } RECT;
 typedef union LARGE_INTEGER { LONGLONG QuadPart; struct { DWORD LowPart; LONG HighPart; }; } LARGE_INTEGER;
@@ -46,11 +49,13 @@ typedef pthread_mutex_t CRITICAL_SECTION;
 typedef struct MSG { int unused; } MSG;
 typedef struct WIN32_FIND_DATAW {
     DWORD         dwFileAttributes;
+    FILETIME      ftLastWriteTime;
     LARGE_INTEGER size;
     wchar_t       cFileName[1024];
 } WIN32_FIND_DATAW;
 typedef struct WIN32_FILE_ATTRIBUTE_DATA {
     DWORD dwFileAttributes;
+    FILETIME ftLastWriteTime;
     DWORD nFileSizeHigh, nFileSizeLow;
 } WIN32_FILE_ATTRIBUTE_DATA;
 typedef enum { GetFileExInfoStandard } GET_FILEEX_INFO_LEVELS;
@@ -123,6 +128,7 @@ BOOL   ReplaceFileW(LPCWSTR path, LPCWSTR with, LPCWSTR backup, DWORD flags, voi
 DWORD  GetFileAttributesW(LPCWSTR path);
 BOOL   GetFileAttributesExW(LPCWSTR path, GET_FILEEX_INFO_LEVELS level, void *out);
 HANDLE FindFirstFileW(LPCWSTR pattern, WIN32_FIND_DATAW *out);
+#define FindFirstFileExW(p, l, d, s, f, x) FindFirstFileW((p), (d))
 BOOL   FindNextFileW(HANDLE h, WIN32_FIND_DATAW *out);
 BOOL   FindClose(HANDLE h);
 FILE  *_wfopen(const wchar_t *path, const wchar_t *mode);
@@ -152,6 +158,54 @@ void   GetSystemTimePreciseAsFileTime(FILETIME *ft);
 BOOL   QueryPerformanceCounter(LARGE_INTEGER *v);
 BOOL   QueryPerformanceFrequency(LARGE_INTEGER *v);
 void   sp_random_bytes(void *p, size_t n);
+/* threads, events, processes (winobj.c) */
+typedef DWORD (*LPTHREAD_START_ROUTINE)(void *);
+typedef uintptr_t UINT_PTR;
+typedef struct STARTUPINFOW { DWORD cb, dwFlags; WORD wShowWindow; HANDLE hStdInput, hStdOutput, hStdError; } STARTUPINFOW;
+typedef struct PROCESS_INFORMATION { HANDLE hProcess, hThread; DWORD dwProcessId, dwThreadId; } PROCESS_INFORMATION;
+typedef pthread_rwlock_t SRWLOCK;
+typedef struct CONDITION_VARIABLE { pthread_mutex_t m; pthread_cond_t c; unsigned seq; } CONDITION_VARIABLE;
+#define CONDITION_VARIABLE_INIT      { PTHREAD_MUTEX_INITIALIZER, PTHREAD_COND_INITIALIZER, 0 }
+BOOL   SleepConditionVariableSRW(CONDITION_VARIABLE *c, SRWLOCK *l, DWORD ms, ULONG flags);
+void   WakeConditionVariable(CONDITION_VARIABLE *c);
+void   WakeAllConditionVariable(CONDITION_VARIABLE *c);
+#define SRWLOCK_INIT                 PTHREAD_RWLOCK_INITIALIZER
+#define AcquireSRWLockShared(l)      pthread_rwlock_rdlock(l)
+#define ReleaseSRWLockShared(l)      pthread_rwlock_unlock(l)
+#define AcquireSRWLockExclusive(l)   pthread_rwlock_wrlock(l)
+#define ReleaseSRWLockExclusive(l)   pthread_rwlock_unlock(l)
+#define CREATE_NO_WINDOW             0x08000000u
+#define BELOW_NORMAL_PRIORITY_CLASS  0x00004000u
+#define WAIT_OBJECT_0                0u
+#define WAIT_TIMEOUT                 258u
+#define INFINITE                     0xFFFFFFFFu
+HANDLE CreateThread(void *sec, size_t stack, LPTHREAD_START_ROUTINE fn, void *arg, DWORD flags, DWORD *id);
+HANDLE CreateEventW(void *sec, BOOL manual, BOOL initial, const wchar_t *name);
+BOOL   SetEvent(HANDLE h);
+BOOL   ResetEvent(HANDLE h);
+DWORD  WaitForSingleObject(HANDLE h, DWORD ms);
+DWORD  WaitForMultipleObjects(DWORD n, const HANDLE *h, BOOL all, DWORD ms);
+void   Sleep(DWORD ms);
+BOOL   CreateProcessW(const wchar_t *app, wchar_t *cmd, void *a, void *b, BOOL inherit, DWORD flags, void *env, const wchar_t *dir,
+                      STARTUPINFOW *si, PROCESS_INFORMATION *pi);
+BOOL   TerminateProcess(HANDLE h, UINT code);
+BOOL   GetExitCodeProcess(HANDLE h, DWORD *code);
+UINT   GetSystemDirectoryW(wchar_t *out, UINT cap);
+int    sp_obj_close(HANDLE h);                      /* compat.c's CloseHandle: TRUE when h wasn't a file */
+char  *sp_utf8_dup(const wchar_t *w);               /* UTF-8, slashes as they are; free() */
+/* the service's message queue and timers (service.c) */
+BOOL   PostMessageW(HWND h, UINT msg, WPARAM wp, LPARAM lp);
+UINT_PTR SetTimer(HWND h, UINT_PTR id, UINT ms, void *fn);
+BOOL   KillTimer(HWND h, UINT_PTR id);
+typedef struct Wic Wic;
+typedef Wic IStream;
+#define CreateHardLinkW(to, from, sec)  (sp_hard_link((to), (from)))
+#define CompareFileTime(a, b) ((((uint64_t)(a)->dwHighDateTime << 32 | (a)->dwLowDateTime) > ((uint64_t)(b)->dwHighDateTime << 32 | (b)->dwLowDateTime)) \
+                               - (((uint64_t)(a)->dwHighDateTime << 32 | (a)->dwLowDateTime) < ((uint64_t)(b)->dwHighDateTime << 32 | (b)->dwLowDateTime)))
+BOOL   sp_hard_link(const wchar_t *to, const wchar_t *from);
+#define strncpy_s(d, n, s, c)           snprintf((d), (n), "%s", (s))
+#define strcpy_s(d, n, s)            snprintf((d), (n), "%s", (s))
+
 #define InitializeCriticalSection(c) pthread_mutex_init((c), NULL)
 #define EnterCriticalSection(c)      pthread_mutex_lock(c)
 #define LeaveCriticalSection(c)      pthread_mutex_unlock(c)

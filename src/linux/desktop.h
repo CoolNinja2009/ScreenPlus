@@ -16,6 +16,11 @@ const char *desktop_name(DesktopKind k);
 int  sp_socket_path(char *out, size_t cap);
 /* Runs argv[0] from PATH, waits, returns its exit code (-1: could not run). out: its stdout, may be NULL. */
 int  sp_run(const char *const *argv, char *out, size_t cap);
+struct WallpaperEntry;
+void kde_page_args(const struct WallpaperEntry *e, char **url, char **shim, char **script);   /* free() each */
+int  sp_keep_port(const wchar_t *path, char *token, size_t cap);
+void sp_save_port(const wchar_t *path, int port, const char *token);
+void sp_fps_js(int fps, char *out, size_t cap);
 int  sp_run_read(const char *const *argv, char *out, size_t cap, size_t *got);   /* *got: bytes of output kept */
 int  sp_on_path(const char *name);
 int  sp_on_battery(void);                  /* mains exists and is unplugged */

@@ -176,6 +176,30 @@ static void web_send_properties(Slot *s, const WallpaperEntry *e)
     free(js);
 }
 
+/* The service's local web host for this page (webhost.c), else the file. */
+static char *page_uri(const WallpaperEntry *e)
+{
+    wchar_t path[SP_MAX_PATH];
+    path_join(path, SP_COUNTOF(path), paths_cache(), L"webhost.txt");
+    char *p = sp_path_utf8(path), *text = NULL, token[32], *out = NULL;
+    int port = 0;
+    if (p && !wallpaper_is_url(e->path) && g_file_get_contents(p, &text, NULL, NULL) && sscanf(text, "%d %31s", &port, token) == 2) {
+        char *id = utf8_from_wide(e->id, NULL), *name = utf8_from_wide(path_filename(e->path), NULL);
+        char *safe = name ? g_uri_escape_string(name, NULL, FALSE) : NULL;
+        if (id && safe) {
+            size_t n = strlen(token) + strlen(id) + strlen(safe) + 48;
+            out = (char *)malloc(n);
+            if (out) snprintf(out, n, "http://%s-%s.localhost:%d/%s", token, id, port, safe);
+        }
+        g_free(safe);
+        free(id);
+        free(name);
+    }
+    g_free(text);
+    free(p);
+    return out ? out : sp_file_uri(e->path);
+}
+
 static void web_loaded(WebKitWebView *v, WebKitLoadEvent ev, gpointer data)
 {
     (void)v;
@@ -203,8 +227,28 @@ static GtkWidget *web_view(Slot *s, const WallpaperEntry *e)
         webkit_user_script_unref(us);
         free(shim);
     }
+    char limit[640];
+    sp_fps_js(g_cfg.s.webFps, limit, sizeof limit);
+    if (limit[0]) {
+        WebKitUserScript *us = webkit_user_script_new(limit, WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
+                                                      WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START, NULL, NULL);
+        webkit_user_content_manager_add_script(webkit_web_view_get_user_content_manager(s->web), us);
+        webkit_user_script_unref(us);
+    }
+    gtk_widget_set_can_target(GTK_WIDGET(s->web), g_cfg.s.htmlMouse);
+    wchar_t feedPath[SP_MAX_PATH];
+    path_join(feedPath, SP_COUNTOF(feedPath), paths_cache(), L"feed.js");
+    char *fp = sp_path_utf8(feedPath), *feed = NULL;
+    if (fp && g_file_get_contents(fp, &feed, NULL, NULL)) {
+        WebKitUserScript *us = webkit_user_script_new(feed, WEBKIT_USER_CONTENT_INJECT_TOP_FRAME,
+                                                      WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END, NULL, NULL);
+        webkit_user_content_manager_add_script(webkit_web_view_get_user_content_manager(s->web), us);
+        webkit_user_script_unref(us);
+        g_free(feed);
+    }
+    free(fp);
     g_signal_connect(s->web, "load-changed", G_CALLBACK(web_loaded), s);
-    char *uri = sp_file_uri(e->path);
+    char *uri = page_uri(e);
     if (uri) webkit_web_view_load_uri(s->web, uri);
     free(uri);
     return GTK_WIDGET(s->web);

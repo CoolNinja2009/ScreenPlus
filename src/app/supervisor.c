@@ -67,6 +67,7 @@ BOOL supervisor_start(void)
     g_app.engineProcess = pi.hProcess;
     g_app.enginePid = pi.dwProcessId;
     g_app.engineWnd = NULL;
+    g_app.engineMissed = 0;              /* it reads the config as it stands now */
     g_app.engineSpawnTime = filetime_now();
     g_stopping = 0;
     if (!RegisterWaitForSingleObject(&g_app.engineWait, pi.hProcess, engine_exit_cb, pi.hProcess, INFINITE,
@@ -85,6 +86,17 @@ void supervisor_on_hello(const IpcHello *h)
     }
     g_app.engineWnd = (HWND)(uintptr_t)h->hwnd;
     LOGI(L"engine connected (pid %u)", h->pid);
+    if (g_app.engineMissed) PostMessageW(g_app.shellWnd, WM_SP_ENGINE_RESYNC, 0, 0);   /* not while it waits on this call */
+}
+
+/* Everything said before the engine connected is on disk: have it read that now. */
+void supervisor_resync(void)
+{
+    if (!g_app.engineMissed || !g_app.engineWnd) return;
+    g_app.engineMissed = 0;
+    LOGI(L"engine connected late; sending the changes it missed");
+    supervisor_send(CMD_RELOAD_CONFIG, 0);
+    supervisor_send(CMD_APPLY_CUSTOMISE, 0);
 }
 
 void supervisor_on_exit(DWORD code, DWORD pid)
@@ -133,7 +145,10 @@ void supervisor_on_timer(void)
 
 BOOL supervisor_send(uint32_t cmd, uint32_t arg)
 {
-    if (!g_app.engineWnd) return FALSE;
+    if (!g_app.engineWnd) {
+        g_app.engineMissed = 1;
+        return FALSE;
+    }
     IpcCommand c = { cmd, arg };
     if (ipc_send(g_app.shellWnd, g_app.engineWnd, IPC_ENGINE_CMD, &c, sizeof c, 2000)) return TRUE;
     if (IsHungAppWindow(g_app.engineWnd) && g_app.engineProcess) {

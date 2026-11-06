@@ -11,7 +11,9 @@ WallpaperItem {
     readonly property string kind: configuration.Kind
     readonly property string src: configuration.Source
     property bool fullscreenHere: watch.item ? watch.item.fullscreen : false
+    property bool coveredHere: watch.item ? watch.item.covered : false
     readonly property bool held: configuration.Paused || (configuration.PauseOnFullscreen && fullscreenHere)
+                                 || (configuration.PauseWhenCovered && coveredHere)
     readonly property bool graded: configuration.Brightness !== 0 || configuration.Contrast !== 0 || configuration.Saturation !== 0
 
     /* What the view shows. Every switch gets a new view: Source and Kind change one after the other, and a GIF put
@@ -44,7 +46,10 @@ WallpaperItem {
 
     Loader {
         id: view
-        anchors.fill: parent
+        x: root.configuration.SpanW > 0 ? -root.configuration.SpanX : 0     /* span: this display's part of the whole */
+        y: root.configuration.SpanW > 0 ? -root.configuration.SpanY : 0
+        width: root.configuration.SpanW > 0 ? root.configuration.SpanW : root.width
+        height: root.configuration.SpanW > 0 ? root.configuration.SpanH : root.height
         onLoaded: {
             if (root.shownKind === "html") {    /* the shim first: it has to be in place when the page loads */
                 item.shim = Qt.binding(() => root.configuration.ShimUrl)

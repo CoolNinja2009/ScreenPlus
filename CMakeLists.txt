@@ -121,7 +121,7 @@ add_executable(ScreenPlus WIN32 ${SOURCES} ${SHADER_HEADERS})
 target_include_directories(ScreenPlus PRIVATE src "${SHADER_OUT}")
 target_include_directories(ScreenPlus SYSTEM PRIVATE "${WEBVIEW2_SDK_DIR}/build/native/include" "${FFMPEG_DIR}/include"
                                                      "${ORT_SDK_DIR}/build/native/include")
-set_source_files_properties(resources/screenplus.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/resources/depth.html")
+set_source_files_properties(resources/screenplus.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/resources/depth.html;${CMAKE_SOURCE_DIR}/resources/splat.html")
 target_compile_definitions(ScreenPlus PRIVATE UNICODE _UNICODE COBJMACROS NOMINMAX
                                               _WIN32_WINNT=0x0A00 WINVER=0x0A00 NTDDI_VERSION=0x0A00000C
                                               _CRT_SECURE_NO_WARNINGS

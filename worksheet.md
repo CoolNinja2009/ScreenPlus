@@ -342,12 +342,54 @@ qdbus6 org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript 'prin
 
 Fill in as you go. Status: pass, fail, fixed, skipped (say why), or needs user.
 
-**Machine:**
-**Commit tested:**
+**Machine:** Arch VM, Plasma 6 Wayland, VirtualBox with AMD-V (8 CPUs, 12 GB), one virtual display, no NVIDIA, no Hyprland.
+**Commit tested:** 9b6f29d + SHARP merged, uncommitted.
 
 | ID | Status | Notes (cause and fix, file:line) |
 |---|---|---|
-| B1 | | |
+| B1-B3 | fixed | install.sh wasn't executable in git; 2 harmless store.c warnings left |
+| C1-C17 | pass | `logs` before any log printed tail's error: fixed in cli.c |
+| K1, K3 (CPU not measured), K8 not measured | pass | all six types show and move; GIF after image works |
+| K5, S2, S3 | fixed | Hz right; disabled outputs now skipped; ids are strings |
+| K2, K4, K6, K9, K10, K11 | needs user | sound, covering windows, pointer, 2 displays, sign-in, locked widgets |
+| U1-U10 | needs user | window opens and draws, thumbnails and animations seen; no clicks possible from here |
+| T1a-T1e | fixed | preview.c written; recorded GIF + JPG from a live page; ends on done.png |
+| 9a | done | merge left uncommitted; conflicts kept both sides |
+| ST1-ST3 | pass | all six sites list, search works, MotionBGS download lands; MoeWalls opens its page, by design |
+| ST2 offline, ST4, ST5 | not tested | |
+| D1, D2 | pass | 1.1 s on CPU; WebGL parallax seen on the desktop from file:// |
+| D4 | pass (data only) | child ran directly: 180 frames, 126 s on the CPU; playback on the desktop not looked at |
+| D3, D5-D9 | not tested | need the window, or Hyprland |
+| SH1 | pass | exit 0 with the message, as on Windows |
+| SH2-SH4 | needs user | their own .onnx |
+| H1-H5 | skipped | Hyprland isn't installed; the engine only compiles |
+| S5, S7-S10 | open | not changed |
+| S6 | fixed | pipes are close-on-exec |
+
+Second round (settings, each tested alone; pause measured by frames the page draws):
+
+| Setting | Status | Notes |
+|---|---|---|
+| start_with_linux | pass, sign-in timing not measured | entries appear and go; the unit is in plasma-core.target |
+| launch_to_tray | pass | window opens at --startup only when off |
+| pause_on_fullscreen, pause_when_covered, paused | fixed | pages never froze: Qt won't freeze a visible page. Now 0 frames, and back |
+| pause_on_battery | pass | through a stand-in power folder; the VM has no battery |
+| suspend_on_lock | pass | real lock and unlock |
+| audio | pass (value) | Muted follows; sound not heard |
+| auto_recover | fixed | KDE: applies again when plasmashell returns; the engine stays down when off (untested, no Hyprland) |
+| html_mouse | pass (value) | Mouse follows; real pointer not tried |
+| html_audio | fixed | no spectrum, no capture when off; capture no longer outlives the service |
+| web_fps | fixed | measured 30, 60, and uncapped at the display's 60 |
+| theme | pass | dark, light, system seen in the window |
+| display_mode span | fixed | checked with the values a second display gets; two real displays not tried |
+| interactive_images | pass | |
+| url_import | not tested | hides the link button; needs clicks |
+| auto_update, auto_update_samples | partial | toggle and check run; GitHub answers 404 |
+
+Music TV and Living Room: fixed by webhost.c (they use /js/... and ES modules, which file:// can't serve).
+
+Added beyond the list: feed.c (audio, system, track), stream links, lock pause, colour dialog, Identify, `screenplus store`.
+Auto update reached GitHub and got 404 (account hidden), so install wasn't exercised. Sample updates: not exercised.
 
 Finish by telling the user, briefly: what was fixed, what still fails, what was skipped, what they need to check, and that nothing
 was committed unless they said so. Then update `CLAUDE.md` if the facts in it changed.

@@ -103,4 +103,5 @@ static inline BOOL UnionRect(RECT *d, const RECT *a, const RECT *b)
 /* ui_sdl.c */
 HWND     sp_window_open(int w, int h, float *scale);
 void     sp_shell_open(const wchar_t *target);
+int      sp_pick_colour(uint32_t *rgb);             /* modal: kdialog or zenity; 0xRRGGBB */
 int      sp_pick_paths(int folder, wchar_t ***paths);   /* modal; returns the count; free each and the array */

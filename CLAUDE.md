@@ -10,7 +10,7 @@ for local ones), a settings key in `k_settings`, and the CLI help text. If it do
 the report.
 
 ## Linux (`src/linux/`, branch `cross-platform`)
-KDE Plasma 6 and Hyprland: no tray, GNOME, Store or screensaver. `compat.h`/`compat.c` stand in for the Win32 the
+KDE Plasma 6 and Hyprland: no tray, GNOME or screensaver. `compat.h`/`compat.c` stand in for the Win32 the
 shared code uses, so `config.c`, `json.c`, `log.c`, `util.c`, `paths.c`, `library.c`, `cli_server.c` and `wallpaper_api.c` build
 unchanged (guards are `#ifdef _WIN32`; `SP_SEP_W` is the path separator; every compat file call turns `\` into `/`).
 Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on Windows.
@@ -24,11 +24,24 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
   Reads config.ini itself; SIGUSR1 reloads. `desktop_hypr.c` reads Hyprland's socket. Load files only after mpv's render context exists.
 - Window: `screenplus-ui.so` (`screenplus show`), dlopened by the service so the service stays plain libc, running on its thread (`ui_pump`).
   `ui_core.c`, `ui_pages.c`, `textedit.c` are shared with Windows: `d2d_cairo.c` is the Direct2D/DirectWrite subset they use on Cairo and Pango,
-  `win_ui.h` the window messages and USER32 calls, `ui_sdl.c` feeds SDL3 events to `ui_proc`, draws menus and dialogs. Thumbnails: `ui_thumbs.c`, system ffmpeg (stills first, then animations, as `src/ui/thumbs.c`; pages without a preview GIF stay still, recording isn't ported).
-  Icons: `resources/fonts` (Fluent System Icons, MIT); a new `GL_*` needs a line in `ui_icons.h`. `ui_stubs.c`: what isn't ported.
+  `win_ui.h` the window messages and USER32 calls, `ui_sdl.c` feeds SDL3 events to `ui_proc`, draws menus and dialogs. Thumbnails: `ui_thumbs.c`, system ffmpeg (stills first, then animations, as `src/ui/thumbs.c`; pages with no preview of their own are recorded, see `preview.c`).
+  Icons: `resources/fonts` (Fluent System Icons, MIT); a new `GL_*` needs a line in `ui_icons.h`. `ui_stubs.c`: the screensaver stubs and small dialogs.
 - Build: `cmake -S . -B build-linux -G Ninja`. CI: `.github/workflows/linux.yml` (pushes to cross-platform; `release.yml` calls it).
 - KWin has layer-shell, so the engine can be tried on KDE with plasmashell stopped. In a VM, idle dimming and screen-off make screenshots dark or black, and with 3D on `VBoxManage screenshotpng` is stale: look at the VM window. Web wallpapers need 3D on; without a GPU Chromium stalls. A service started over SSH gets no keyboard in the window.
-- Not ported: depth, Store, auto update, sample updates, audio visualizer, now playing, stills, Lively discovery, stream links.
+- Shared Windows code runs on Linux through small stand-ins, not rewrites. `winobj.c`: threads, events, processes, SRW locks, condition variables. `service.c`: `PostMessageW`/`SetTimer` (a queue and timer table its loop drains; `g_app.shellWnd` is the write end of a pipe, so a child's `PostMessageW` reaches the same queue). `http_linux.c`: `webfetch.h` over a `curl` child per request, plus SHA-256. `wic_linux.[ch]`: the WIC calls depth_infer.c uses, on libav.
+- Store, updates, samples, depth.c: in the service, unchanged apart from `#ifdef`s. Update's asset is the tarball, run through `update.sh` (written by install.sh; its presence means "installed").
+- Depth child: `screenplus --depth` loads `screenplus-depth.so` (libav; ONNX Runtime 1.24.4 CPU is downloaded and pinned in depth.c, dlopened). Always `--cpu`: no GPU path yet. Templates `depth.html`, `splat.html` ship beside the program. SHARP: nothing ships, as on Windows.
+- `preview.c`: page recordings through `plasmawindowed` + `kde/org.screenplus.capture` on the offscreen platform (KDE only); the recorder doesn't quit, so `done.png` ends it.
+- `webhost.c`: local web wallpapers load from `http://<token>-<id>.localhost:<port>/`, the Linux counterpart of WebView2's virtual host: `/x.js`, ES modules and fetch need it, and file names match whatever their case. `cache/webhost.txt` hands port and token to the engine.
+- `feed.c`: audio (pw-record, parec), system data and MPRIS track for pages, over a token-guarded WebSocket on 127.0.0.1; `cache/feed.js` goes into the shim on both desktops. Sampled only for what a connected page wants, never while paused.
+- Streams: `import` in automatic mode saves up to 10 minutes / 300 MB, else adds a `WPFLAG_YTDLP` entry; `stream_address` in desktop_kde.c resolves it (2 h cache). Sites with no combined stream play picture only.
+- `screenplus store` lists, searches and downloads (added so the Store could be driven from the CLI).
+- Pausing a page: Qt only freezes an invisible page, so `WebView.qml` grabs the last frame, shows it as a picture, hides the page and freezes it. Measure pause by frames the page draws, not CPU.
+- Sign-in: `startup on` writes an XDG autostart entry and, on Plasma, `screenplus.service` under `plasma-core.target.wants`, both running `--daemon --startup` (a second copy exits at once). Web host and feed come up before anything else, on the port and token kept in `cache/webhost.txt` and `feed.txt`; `WebView.qml` retries a failed load every 250 ms, so a page Plasma started first needs no reload. Monitors are polled every 200 ms until Plasma answers. `kde_install_plugin` copies only when `diff` finds a change.
+- Settings on Linux: `start_with_linux` is `startWithWindows`, read back from the entry at start; `launch_to_tray` means the window stays closed at sign-in; `web_fps` is a requestAnimationFrame limit in the shim (`sp_fps_js`, file `wallpaper-api-<fps>.js` so a change reloads the page); `pause_when_covered`: any maximised window on that screen (`FullscreenWatch.qml`); span: `SpanX/Y/W/H` per display in `main.qml`. Hidden (`setting_listed`, Settings page): still_wallpaper, lively_auto_import, screensaver_*. `SCREENPLUS_POWER_DIR` stands in for /sys/class/power_supply in tests.
+- Lock: `session_locked` polls org.freedesktop.ScreenSaver every 5 s (KDE). Identify: notifications. Colour dialog: kdialog or zenity.
+- Not ported: screensaver, tray, GNOME, GPU depth. Doesn't apply: Lively discovery (Lively is Windows-only); stills (Plasma's plugin stays set across sign-in, so the wallpaper starts by itself).
+- Release tarball caveat: `screenplus-depth.so` links the build machine's libav sonames, so a tarball built on Ubuntu may not load on a distro with newer FFmpeg: `--depth` then exits 3. Building from source works.
 
 ## Build
 - `cmd.exe /c "<repo>\build.cmd" Release <x.y.z>`. Call it by full path; PowerShell can't resolve it relatively.
@@ -76,7 +89,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
   `HKCU\Control Panel\Desktop\SCRNSAVE.EXE` (8.3 path) and `SystemParametersInfo`; the build and setup ship the `.scr`.
 - **Child processes**: WebView2 browser processes, yt-dlp (+ qjs) for link wallpapers, `tar.exe` once to unpack ONNX Runtime.
 - **IPC** (`src/common/ipc.h`) is WM_COPYDATA:
-  - `IPC_ENGINE_HELLO` / `IPC_ENGINE_STATUS`: engine → shell.
+  - `IPC_ENGINE_HELLO` / `IPC_ENGINE_STATUS`: engine → shell. The engine retries the hello every second until the shell answers and sends status only after that; commands that had no engine window are resent as a config reload on connect.
   - `IPC_ENGINE_CMD`: shell → engine, `CMD_*`, sent with `supervisor_send`.
   - `IPC_SHELL_CMD`: second instance → shell.
   - `IPC_CLI_REQUEST` / `IPC_CLI_REPLY`: JSON between `ScreenPlus.com` and the shell.
@@ -89,7 +102,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 | `src/app/app.c` | Shell window proc (`shell_proc`), `app_notice`, apply/pause/audio, setup handoff (`apply_setup_choice`) |
 | `src/app/library.c` | Imports (files, folders, Lively/WE packages, Lively auto-discovery), remove, missing check |
 | `src/app/url_import.c` | Link button job on a worker thread: direct downloads, yt-dlp streams/downloads, live pages |
-| `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` is the page template (RCDATA, WebGL2) |
+| `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` and `splat.html` (SHARP) are the page templates (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
 | `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
@@ -232,6 +245,24 @@ Renderer details:
   Only pictures get one (`is_picture_ext`): Rainy Window's Sound dropdown (`sounds\`, `rain.ogg` = the rain track cut
   before its 5 s fade-out, 3 s crossfaded into its start, Opus) loops a Web Audio buffer; Volume 0 stops it, and like
   any page it is muted unless Sound is on.
+- SHARP (`k_models` key `sharp`, `user` + `splat`): one picture to ~1.2M 3D Gaussians. Its licence is non-commercial, so
+  nothing of it ships or downloads: never add weights, an export or a download link. The user picks their own ONNX
+  export (Customise's model list or `screenplus sharp <file.onnx>`); the path waits in `depth\models\sharp\path.txt`, or
+  any `.onnx` is put in that folder. `keep_user_model` (next job, or link-only at start) then hard-links or copies it
+  and the weights its graph names (`weight_files` reads them from the .onnx) into that folder and drops `path.txt`, so it stays if the original goes. Over 2 GB an
+  export is `x.onnx` + `x.onnx.data`: never rename them (the graph names its weights file). Pictures only. `depth_infer.c`'s "SHARP" section finds tensors by rank and name,
+  follows ml-sharp's preprocessing and writes `depth-sharp.bin` ("SPGS": pruned, covariances built, sRGB, sorted far to
+  near, texture-shaped). `resources/splat.html` (`IDR_SPLAT_HTML`) never sorts, draws only while moving, drops resolution
+  while moving when slow (and recovers), and has a transparent canvas over the blurred picture so gaps aren't black.
+  SHARP's 1536 limit softens big pictures (edge energy 0.38 of a 3738 px original), so fragments add the picture's own
+  high frequencies at the Gaussian's rest position; `autoDetail` from picture size was fitted on real outputs (none up to
+  1920 px). Only by `sharp_weights` (the record's last word): without it the sky beside a leaf carries the leaf's outline when it moves.
+  GPU: a frame is ~4 ms on an RTX 5070 at 2560x1440, two thirds of it pixels, so Frame rate (default 60) sets the cost;
+  none at rest. Don't prune "hidden" Gaussians: neighbours on a surface overlap, so it punches holes, and doing it safely
+  saved 0-2%.
+  A shader local named like a varying breaks it quietly: check the program links. Settings follow ml-sharp: almost no 2D
+  low-pass (0.3 cost more sharpness than anything else), EXIF lens, focus at the 10% depth, motion from the 0.1% depth. Colours
+  blend in sRGB, not ml-sharp's linear: opacity is ~1 almost everywhere, so a float target isn't worth its cost.
 - Test the child with `SCREENPLUS_DATA_DIR=<scratch>` holding `depth\model.onnx` + `depth\ort\onnxruntime.dll`:
   `ScreenPlus.exe --depth <image> <outdir>`; read `logs\depth.log`.
 

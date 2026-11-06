@@ -86,3 +86,9 @@ Windows and are not redistributed.
 
 `resources/fonts/FluentSystemIcons-Regular.ttf`, the Linux window's icons. MIT License, Copyright (c) 2020 Microsoft Corporation.
 https://github.com/microsoft/fluentui-system-icons
+
+## SHARP — not included
+
+Screen+ contains no part of Apple's SHARP model and does not download it. The SHARP option loads an ONNX file the user
+supplies; that file stays under Apple's licence, and following it is up to the user. The preprocessing and file
+conversion in `src/app/depth_infer.c` were written for Screen+ from the behaviour of https://github.com/apple/ml-sharp.

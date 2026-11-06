@@ -16,6 +16,7 @@ static UrlImportState g_st;
 static pid_t   g_pid;
 static wchar_t g_stem[SP_ID_LEN];         /* downloads/<stem>.* */
 static wchar_t g_title[SP_NAME_LEN];
+static wchar_t g_link[SP_MAX_PATH];     /* AUTO: what becomes a stream when yt-dlp leaves it undownloaded */
 
 static void set_failed(const wchar_t *why)
 {
@@ -102,8 +103,12 @@ BOOL url_import_start(const wchar_t *url, int mode)
             if (pid < 0) set_failed(L"curl isn't installed.");
         } else {
             snprintf(out, sizeof out, "%s/%s.%%(title).100B.%%(ext)s", d, stem);   /* url_import_tick names the entry from it */
+            /* Automatic: up to 10 minutes and 300 MB are saved, anything longer plays as a stream */
             const char *argv[] = { "yt-dlp", "--no-playlist", "--no-part", "--merge-output-format", "mp4", "-o", out, u, NULL };
-            pid = sp_on_path("yt-dlp") ? spawn(argv) : -1;
+            const char *brief[] = { "yt-dlp", "--no-playlist", "--no-part", "--merge-output-format", "mp4", "--match-filter", "duration<=600",
+                                    "--max-filesize", "300M", "-o", out, u, NULL };
+            str_copy(g_link, SP_COUNTOF(g_link), mode == URLMODE_AUTO ? url : L"");
+            pid = sp_on_path("yt-dlp") ? spawn(mode == URLMODE_AUTO ? brief : argv) : -1;
             if (pid < 0) set_failed(L"yt-dlp isn't installed. Install it from your package manager.");
         }
     }
@@ -120,6 +125,34 @@ BOOL url_import_start_titled(const wchar_t *url, int mode, const wchar_t *title)
 {
     str_copy(g_title, SP_COUNTOF(g_title), title ? title : L"");
     return url_import_start(url, mode);
+}
+
+/* The usual named entities and numeric references, in place. */
+void html_unescape(wchar_t *s)
+{
+    static const struct { const wchar_t *name; wchar_t c; } k[] = { { L"amp;", L'&' }, { L"lt;", L'<' }, { L"gt;", L'>' }, { L"quot;", L'"' }, { L"apos;", L'\'' }, { L"nbsp;", L' ' } };
+    wchar_t *o = s;
+    for (wchar_t *p = s; *p; ) {
+        int done = 0;
+        if (*p == L'&') {
+            for (size_t i = 0; i < SP_COUNTOF(k) && !done; i++) {
+                size_t n = wcslen(k[i].name);
+                if (!wcsncmp(p + 1, k[i].name, n)) { *o++ = k[i].c; p += n + 1; done = 1; }
+            }
+            if (!done && p[1] == L'#') {
+                wchar_t *end;
+                long v = p[2] == L'x' || p[2] == L'X' ? wcstol(p + 3, &end, 16) : wcstol(p + 2, &end, 10);
+                if (*end == L';' && v > 0) { *o++ = (wchar_t)v; p = end + 1; done = 1; }
+            }
+        }
+        if (!done) *o++ = *p++;
+    }
+    *o = 0;
+}
+
+void url_import_cancel(void)
+{
+    if (g_pid > 0) kill(g_pid, SIGTERM);
 }
 
 void url_import_get(UrlImportState *out) { *out = g_st; }
@@ -139,7 +172,28 @@ void url_import_tick(void)
     path_join(pattern, SP_COUNTOF(pattern), paths_downloads(), leaf);
     HANDLE h = FindFirstFileW(pattern, &fd);
     if (h == INVALID_HANDLE_VALUE) {
-        set_failed(L"The download left no file.");
+        if (g_link[0] && !g_title[0]) {             /* once, and quick: yt-dlp has it cached */
+            char *u = utf8_from_wide(g_link, NULL), name[256] = "";
+            const char *argv[] = { "yt-dlp", "--no-playlist", "--skip-download", "--print", "title", u, NULL };
+            if (u && !sp_run(argv, name, sizeof name)) {
+                name[strcspn(name, "\r\n")] = 0;
+                wchar_t *w = wide_from_utf8(name, -1);
+                if (w) str_copy(g_title, SP_COUNTOF(g_title), w);
+                free(w);
+            }
+            free(u);
+        }
+        WallpaperEntry *e = g_link[0] ? config_add(&g_app.cfg, WP_VIDEO, g_link, g_title[0] ? g_title : g_link) : NULL;
+        if (!e) {
+            set_failed(L"The download left no file.");
+            return;
+        }
+        e->flags |= WPFLAG_URL | WPFLAG_YTDLP;
+        g_link[0] = g_title[0] = 0;
+        g_st.busy = 0;
+        g_st.finished++;
+        g_st.lastOk = 1;
+        app_save_config();
         return;
     }
     path_join(file, SP_COUNTOF(file), paths_downloads(), fd.cFileName);

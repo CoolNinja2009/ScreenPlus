@@ -1,46 +1,49 @@
-/* What the window's shared code calls that Linux doesn't have yet: depth wallpapers, the Store and the screensaver.
- * Each answers "not available", and ui_pages.c hides the Store and screensaver sections on Linux. */
+/* What the window's shared code calls that Linux doesn't have: the screensaver answers "not available", and
+ * ui_pages.c hides its section. depth_choose_model is here because the file dialog is the window's. */
 #include "../ui/ui_internal.h"
 #include "../common/scrnsave.h"
+#include "desktop.h"
 
 DWORD windows_build_number(void) { return 22000; }
 void  update_on_ui_closed(void) {}
-void  url_import_cancel(void) {}
-void  identify_displays(const MonitorInfo *mons, int n) { (void)mons; (void)n; }
 
-static const DepthModel k_noModel = { L"", L"Not on Linux yet", L"" };
-int               depth_model_count(void) { return 0; }
-const DepthModel *depth_model(int i) { (void)i; return &k_noModel; }
-int               depth_model_find(const wchar_t *key) { (void)key; return -1; }
-BOOL              depth_model_ready(int i) { (void)i; return FALSE; }
-void              depth_estimate(int model, double seconds, DepthEstimate *out) { (void)model; (void)seconds; memset(out, 0, sizeof *out); }
-double            depth_video_seconds(const wchar_t *path) { (void)path; return 0.0; }
-int               depth_entry_model(const WallpaperEntry *e) { (void)e; return -1; }
-BOOL              depth_ready(void) { return FALSE; }
-BOOL              depth_can_cool(const WallpaperEntry *e) { (void)e; return FALSE; }
-BOOL              depth_make_file(const wchar_t *image, const wchar_t *out) { (void)image; (void)out; return FALSE; }
-BOOL              depth_start(const wchar_t *id) { (void)id; return FALSE; }
-void              depth_cancel(void) {}
-void              depth_get(DepthState *out) { memset(out, 0, sizeof *out); }
-void              depth_revert(const wchar_t *id) { (void)id; }
+/* Each display's number, as a notification: Plasma and Hyprland both show them. */
+void identify_displays(const MonitorInfo *mons, int n)
+{
+    for (int i = 0; i < n; i++) {
+        char text[160];
+        snprintf(text, sizeof text, "Display %d: %ldx%ld at %ld,%ld", i + 1, (long)(mons[i].rect.right - mons[i].rect.left),
+                 (long)(mons[i].rect.bottom - mons[i].rect.top), (long)mons[i].rect.left, (long)mons[i].rect.top);
+        const char *argv[] = { "notify-send", "-a", "Screen+", "-t", "5000", text, NULL };
+        sp_run(argv, NULL, 0);
+    }
+}
 
-static StoreState g_store;
-const StoreState  *store_get(void) { return &g_store; }
-const wchar_t     *store_source_name(int source) { (void)source; return L""; }
-int                store_filter_names(int which, const wchar_t **names, int cap) { (void)which; (void)names; (void)cap; return 0; }
-void               store_set_filter(int which, int value) { (void)which; (void)value; }
-void               store_open(void) {}
-BOOL               store_search(const wchar_t *q) { (void)q; return FALSE; }
-void               store_more(void) {}
-void               store_retry(void) {}
-void               store_want(int i, int w, int detail) { (void)i; (void)w; (void)detail; }
-BOOL               store_preview_entry(int i, WallpaperEntry *e) { (void)i; (void)e; return FALSE; }
-const StoreVariant *store_best(const StoreItem *it) { (void)it; return NULL; }
-int                store_dl_state(int i, int *percent) { (void)i; if (percent) *percent = -1; return STOREDL_IDLE; }
-void               store_download(int i) { (void)i; }
-void               store_page_url(int i, wchar_t *out, size_t cap) { (void)i; if (cap) out[0] = 0; }
-void               store_block(int i) { (void)i; }
-void               store_unblock_all(void) {}
+int sp_pick_colour(uint32_t *rgb)
+{
+    char now[16], out[64] = "";
+    snprintf(now, sizeof now, "#%06X", *rgb & 0xFFFFFF);
+    const char *kde[] = { "kdialog", "--getcolor", "--default", now, NULL };
+    const char *gtk[] = { "zenity", "--color-selection", "--color", now, NULL };
+    if (sp_run(kde, out, sizeof out) && sp_run(gtk, out, sizeof out)) return 0;
+    unsigned r, g, b;
+    if (sscanf(out, "#%2x%2x%2x", &r, &g, &b) == 3 || sscanf(out, "rgb(%u,%u,%u)", &r, &g, &b) == 3) {
+        *rgb = r << 16 | g << 8 | b;
+        return 1;
+    }
+    return 0;
+}
+
+BOOL depth_choose_model(int i, HWND owner)
+{
+    wchar_t **paths = NULL;
+    (void)owner;
+    int n = sp_pick_paths(0, &paths);
+    BOOL ok = n > 0 && depth_model_has_weights(paths[0]) && depth_set_model_file(i, paths[0]);
+    for (int k = 0; k < n; k++) free(paths[k]);
+    free(paths);
+    return ok;
+}
 
 void scr_query(ScrState *st) { memset(st, 0, sizeof *st); }
 BOOL scr_enable(BOOL on, wchar_t *err, size_t cap) { (void)on; if (cap) err[0] = 0; return FALSE; }
