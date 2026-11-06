@@ -62,7 +62,9 @@ if (-not $vs) {
 if (-not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe')) {
     Invoke-Native 'NSIS install' { choco install nsis -y --no-progress }
 }
-if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+# vcvars64 in build.cmd puts Visual Studio's own Ninja on PATH (a runner service has no user PATH).
+$vsNinja = if ($vs) { Join-Path @($vs)[0] 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe' }
+if (-not (Get-Command ninja -ErrorAction SilentlyContinue) -and -not ($vsNinja -and (Test-Path $vsNinja))) {
     Invoke-Native 'Ninja install' { choco install ninja -y --no-progress }
     $env:PATH = "$env:PATH;C:\ProgramData\chocolatey\bin"
 }
