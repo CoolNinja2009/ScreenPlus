@@ -6,8 +6,7 @@
 
 Live wallpapers for Windows.
 
-[![Release](https://img.shields.io/github/v/release/CoolNinja2009/ScreenPlus?style=flat-square&color=FFA500&label=release)](https://github.com/CoolNinja2009/ScreenPlus/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/CoolNinja2009/ScreenPlus/total?style=flat-square&color=0a84ff)](https://github.com/CoolNinja2009/ScreenPlus/releases)
+[![Release](https://img.shields.io/gitlab/v/release/screenplus-group/screenplus?style=flat-square&color=FFA500&label=release)](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square)](LICENSE)
 
 </div>
@@ -17,7 +16,7 @@ Live wallpapers for Windows.
 Screen+ sets videos, GIFs, pictures and web pages as your desktop wallpaper. It is a native Win32 app written in C
 and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpapers work without changes.
 
-**[Download](https://github.com/CoolNinja2009/ScreenPlus/releases/latest)** for Windows 10 or 11 (64-bit).
+**[Download](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)** for Windows 10 or 11 (64-bit).
 
 ## Features
 
@@ -37,7 +36,7 @@ and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpap
 
 ## Install
 
-Run `ScreenPlus-Setup-<version>.exe` from the [latest release](https://github.com/CoolNinja2009/ScreenPlus/releases/latest).
+Run `ScreenPlus-Setup-<version>.exe` from the [latest release](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest).
 **Default** adds the sample wallpapers and your Lively library; **Clean** starts empty. Installing over an existing
 copy updates it and keeps your library.
 
@@ -111,7 +110,7 @@ scripts/build-ffmpeg.sh    # once, from an MSYS2 UCRT64 shell
 build.cmd Release
 ```
 
-The app and installer are written to `build\`. GitHub Actions and GitLab CI build and release every push to `main`.
+The app and installer are written to `build\`. GitLab CI builds and releases every push to `main`.
 
 ## License
 

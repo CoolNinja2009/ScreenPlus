@@ -1,5 +1,5 @@
 # Builds Screen+ and publishes a GitLab release with the installer and a portable zip.
-# Same rules as .github/workflows/release.yml: every push to main that changes the app gets the next
+# Like .github/workflows/release.yml, but every push to main gets the next
 # version, a vX.Y.Z tag releases that exact version, and merge requests are built but not released.
 # The work is in scripts/gitlab-release.ps1. Builds run on the runner on the developer's PC, so that has
 # to be running. They are not signed (SignPath runs on GitHub only).
@@ -20,7 +20,6 @@ workflow:
         - THIRD_PARTY_NOTICES.md
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
-      changes: *app
 
 # The runner on the developer's PC. For GitLab's own Windows machines instead, start a pipeline by hand
 # with BUILD_RUNNER set to saas-windows-medium-amd64.
