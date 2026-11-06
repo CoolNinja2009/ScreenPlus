@@ -293,6 +293,7 @@ static const wchar_t k_help[] =
     L"  displays                               monitors and what they show\n"
     L"\n"
     L"Customise (the wallpaper on screen, or the one on --display N)\n"
+    L"  sharp [file.onnx]                      your own SHARP model for Make wallpaper cooler (not included)\n"
     L"  look                                   colour grading\n"
     L"  look set <key> <value> ...             brightness contrast saturation gamma (-100..100),\n"
     L"                                         hue (-180..180), tint #RRGGBB, tint-strength tint-brightness (0..100)\n"

@@ -21,6 +21,8 @@
  * view and its depth is turned into inverse depth, the scale Depth Anything 2 returns. Video frames are
  * normalised between percentiles that follow the video smoothly, so the depth does not pulse from frame to frame.
  *
+ * SHARP (the user's own ONNX export) gives 3D Gaussians instead of depth: see "SHARP" below. Pictures only.
+ *
  * It is its own process so that a GPU driver fault cannot take the tray app down, and so that the
  * model's memory goes back to Windows when it exits. Pre/post-processing follows the Python reference
  * this was modelled on: ImageNet normalisation, min-max normalisation, a foreground dilation (outlines
@@ -38,6 +40,7 @@
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -769,6 +772,420 @@ done:
 
 /* ---------------------------------------------------------------- entry point */
 
+/* ---------------------------------------------------------------- SHARP
+ * One picture in, about 1.2 million 3D Gaussians out, following Apple's ml-sharp (cli/predict.py, utils/gaussians.py):
+ * the picture stretched to 1536x1536 in 0..1, the disparity factor f/width, a 30 mm focal length when nothing better is
+ * known. Exports name their tensors differently, so inputs are told apart by rank and outputs by name, else by Apple's
+ * order (means, singular values, quaternions wxyz, colours, opacities). The predictor's means are in NDC space
+ * (x, y scaled by 2f/size), an export may have unprojected them already: the spread of x/z tells which.
+ *
+ * All the renderer's preparation happens here, once, so the page does none of it: faint Gaussians are dropped,
+ * covariances are built, colours go from linear to sRGB, and the file is sorted far to near. The wallpaper's camera only
+ * moves a little around the picture's own viewpoint, where that order stays right, so the page never sorts at all.
+ * File: 32-byte header ("SPGS", count, tan x, tan y, focus z, width, height, near z), then 32 bytes each: position (3
+ * floats), RGBA8, covariance xx xy xz yy yz zz as halves scaled by SHARP_COV / z^2, detail weight. Zero-padded to whole
+ * rows of 1024 (a 2048-wide RGBA32UI texture), so the page uploads the file as it is. Focus and near are ml-sharp's: the
+ * depth 10% and 0.1% of the way from the camera. A file from before this has near 0 and weights 0.
+ *
+ * The page adds the picture's fine detail to each Gaussian (splat.html). That is only right for what the picture shows
+ * at that spot: a Gaussian of the sky next to a leaf would take the leaf's edge with it and leave its outline in the air
+ * when the leaf moves away. So the weight is how visible it is in the picture's own view, and nothing for anything
+ * clearly behind a nearer surface within SHARP_REACH cells, the reach of the page's blur.
+ */
+#define SHARP_SIZE   1536
+#define SHARP_COV    1e4f       /* keeps sigma/z of 1e-4 .. 0.5 inside a half's normal range */
+#define SHARP_ALPHA  0.02f      /* fainter ones add nothing visible but still cost their pixels */
+#define SHARP_FOCAL  30.0       /* mm on a 35 mm frame: ml-sharp's default */
+#define SHARP_GRID   768        /* cells across the picture: one per Gaussian of a layer */
+#define SHARP_REACH  4
+
+typedef struct SharpKey { float z; uint32_t i; } SharpKey;
+
+static int cmp_far_first(const void *a, const void *b)
+{
+    float x = ((const SharpKey *)a)->z, y = ((const SharpKey *)b)->z;
+    return x < y ? 1 : x > y ? -1 : 0;
+}
+
+static uint16_t half_of(float v)
+{
+    union { float f; uint32_t u; } c;
+    c.f = v;
+    uint32_t sign = (c.u >> 16) & 0x8000u;
+    int e = (int)((c.u >> 23) & 255) - 112;
+    uint32_t m = c.u & 0x7fffffu;
+    if (e >= 31) return (uint16_t)(sign | 0x7bffu);                  /* the largest finite half */
+    if (e <= 0) return e < -10 ? (uint16_t)sign : (uint16_t)(sign | ((m | 0x800000u) >> (14 - e)));
+    return (uint16_t)(sign | ((uint32_t)e << 10) | (m >> 13));
+}
+
+static uint8_t srgb_byte(float c)
+{
+    c = c < 0.0f ? 0.0f : c > 1.0f ? 1.0f : c;
+    c = c <= 0.0031308f ? 12.92f * c : 1.055f * powf(c, 1.0f / 2.4f) - 0.055f;
+    return (uint8_t)(c * 255.0f + 0.5f);
+}
+
+/* The detail weights, in key order (far to near): see above. NULL: no memory. */
+static uint8_t *sharp_weights(const float *mean, const float *sv, const float *op, const SharpKey *key, size_t kept,
+                              float sx, float sy, float tanX, float tanY)
+{
+    const int G = SHARP_GRID;
+    const size_t cells = (size_t)G * G;
+    uint8_t *wt = (uint8_t *)calloc(kept, 1);
+    float *see = (float *)malloc(cells * sizeof(float)), *front = (float *)calloc(cells, sizeof(float));
+    float *rows = (float *)malloc(cells * sizeof(float)), *nearby = (float *)malloc(cells * sizeof(float));
+    int *at = (int *)malloc(kept * sizeof(int));
+    uint8_t *ok = NULL;
+    if (!wt || !see || !front || !rows || !nearby || !at) goto done;
+    for (size_t c = 0; c < cells; c++) see[c] = 1.0f;
+    for (size_t k = kept; k-- > 0;) {              /* near to far, as the picture's own view stacks them */
+        size_t i = key[k].i;
+        float z = key[k].z, a = SP_MIN(op[i], 1.0f);
+        int cx = (int)((mean[i * 3] * sx / z / tanX * 0.5f + 0.5f) * G), cy = (int)((mean[i * 3 + 1] * sy / z / tanY * 0.5f + 0.5f) * G);
+        at[k] = -1;
+        if (cx < 0 || cy < 0 || cx >= G || cy >= G) continue;
+        at[k] = cy * G + cx;
+        wt[k] = (uint8_t)(see[at[k]] * 255.0f + 0.5f);
+        const float *s = sv + i * 3;
+        float sig = SP_MAX(s[0], SP_MAX(s[1], s[2])) * SP_MAX(sx / tanX, sy / tanY) / z * G * 0.5f;
+        int r = SP_MIN((int)(sig * 2.0f), 8);
+        float fall = -0.5f / SP_MAX(sig * sig, 0.25f);
+        for (int y = SP_MAX(cy - r, 0); y <= SP_MIN(cy + r, G - 1); y++) {
+            for (int x = SP_MAX(cx - r, 0); x <= SP_MIN(cx + r, G - 1); x++) {
+                size_t c = (size_t)y * G + x;
+                float dx = (float)(x - cx), dy = (float)(y - cy);
+                see[c] *= 1.0f - a * expf(fall * (dx * dx + dy * dy));
+                if (see[c] < 0.5f && front[c] == 0.0f) front[c] = z;
+            }
+        }
+    }
+    for (int y = 0; y < G; y++) {                  /* the nearest surface around each cell */
+        for (int x = 0; x < G; x++) {
+            float m = 1e30f;
+            for (int d = SP_MAX(x - SHARP_REACH, 0); d <= SP_MIN(x + SHARP_REACH, G - 1); d++) {
+                float v = front[(size_t)y * G + d];
+                if (v > 0.0f && v < m) m = v;
+            }
+            rows[(size_t)y * G + x] = m;
+        }
+    }
+    for (int y = 0; y < G; y++) {
+        for (int x = 0; x < G; x++) {
+            float m = 1e30f;
+            for (int d = SP_MAX(y - SHARP_REACH, 0); d <= SP_MIN(y + SHARP_REACH, G - 1); d++) m = SP_MIN(m, rows[(size_t)d * G + x]);
+            nearby[(size_t)y * G + x] = m;
+        }
+    }
+    for (size_t k = 0; k < kept; k++) {
+        if (at[k] < 0) continue;
+        float m = nearby[at[k]], t = (key[k].z - m) / m;      /* how far behind it, as a share of the depth */
+        t = t <= 0.03f ? 0.0f : t >= 0.1f ? 1.0f : (t - 0.03f) / 0.07f;
+        wt[k] = (uint8_t)(wt[k] * (1.0f - t * t * (3.0f - 2.0f * t)));
+    }
+    ok = wt;
+done:
+    if (!ok) free(wt);
+    free(at);
+    free(nearby);
+    free(rows);
+    free(front);
+    free(see);
+    return ok;
+}
+
+/* Gaussians in, the page's file out. */
+static BOOL sharp_write(const float *mean, const float *sv, const float *quat, const float *col, const float *op, size_t n,
+                        UINT w, UINT h, double focal, const wchar_t *out, const wchar_t *tmp)
+{
+    enum { SAMPLE = 20000 };
+    float *sample = (float *)malloc(SAMPLE * sizeof(float));
+    SharpKey *key = (SharpKey *)malloc(n * sizeof(SharpKey));
+    uint32_t *rec = NULL;
+    uint8_t *wt = NULL;
+    BOOL ok = FALSE;
+    float tanX = (float)(w / (2.0 * focal)), tanY = (float)(h / (2.0 * focal));
+    if (!sample || !key) goto done;
+    size_t got = 0, stride = SP_MAX(n / SAMPLE, (size_t)1);
+    for (size_t i = 0; i < n && got < SAMPLE; i += stride)
+        if (mean[i * 3 + 2] > 0.01f) sample[got++] = fabsf(mean[i * 3] / mean[i * 3 + 2]);
+    if (!got) {
+        LOGE(L"depth: SHARP gave nothing in front of the camera");
+        goto done;
+    }
+    qsort(sample, got, sizeof(float), cmp_float);
+    /* NDC reaches 1 at the picture's edge; unprojected x/z reaches only tan x */
+    float reach = sample[got * 99 / 100], mid = (1.0f + tanX) * 0.5f;
+    int ndc = tanX < 1.0f ? reach > mid : reach < mid;     /* with tan x near 1 the two are the same anyway */
+    float sx = ndc ? tanX : 1.0f, sy = ndc ? tanY : 1.0f;
+    LOGI(L"depth: SHARP gave %llu Gaussians in %ls space", (unsigned long long)n, ndc ? L"NDC" : L"camera");
+
+    size_t kept = 0;
+    for (size_t i = 0; i < n; i++) {
+        float z = mean[i * 3 + 2];
+        if (z > 0.01f && op[i] >= SHARP_ALPHA && isfinite(z) && isfinite(mean[i * 3]) && isfinite(mean[i * 3 + 1])) {
+            key[kept].z = z;
+            key[kept++].i = (uint32_t)i;
+        }
+    }
+    if (!kept) goto done;
+    qsort(key, kept, sizeof(SharpKey), cmp_far_first);
+    if (!(wt = sharp_weights(mean, sv, op, key, kept, sx, sy, tanX, tanY))) goto done;
+    size_t padded = (kept + 1023) / 1024 * 1024;
+    if (!(rec = (uint32_t *)calloc(padded * 8 + 8, sizeof(uint32_t)))) goto done;
+    float focus = key[kept - 1 - kept / 10].z, nearZ = key[kept - 1 - kept / 1000].z;
+    memcpy(&rec[0], "SPGS", 4);
+    rec[1] = (uint32_t)kept;
+    memcpy(&rec[2], &tanX, 4);
+    memcpy(&rec[3], &tanY, 4);
+    memcpy(&rec[4], &focus, 4);
+    rec[5] = w;
+    rec[6] = h;
+    memcpy(&rec[7], &nearZ, 4);
+    uint32_t *o = rec + 8;
+    for (size_t k = 0; k < kept; k++) {
+        size_t i = key[k].i;
+        const float *q = quat + i * 4, *s = sv + i * 3, *c = col + i * 3;
+        float len = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]) + 1e-12f;
+        float qw = q[0] / len, qx = q[1] / len, qy = q[2] / len, qz = q[3] / len, z = key[k].z;
+        float R[3][3] = {
+            { 1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qw * qz),     2 * (qx * qz + qw * qy) },
+            { 2 * (qx * qy + qw * qz),     1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qw * qx) },
+            { 2 * (qx * qz - qw * qy),     2 * (qy * qz + qw * qx),     1 - 2 * (qx * qx + qy * qy) } };
+        float L[3] = { sx, sy, 1.0f }, M[3][3], cov[6];
+        for (int r = 0; r < 3; r++) for (int j = 0; j < 3; j++) M[r][j] = L[r] * R[r][j] * s[j];
+        static const int ix[6][2] = { { 0, 0 }, { 0, 1 }, { 0, 2 }, { 1, 1 }, { 1, 2 }, { 2, 2 } };
+        for (int e = 0; e < 6; e++) {
+            const float *a = M[ix[e][0]], *b = M[ix[e][1]];
+            cov[e] = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) * SHARP_COV / (z * z);
+        }
+        float pos[3] = { mean[i * 3] * sx, mean[i * 3 + 1] * sy, z };
+        memcpy(o, pos, sizeof pos);
+        o[3] = (uint32_t)srgb_byte(c[0]) | (uint32_t)srgb_byte(c[1]) << 8 | (uint32_t)srgb_byte(c[2]) << 16 |
+               (uint32_t)(uint8_t)(SP_MIN(op[i], 1.0f) * 255.0f + 0.5f) << 24;
+        for (int e = 0; e < 3; e++) o[4 + e] = (uint32_t)half_of(cov[e * 2]) | (uint32_t)half_of(cov[e * 2 + 1]) << 16;
+        o[7] = wt[k];
+        o += 8;
+    }
+    HANDLE f = CreateFileW(tmp, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) goto done;
+    BOOL wrote = put(f, rec, (DWORD)((padded * 8 + 8) * sizeof(uint32_t)));
+    CloseHandle(f);
+    ok = wrote && MoveFileExW(tmp, out, MOVEFILE_REPLACE_EXISTING);
+    if (!ok) DeleteFileW(tmp);
+    LOGI(L"depth: SHARP kept %llu Gaussians of %llu, focus at %.2f", (unsigned long long)kept, (unsigned long long)n, focus);
+done:
+    free(wt);
+    free(rec);
+    free(key);
+    free(sample);
+    return ok;
+}
+
+/* Which of Apple's five outputs a name means; -1: can't tell. */
+static int sharp_slot(const char *name)
+{
+    static const char *const k[5][3] = { { "mean", "position", "xyz" }, { "singular", "scale", NULL }, { "quat", "rot", NULL },
+                                         { "color", "colour", "rgb" }, { "opac", "alpha", NULL } };
+    char low[128];
+    size_t i = 0;
+    for (; name[i] && i < sizeof low - 1; i++) low[i] = (char)tolower((unsigned char)name[i]);
+    low[i] = 0;
+    for (int s = 0; s < 5; s++) for (int j = 0; j < 3; j++) if (k[s][j] && strstr(low, k[s][j])) return s;
+    return -1;
+}
+
+/* Load, run, write, unload. */
+static BOOL sharp_run(HMODULE dll, int gpu, const wchar_t *model, float *chw, float disparity, UINT w, UINT h, double focal,
+                      const wchar_t *out, const wchar_t *tmp, double *ms, double *runMs)
+{
+    Sess x;
+    OrtAllocator *al = NULL;
+    char *inName[2] = { NULL, NULL }, *outName[5] = { NULL, NULL, NULL, NULL, NULL }, *names[8] = { 0 };
+    OrtValue *in[2] = { NULL, NULL }, *res[5] = { NULL, NULL, NULL, NULL, NULL };
+    OrtTypeInfo *ti = NULL;
+    OrtTensorTypeAndShapeInfo *info = NULL;
+    size_t nIn = 0, nOut = 0, used = 0, discRank = 1;
+    BOOL ok = FALSE;
+    float disp = disparity;
+    double t0 = time_ms();
+    if (!sess_open(&x, dll, gpu, model, 0, SHARP_SIZE, SHARP_SIZE)) return FALSE;
+    double t1 = time_ms();
+    ORT(g_o->GetAllocatorWithDefaultOptions(&al));
+    ORT(g_o->SessionGetInputCount(x.s, &nIn));
+    ORT(g_o->SessionGetOutputCount(x.s, &nOut));
+    if (nIn < 1 || nIn > 2 || nOut < 5 || nOut > 8) {
+        LOGE(L"depth: not a SHARP model: %d inputs, %d outputs", (int)nIn, (int)nOut);
+        goto done;
+    }
+    for (size_t i = 0; i < nIn; i++) {
+        const OrtTensorTypeAndShapeInfo *ci = NULL;
+        ONNXTensorElementDataType type;
+        size_t rank = 0;
+        char *name = NULL;
+        ORT(g_o->SessionGetInputName(x.s, i, al, &name));
+        ORT(g_o->SessionGetInputTypeInfo(x.s, i, &ti));
+        ORT(g_o->CastTypeInfoToTensorInfo(ti, &ci));
+        ORT(g_o->GetTensorElementType(ci, &type));
+        ORT(g_o->GetDimensionsCount(ci, &rank));
+        g_o->ReleaseTypeInfo(ti);
+        ti = NULL;
+        inName[rank == 4 ? 0 : 1] = name;
+        if (rank != 4) discRank = rank;
+        if (type != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+            LOGE(L"depth: this SHARP export wants another number type than 32-bit float");
+            goto done;
+        }
+    }
+    if (!inName[0]) {
+        LOGE(L"depth: not a SHARP model: no picture input");
+        goto done;
+    }
+    for (size_t i = 0; i < nOut; i++) {
+        ORT(g_o->SessionGetOutputName(x.s, i, al, &names[i]));
+        int s = sharp_slot(names[i]);
+        if (s >= 0 && !outName[s]) {
+            outName[s] = names[i];
+            used |= (size_t)1 << i;
+        }
+    }
+    for (int s = 0; s < 5; s++) {               /* the rest by Apple's order */
+        for (size_t i = 0; !outName[s] && i < nOut; i++) {
+            if (used & ((size_t)1 << i)) continue;
+            outName[s] = names[i];
+            used |= (size_t)1 << i;
+        }
+    }
+    int64_t shape[4] = { 1, 3, SHARP_SIZE, SHARP_SIZE }, one[4] = { 1, 1, 1, 1 };
+    ORT(g_o->CreateTensorWithDataAsOrtValue(x.mi, chw, (size_t)SHARP_SIZE * SHARP_SIZE * 3 * sizeof(float), shape, 4,
+                                            ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in[0]));
+    if (inName[1]) ORT(g_o->CreateTensorWithDataAsOrtValue(x.mi, &disp, sizeof disp, one, discRank,
+                                                           ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in[1]));
+    {
+        const char *ins[2] = { inName[0], inName[1] }, *outs[5];
+        for (int s = 0; s < 5; s++) outs[s] = outName[s];
+        ORT(g_o->Run(x.s, NULL, ins, (const OrtValue *const *)in, inName[1] ? 2 : 1, outs, 5, res));
+    }
+    double t2 = time_ms();
+    {
+        static const size_t width[5] = { 3, 3, 4, 3, 1 };
+        float *d[5] = { NULL };
+        size_t n = 0;
+        for (int s = 0; s < 5; s++) {
+            size_t total = 0;
+            ONNXTensorElementDataType type;
+            ORT(g_o->GetTensorTypeAndShape(res[s], &info));
+            ORT(g_o->GetTensorShapeElementCount(info, &total));
+            ORT(g_o->GetTensorElementType(info, &type));
+            g_o->ReleaseTensorTypeAndShapeInfo(info);
+            info = NULL;
+            ORT(g_o->GetTensorMutableData(res[s], (void **)&d[s]));
+            if (s == 0) n = total / 3;
+            if (type != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT || !n || total != n * width[s]) {
+                LOGE(L"depth: output %hs is not what SHARP gives (%llu values for %llu Gaussians)", outName[s], (unsigned long long)total,
+                     (unsigned long long)n);
+                goto done;
+            }
+        }
+        ok = sharp_write(d[0], d[1], d[2], d[3], d[4], n, w, h, focal, out, tmp);
+    }
+    if (ok) {
+        if (ms) *ms = t2 - t0;
+        if (runMs) *runMs = t2 - t1;
+        LOGI(L"depth: SHARP on %ls: session %.0f ms, run %.0f ms, written in %.0f ms", gpu ? L"DirectML" : L"CPU", t1 - t0, t2 - t1, time_ms() - t2);
+    }
+done:
+    if (info) g_o->ReleaseTensorTypeAndShapeInfo(info);
+    if (ti) g_o->ReleaseTypeInfo(ti);
+    for (int s = 0; s < 5; s++) if (res[s]) g_o->ReleaseValue(res[s]);
+    for (int i = 0; i < 2; i++) if (in[i]) g_o->ReleaseValue(in[i]);
+    if (al) {
+        for (int i = 0; i < 2; i++) if (inName[i]) al->Free(al, inName[i]);
+        for (int i = 0; i < 8; i++) if (names[i]) al->Free(al, names[i]);
+    }
+    sess_close(&x);
+    return ok;
+}
+
+/* The lens in mm on a 35 mm frame, as ml-sharp reads it from EXIF: the 35 mm figure, else the plain one (a phone's, under
+ * 10 mm, times 8.4), else its default. */
+static double sharp_focal_mm(IWICImagingFactory *f, const wchar_t *path)
+{
+    IWICBitmapDecoder *dec = NULL;
+    IWICBitmapFrameDecode *frame = NULL;
+    IWICMetadataQueryReader *q = NULL;
+    double mm = 0.0;
+    if (SUCCEEDED(IWICImagingFactory_CreateDecoderFromFilename(f, path, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) &&
+        SUCCEEDED(IWICBitmapDecoder_GetFrame(dec, 0, &frame)) && SUCCEEDED(IWICBitmapFrameDecode_GetMetadataQueryReader(frame, &q))) {
+        PROPVARIANT v;
+        PropVariantInit(&v);
+        if (SUCCEEDED(IWICMetadataQueryReader_GetMetadataByName(q, L"/app1/ifd/exif/{ushort=41989}", &v)) && v.vt == VT_UI2) mm = v.uiVal;
+        PropVariantClear(&v);
+        if (mm < 1.0) {
+            mm = 0.0;
+            if (SUCCEEDED(IWICMetadataQueryReader_GetMetadataByName(q, L"/app1/ifd/exif/{ushort=37386}", &v)) && v.vt == VT_UI8) {
+                uint32_t num = (uint32_t)v.uhVal.QuadPart, den = (uint32_t)(v.uhVal.QuadPart >> 32);
+                if (den) mm = (double)num / den;
+                if (mm > 0.0 && mm < 10.0) mm *= 8.4;
+            }
+            PropVariantClear(&v);
+        }
+    }
+    SP_RELEASE(q);
+    SP_RELEASE(frame);
+    SP_RELEASE(dec);
+    return mm >= 1.0 ? mm : SHARP_FOCAL;
+}
+
+/* The picture to the page's file: the GPU unless it has failed here before, else the CPU. Exit code. */
+static int sharp_picture(IWICImagingFactory *f, IWICBitmapSource *src, UINT sw, UINT sh, HMODULE dll, const wchar_t *model,
+                         const wchar_t *out, const wchar_t *tmp, int mode, const wchar_t *image)
+{
+    const size_t px = (size_t)SHARP_SIZE * SHARP_SIZE;
+    uint8_t *rgb = scaled_rgb(f, src, SHARP_SIZE, SHARP_SIZE);
+    float *chw = rgb ? (float *)malloc(px * 3 * sizeof(float)) : NULL;
+    Backend rec;
+    char fp[17] = "";
+    BOOL known = FALSE, ok;
+    int gpu = 0;
+    if (!chw) {
+        free(rgb);
+        LOGE(L"depth: out of memory");
+        return 4;
+    }
+    for (size_t i = 0; i < px; i++)
+        for (int c = 0; c < 3; c++) chw[(size_t)c * px + i] = rgb[i * 3 + c] / 255.0f;
+    free(rgb);
+    double mm = sharp_focal_mm(f, image), focal = mm * sqrt((double)sw * sw + (double)sh * sh) / sqrt(36.0 * 36.0 + 24.0 * 24.0);
+    LOGI(L"depth: SHARP lens %.0f mm", mm);
+    ZeroMemory(&rec, sizeof rec);
+    if (mode == DEPTH_AUTO || mode == DEPTH_BENCH) {
+        adapter_fingerprint(fp);
+        known = mode == DEPTH_AUTO && read_backend(&rec, fp);
+        gpu = !known || rec.gpu;
+    }
+    if (!known) {
+        ZeroMemory(&rec, sizeof rec);
+        strncpy_s(rec.ort, sizeof rec.ort, g_ortVersion, _TRUNCATE);
+        strncpy_s(rec.fp, sizeof rec.fp, fp, _TRUNCATE);
+    }
+    double ms = 0, run = 0;
+    ok = sharp_run(dll, gpu, model, chw, (float)(focal / sw), sw, sh, focal, out, tmp, &ms, &run);
+    if (!ok && gpu) {
+        LOGW(L"depth: SHARP failed on the GPU; trying the CPU");
+        gpu = 0;
+        ok = sharp_run(dll, 0, model, chw, (float)(focal / sw), sw, sh, focal, out, tmp, &ms, &run);
+    }
+    free(chw);
+    if (ok && mode != DEPTH_CPU) {
+        rec.gpu = gpu;
+        if (gpu) { rec.gpuMs = ms; rec.gpuRun = run; }
+        else { rec.cpuMs = ms; rec.cpuRun = run; }
+        write_backend(&rec);
+    }
+    return ok ? 0 : 4;
+}
+
 int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng, const wchar_t *modelKey, int video, HWND notifyWnd)
 {
     IWICImagingFactory *f = NULL;
@@ -788,10 +1205,11 @@ int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wan
          mode == DEPTH_CPU ? L"CPU only" : mode == DEPTH_CRASHED ? L"CPU, after a crash" : mode == DEPTH_BENCH ? L"test both" : L"fastest of GPU and CPU");
 
     depth_model_file(g_model, model, SP_COUNTOF(model));
-    if (g_model) str_printf(name, SP_COUNTOF(name), L"depth-%ls%ls", m->key, video ? L".bin" : L".png");
+    if (g_model) str_printf(name, SP_COUNTOF(name), L"depth-%ls%ls", m->key, video || m->splat ? L".bin" : L".png");
     else str_copy(name, SP_COUNTOF(name), video ? L"depth.bin" : L"depth.png");
     path_join(png, SP_COUNTOF(png), dir, name);
     if (FAILED(CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&f))) goto done;
+    if (video && m->splat) goto done;
     if (video) {
         rc = 3;
         if (!(dll = load_runtime())) goto done;
@@ -802,6 +1220,17 @@ int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wan
     path_join(tmp, SP_COUNTOF(tmp), dir, L"depth.tmp");
     if (!(src = open_upright(f, image, &sw, &sh))) {
         LOGE(L"depth: cannot read the picture");
+        goto done;
+    }
+    if (m->splat) {
+        rc = 3;
+        if (!(dll = load_runtime())) goto done;
+        rc = sharp_picture(f, src, sw, sh, dll, model, png, tmp, mode, image);
+        if (!rc && wantPng) {
+            path_join(tmp, SP_COUNTOF(tmp), dir, L"image.png");
+            if (!save_picture_copy(f, src, sw, sh, tmp)) rc = 4;
+        }
+        if (!rc) LOGI(L"depth: finished in %.0f ms", time_ms() - t0);
         goto done;
     }
     model_size(sw, sh, m->shortSide, &w, &h);

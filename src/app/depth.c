@@ -12,6 +12,11 @@
  *      converted in place into a plain web wallpaper (WP_HTML + WPFLAG_DEPTH, `thumb` = the original file,
  *      which also lets it go back), so everything else is the existing machinery: the engine's WebView2
  *      renderer, mouse forwarding, Customise properties (depth strength, auto move), grading.
+ * SHARP is the exception to step 1: its licence rules out shipping or downloading it, so the user picks an ONNX
+ * export they got themselves (depth_choose_model; the path waits in models\sharp\path.txt, and any .onnx put in that
+ * folder works too). keep_user_model then brings it and the weights its graph names into that folder, so it stays when
+ * the original moves or goes: hard links, which cost no space, else a copy. Over 2 GB an export is a graph plus a weights file (x.onnx + x.onnx.data):
+ * they keep their names, because the graph names its weights file and ONNX Runtime looks beside it. The child writes 3D Gaussians and the page is resources/splat.html. Pictures only.
  * The engine and the library never wait for any of it: the plain wallpaper keeps showing until the page is ready.
  * depth_estimate() rates each model for this PC (from what the child measured here, else from the GPU's memory
  * and the CPU's threads) for the model list on the Customise page. */
@@ -25,6 +30,7 @@
 #include "../renderer/renderer.h"
 #include "../../resources/resource.h"
 #include <dxgi.h>
+#include <shobjidl.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,6 +67,8 @@ static const DepthModel k_models[] = {
       HF L"depth-anything-v3-large/resolve/main/onnx/model.onnx", HF L"depth-anything-v3-large/resolve/main/onnx/model.onnx_data",
       1093118, 1381741568, "2c02d70b301b4b51c357e7f04c371e27b5d4a5520a0ef11b8c657627e86b4a7e",
       "3aee647d45b208cbff14f4a738737a4bd9f9e5fbce2c48e7a6db311ea807060c", 1, 504, 12.5f, 4.5f },
+    { L"sharp", L"SHARP", L"For low-detail pictures (birds, branches), not landscapes.",
+      NULL, NULL, 0, 0, NULL, NULL, 0, 1536, 60.0f, 8.0f, 1, 1 },
 };
 
 /* Properties of the generated page (Lively format, so Customise shows them like any package's). */
@@ -68,6 +76,13 @@ static const char k_props[] =
     "{\"strength\":{\"type\":\"slider\",\"text\":\"Depth strength\",\"min\":0,\"max\":100,\"step\":1,\"value\":40},"
     "\"autoMove\":{\"type\":\"checkbox\",\"text\":\"Auto move\",\"value\":false},"
     "\"autoSpeed\":{\"type\":\"slider\",\"text\":\"Auto move speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100}}";
+static const char k_splatProps[] =
+    "{\"strength\":{\"type\":\"slider\",\"text\":\"Depth strength\",\"min\":0,\"max\":100,\"step\":1,\"value\":40},"
+    "\"autoMove\":{\"type\":\"checkbox\",\"text\":\"Auto move\",\"value\":false},"
+    "\"autoSpeed\":{\"type\":\"slider\",\"text\":\"Auto move speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100},"
+    "\"quality\":{\"type\":\"slider\",\"text\":\"Quality\",\"min\":50,\"max\":100,\"step\":5,\"value\":100},"
+    "\"detail\":{\"type\":\"slider\",\"text\":\"Detail\",\"min\":0,\"max\":200,\"step\":10,\"value\":100},"
+    "\"fps\":{\"type\":\"slider\",\"text\":\"Frame rate\",\"min\":30,\"max\":120,\"step\":10,\"value\":60}}";
 
 typedef struct DepthJob {
     wchar_t id[SP_ID_LEN];          /* wallpaper to convert; empty: only fetch the files */
@@ -231,10 +246,39 @@ void depth_model_dir(int i, wchar_t *out, size_t cap)
     in_depth(out, cap, rel);
 }
 
+/* The file a user model was chosen from, kept in its folder: the weights beside it stay where they are. */
+static BOOL user_model_path(int i, wchar_t *out, size_t cap)
+{
+    wchar_t d[SP_MAX_PATH], p[SP_MAX_PATH];
+    char text[3 * SP_MAX_PATH];
+    DWORD n = 0;
+    depth_model_dir(i, d, SP_COUNTOF(d));
+    path_join(p, SP_COUNTOF(p), d, L"path.txt");
+    HANDLE f = CreateFileW(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return FALSE;
+    BOOL ok = ReadFile(f, text, sizeof text - 1, &n, NULL) && n > 0;
+    CloseHandle(f);
+    if (!ok) return FALSE;
+    text[n] = 0;
+    return MultiByteToWideChar(CP_UTF8, 0, text, -1, out, (int)cap) > 0;
+}
+
 void depth_model_file(int i, wchar_t *out, size_t cap)
 {
     wchar_t d[SP_MAX_PATH];
+    if (depth_model(i)->user && user_model_path(i, out, cap) && file_exists(out)) return;
     depth_model_dir(i, d, SP_COUNTOF(d));
+    if (depth_model(i)->user) {                    /* files put in its folder, whatever they are called */
+        wchar_t pat[SP_MAX_PATH];
+        WIN32_FIND_DATAW fd;
+        path_join(pat, SP_COUNTOF(pat), d, L"*.onnx");
+        HANDLE h = FindFirstFileW(pat, &fd);
+        if (h != INVALID_HANDLE_VALUE) {
+            FindClose(h);
+            path_join(out, cap, d, fd.cFileName);
+            return;
+        }
+    }
     path_join(out, cap, d, L"model.onnx");
 }
 
@@ -251,10 +295,175 @@ BOOL depth_model_ready(int i)
     const DepthModel *m = depth_model(i);
     wchar_t f[SP_MAX_PATH];
     depth_model_file(i, f, SP_COUNTOF(f));
+    if (m->user) return file_exists(f);
     if (!file_is(f, m->size, NULL)) return FALSE;
     if (!m->dataUrl) return TRUE;
     model_data_file(i, f, SP_COUNTOF(f));
     return file_is(f, m->dataSize, NULL);
+}
+
+/* The weights files a graph names, from the graph itself: an export can use one or hundreds, called anything. Each
+ * external tensor holds a protobuf entry key "location", value the file. Plain names only; the array has room for one
+ * more. Returns how many, -1: a name that isn't a plain file, or no memory. A graph over 256 MB holds its own weights. */
+static int weight_files(const wchar_t *onnx, wchar_t (**out)[MAX_PATH])
+{
+    static const char key[] = "\x0a\x08location\x12";
+    const size_t klen = sizeof key - 1;
+    wchar_t (*list)[MAX_PATH] = (wchar_t (*)[MAX_PATH])malloc(sizeof *list);
+    int n = 0, cap = 1, rc = -1;
+    DWORD got = 0;
+    LARGE_INTEGER sz = { 0 };
+    uint8_t *b = NULL;
+    HANDLE f = CreateFileW(onnx, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    *out = NULL;
+    if (!list) goto done;
+    if (f == INVALID_HANDLE_VALUE || !GetFileSizeEx(f, &sz) || sz.QuadPart > 256 * 1024 * 1024 || sz.QuadPart < (LONGLONG)klen) {
+        rc = 0;
+        goto done;
+    }
+    if (!(b = (uint8_t *)malloc((size_t)sz.QuadPart)) || !ReadFile(f, b, (DWORD)sz.QuadPart, &got, NULL) || got != (DWORD)sz.QuadPart) goto done;
+    for (size_t i = 0; i + klen < got; i++) {
+        if (b[i] != 0x0a || memcmp(b + i, key, klen) != 0) continue;
+        size_t p = i + klen, len = 0;
+        int shift = 0;
+        while (p < got && shift < 28) {
+            uint8_t c = b[p++];
+            len |= (size_t)(c & 127) << shift;
+            shift += 7;
+            if (c < 128) break;
+        }
+        wchar_t name[MAX_PATH];
+        if (!len || len >= MAX_PATH || p + len > got) goto done;
+        int w = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, (const char *)b + p, (int)len, name, MAX_PATH - 1);
+        if (w <= 0) goto done;
+        name[w] = 0;
+        if (wcspbrk(name, L"/\\:") || wcscmp(name, L"..") == 0) goto done;
+        int seen = 0;
+        for (int k = n - 1; k >= 0 && !seen; k--) seen = str_ieq(list[k], name);
+        if (seen) continue;
+        if (n + 1 >= cap) {
+            void *more = realloc(list, (size_t)(cap *= 2) * sizeof *list);
+            if (!more) goto done;
+            list = (wchar_t (*)[MAX_PATH])more;
+        }
+        str_copy(list[n++], MAX_PATH, name);
+    }
+    rc = n;
+done:
+    free(b);
+    if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+    if (rc < 0) free(list);
+    else *out = list;
+    return rc;
+}
+
+/* FALSE: a weights file its graph names isn't beside it, or a graph too small to hold SHARP's weights names none. */
+BOOL depth_model_has_weights(const wchar_t *onnx)
+{
+    wchar_t (*list)[MAX_PATH] = NULL, dir[SP_MAX_PATH], f[SP_MAX_PATH];
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    int n = weight_files(onnx, &list);
+    BOOL ok = TRUE;
+    if (n < 0) return TRUE;                        /* ONNX Runtime will say */
+    path_dirname(dir, SP_COUNTOF(dir), onnx);
+    for (int k = 0; k < n && ok; k++) {
+        path_join(f, SP_COUNTOF(f), dir, list[k]);
+        ok = file_exists(f);
+    }
+    free(list);
+    if (n == 0) ok = GetFileAttributesExW(onnx, GetFileExInfoStandard, &a) && (a.nFileSizeHigh || a.nFileSizeLow > 100u * 1024 * 1024);
+    return ok;
+}
+
+BOOL depth_set_model_file(int i, const wchar_t *path)
+{
+    wchar_t d[SP_MAX_PATH], p[SP_MAX_PATH];
+    char *text = utf8_from_wide(path, NULL);
+    depth_model_dir(i, d, SP_COUNTOF(d));
+    path_join(p, SP_COUNTOF(p), d, L"path.txt");
+    BOOL ok = text && dir_create_recursive(d) && write_file(p, text, strlen(text));
+    free(text);
+    return ok;
+}
+
+BOOL depth_choose_model(int i, HWND owner)
+{
+    IFileOpenDialog *dlg = NULL;
+    IShellItem *it = NULL;
+    PWSTR path = NULL;
+    BOOL ok = FALSE;
+    static const COMDLG_FILTERSPEC filter[] = { { L"ONNX model", L"*.onnx" } };
+    if (FAILED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog, (void **)&dlg))) return FALSE;
+    IFileOpenDialog_SetFileTypes(dlg, (UINT)SP_COUNTOF(filter), filter);
+    IFileOpenDialog_SetTitle(dlg, L"Choose your SHARP .onnx");
+    if (SUCCEEDED(IFileOpenDialog_Show(dlg, owner)) && SUCCEEDED(IFileOpenDialog_GetResult(dlg, &it)) &&
+        SUCCEEDED(IShellItem_GetDisplayName(it, SIGDN_FILESYSPATH, &path))) {
+        if (depth_model_has_weights(path)) ok = depth_set_model_file(i, path);
+        else app_notice(NOTICE_ERROR, L"Its weights are missing. Keep the .onnx.data file beside the .onnx.");
+        CoTaskMemFree(path);
+    }
+    SP_RELEASE(it);
+    IFileOpenDialog_Release(dlg);
+    return ok;
+}
+
+/* Links, else (copy) copies, the files into the model's folder after clearing it. FALSE: the folder has no whole model. */
+static BOOL keep_files(int i, const wchar_t *srcDir, const wchar_t *dir, const wchar_t *src, wchar_t (*files)[MAX_PATH], int n, BOOL copy)
+{
+    wchar_t pat[SP_MAX_PATH], from[SP_MAX_PATH], to[SP_MAX_PATH];
+    WIN32_FIND_DATAW fd;
+    int done = 0;
+    path_join(to, SP_COUNTOF(to), dir, L"link.test");
+    DeleteFileW(to);
+    BOOL links = CreateHardLinkW(to, src, NULL);
+    if (links) DeleteFileW(to);
+    if (!links && !copy) return FALSE;             /* off the worker: the old model stays until a job can copy */
+    path_join(pat, SP_COUNTOF(pat), dir, L"*");
+    HANDLE h = FindFirstFileW(pat, &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            if ((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) || str_ieq(fd.cFileName, L"path.txt") || str_ieq(fd.cFileName, L"backend.json")) continue;
+            path_join(to, SP_COUNTOF(to), dir, fd.cFileName);
+            DeleteFileW(to);
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    for (int k = 0; k < n; k++) {
+        path_join(from, SP_COUNTOF(from), srcDir, files[k]);
+        path_join(to, SP_COUNTOF(to), dir, files[k]);
+        if (CreateHardLinkW(to, from, NULL) || (copy && CopyFileW(from, to, FALSE))) done++;
+    }
+    if (done == n) return TRUE;
+    LOGW(L"depth: could not keep %ls in the data folder", depth_model(i)->name);
+    for (int k = 0; k < n; k++) {
+        path_join(to, SP_COUNTOF(to), dir, files[k]);
+        DeleteFileW(to);
+    }
+    return FALSE;
+}
+
+/* The chosen model and the weights its graph names into the model's folder, so it stays when the original goes. On any
+ * doubt it stays where it is and path.txt keeps pointing there. Off the worker (copy FALSE) it only links, which is
+ * instant; a copy of gigabytes waits for a job. */
+static void keep_user_model(int i, BOOL copy)
+{
+    wchar_t src[SP_MAX_PATH], srcDir[SP_MAX_PATH], dir[SP_MAX_PATH], txt[SP_MAX_PATH], (*files)[MAX_PATH] = NULL;
+    if (!depth_model(i)->user || !user_model_path(i, src, SP_COUNTOF(src)) || !file_exists(src) || !depth_model_has_weights(src)) return;
+    depth_model_dir(i, dir, SP_COUNTOF(dir));
+    path_dirname(srcDir, SP_COUNTOF(srcDir), src);
+    path_join(txt, SP_COUNTOF(txt), dir, L"path.txt");
+    if (str_ieq(srcDir, dir)) {
+        DeleteFileW(txt);
+        return;
+    }
+    int n = weight_files(src, &files);
+    if (n < 0) return;
+    str_copy(files[n++], MAX_PATH, path_filename(src));
+    if (keep_files(i, srcDir, dir, src, files, n, copy)) {
+        DeleteFileW(txt);
+        LOGI(L"depth: keeping %ls in %ls (%d files)", depth_model(i)->name, dir, n);
+    }
+    free(files);
 }
 
 static BOOL ensure_assets(DepthJob *j)
@@ -286,7 +495,17 @@ static BOOL ensure_assets(DepthJob *j)
         }
         LOGI(L"depth: installed ONNX Runtime 1.24.4 (DirectML)");
     }
-    if (depth_model_ready(j->model)) return TRUE;
+    if (depth_model_ready(j->model)) {
+        if (m->user) {
+            set_status(-1, L"Keeping your model…");
+            keep_user_model(j->model, TRUE);
+        }
+        return TRUE;
+    }
+    if (m->user) {
+        fail(j, L"Choose your SHARP .onnx file in the model list first.");
+        return FALSE;
+    }
     depth_model_dir(j->model, dir, SP_COUNTOF(dir));
     if (!dir_create_recursive(dir)) {
         fail(j, L"Could not create the depth folder in the data folder.");
@@ -468,15 +687,28 @@ static BOOL depth_current(const wchar_t *source, const wchar_t *depthFile)
            CompareFileTime(&d.ftLastWriteTime, &s.ftLastWriteTime) >= 0;
 }
 
+/* A SHARP file written before it had detail weights: made again the next time it is asked for. */
+static BOOL splat_old(const wchar_t *path)
+{
+    uint32_t head[8] = { 0 };
+    DWORD n = 0;
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return FALSE;
+    BOOL ok = ReadFile(f, head, sizeof head, &n, NULL) && n == sizeof head;
+    CloseHandle(f);
+    return ok && head[7] == 0;
+}
+
 /* The page from the template (RCDATA): 1 written, 0 already the same (onlyIfChanged), -1 not written, -2 no template. */
 static int render_page(const wchar_t *dir, const wchar_t *media, int model, int video, BOOL onlyIfChanged)
 {
-    HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(IDR_DEPTH_HTML), RT_RCDATA);
+    int splat = depth_model(model)->splat;
+    HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(splat ? IDR_SPLAT_HTML : IDR_DEPTH_HTML), RT_RCDATA);
     HGLOBAL g = r ? LoadResource(NULL, r) : NULL;
     const char *tpl = g ? (const char *)LockResource(g) : NULL;
     if (!tpl) return -2;
     wchar_t depthName[64], pageName[64];
-    model_name(model, L"depth", video ? L".bin" : L".png", depthName, SP_COUNTOF(depthName));
+    model_name(model, L"depth", video || splat ? L".bin" : L".png", depthName, SP_COUNTOF(depthName));
     model_name(model, L"index", L".html", pageName, SP_COUNTOF(pageName));
     char *img = utf8_from_wide(media, NULL), *dep = utf8_from_wide(depthName, NULL);
     const char *vars[][2] = { { "__IMG__", img }, { "__DEPTH__", dep }, { "__VIDEO__", video ? "1" : "0" } };
@@ -513,7 +745,8 @@ static int render_page(const wchar_t *dir, const wchar_t *media, int model, int 
             CloseHandle(f);
         }
     }
-    if (built && rc != 0) rc = write_file(page, b.p, b.len) && write_file(props, k_props, sizeof k_props - 1) ? 1 : -1;
+    if (built && rc != 0) rc = write_file(page, b.p, b.len) &&
+                               write_file(props, splat ? k_splatProps : k_props, (splat ? sizeof k_splatProps : sizeof k_props) - 1) ? 1 : -1;
     sb_free(&b);
     return rc;
 }
@@ -579,6 +812,7 @@ static BOOL write_page(DepthJob *j)
  * they already match. */
 void depth_refresh_pages(void)
 {
+    keep_user_model(depth_model_find(L"sharp"), FALSE);
     for (int i = 0; i < g_app.cfg.count; i++) {
         const WallpaperEntry *e = &g_app.cfg.items[i];
         wchar_t dir[SP_MAX_PATH], pat[SP_MAX_PATH];
@@ -614,6 +848,8 @@ static const wchar_t *failure_text(DepthJob *j, DWORD code)
 {
     if (code == 2) return j->video ? L"This video could not be read." : L"This picture could not be read.";
     if (code == 5) return L"This video's format can't play in the interactive page (H.264, HEVC, VP9 or AV1 can).";
+    if (code == 4 && depth_model(j->model)->user)
+        return L"The model could not run. It must be a SHARP export, with its .onnx.data file beside it. See depth.log.";
     if (!vcruntime_ok(NULL, 0))
         return L"This needs the Microsoft Visual C++ Redistributable 14.44 or newer. Run screenplus vcredist install, then try again.";
     return code == 3 ? L"ONNX Runtime could not start. See depth.log."
@@ -656,9 +892,9 @@ static void run(DepthJob *j)
         fail(j, L"Could not create the wallpaper's folder in the data folder.");
         return;
     }
-    model_name(j->model, L"depth", j->video ? L".bin" : L".png", name, SP_COUNTOF(name));
+    model_name(j->model, L"depth", j->video || depth_model(j->model)->splat ? L".bin" : L".png", name, SP_COUNTOF(name));
     path_join(depthFile, SP_COUNTOF(depthFile), j->dir, name);
-    if (!depth_current(j->source, depthFile)) {
+    if (!depth_current(j->source, depthFile) || (depth_model(j->model)->splat && splat_old(depthFile))) {
         set_status(-1, j->video ? L"Finding the depth of every frame…" : L"Finding the depth of the picture…");
         double t0 = time_ms();
         int png = !j->video && web_ext(path_ext(j->source)) == NULL;
@@ -700,6 +936,7 @@ static BOOL start(const wchar_t *id, int autoStart)
         str_copy(j->source, SP_COUNTOF(j->source), (e->flags & WPFLAG_DEPTH) ? e->thumb : e->path);
         j->video = (e->flags & WPFLAG_DEPTH) ? (e->flags & WPFLAG_DEPTHVIDEO) != 0 : e->type == WP_VIDEO;
         in_depth(j->dir, SP_COUNTOF(j->dir), e->id);
+        if (j->video && depth_model(j->model)->splat) j->model = 0;   /* SHARP is pictures only */
         if (!file_exists(j->source)) {
             free(j);
             app_notice(NOTICE_ERROR, L"The original file of '%ls' is gone.", e->name);
@@ -745,7 +982,7 @@ static int file_model(void)
     if (da3 >= 0 && depth_model_ready(da3)) return da3;
     for (int pass = 0; pass < 2 && best < 0; pass++)
         for (int i = 0; i < (int)SP_COUNTOF(k_models); i++)
-            if ((pass || depth_model_ready(i)) &&
+            if (!k_models[i].splat && (pass || depth_model_ready(i)) &&
                 (best < 0 || k_models[i].size + k_models[i].dataSize < k_models[best].size + k_models[best].dataSize))
                 best = i;
     return best;

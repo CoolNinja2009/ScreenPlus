@@ -222,6 +222,8 @@ typedef struct DepthModel {
     int            shortSide;      /* the model's working resolution: the picture's shorter side */
     float          cost;           /* compute per frame against Depth Anything 2 Small */
     float          gb;             /* memory one run needs */
+    int            user;           /* not downloaded: the user supplies the .onnx (depth_choose_model) */
+    int            splat;          /* SHARP: gives 3D Gaussians for splat.html, pictures only */
 } DepthModel;
 #define DEPTH_VIDEO_FPS    15      /* depth frames per second of video at most */
 #define DEPTH_VIDEO_FRAMES 3600    /* ... and per video: longer ones get fewer per second */
@@ -231,6 +233,9 @@ int               depth_model_find(const wchar_t *key);  /* -1: unknown */
 BOOL              depth_model_ready(int i);            /* its files are downloaded */
 void              depth_model_file(int i, wchar_t *out, size_t cap);   /* model.onnx */
 void              depth_model_dir(int i, wchar_t *out, size_t cap);    /* its folder: backend record, weights */
+BOOL              depth_choose_model(int i, HWND owner);               /* a user model: asks for its .onnx; FALSE: cancelled */
+BOOL              depth_set_model_file(int i, const wchar_t *path);    /* a user model: remembers its .onnx */
+BOOL              depth_model_has_weights(const wchar_t *onnx);        /* FALSE: a small graph with no weights file beside it */
 /* How well this PC runs a model: level 5 very good .. 1 very hard, 0 can't run; seconds: the estimated time
  * for one picture, or for `videoSeconds` of video when that is > 0. */
 typedef struct DepthEstimate { int level; double seconds; int gpu; } DepthEstimate;

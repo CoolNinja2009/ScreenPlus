@@ -532,6 +532,31 @@ static void look_print(Reply *r, const WallpaperEntry *e, const WallpaperAdjust 
               a->tint & 0xFFFFFF, a->tintLift, a->tintBrightness);
 }
 
+/* SHARP isn't downloaded: this names the user's own .onnx and makes it the chosen model. */
+static void cmd_sharp(Reply *r, const Req *q)
+{
+    int i = depth_model_find(L"sharp");
+    wchar_t f[SP_MAX_PATH];
+    if (q->argc > 1) {
+        if (!file_exists(q->argv[1]) || !str_ieq(path_ext(q->argv[1]), L".onnx")) {
+            say(r, L"No .onnx file there. Give its full path.\n");
+            return;
+        }
+        if (!depth_model_has_weights(q->argv[1])) {
+            say(r, L"Its weights are missing. Keep the .onnx.data file beside the .onnx.\n");
+            return;
+        }
+        if (!depth_set_model_file(i, q->argv[1])) {
+            say(r, L"The path could not be saved.\n");
+            return;
+        }
+        str_copy(g_app.cfg.s.depthModel, SP_COUNTOF(g_app.cfg.s.depthModel), L"sharp");
+        app_save_config();
+    }
+    depth_model_file(i, f, SP_COUNTOF(f));
+    say(r, depth_model_ready(i) ? L"SHARP model: %ls\n" : L"No SHARP model yet: screenplus sharp <file.onnx>\n", f);
+}
+
 static void cmd_look(Reply *r, const Req *q)
 {
     const MonitorInfo *mon;
@@ -1115,6 +1140,8 @@ static void run(Reply *r, const Req *q)
     } else if (str_ieq(c, L"stop") || str_ieq(c, L"quit-app")) {
         say(r, L"Screen+ is closing.\n");
         r->exitAfter = 1;
+    } else if (str_ieq(c, L"sharp")) {
+        cmd_sharp(r, q);
     } else if (str_ieq(c, L"look") || str_ieq(c, L"grade")) {
         cmd_look(r, q);
     } else if (str_ieq(c, L"props") || str_ieq(c, L"prop") || str_ieq(c, L"properties")) {
