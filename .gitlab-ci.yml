@@ -1,0 +1,39 @@
+# Builds Screen+ and publishes a GitLab release with the installer and a portable zip.
+# Same rules as .github/workflows/release.yml: every push to main that changes the app gets the next
+# version, a vX.Y.Z tag releases that exact version, and merge requests are built but not released.
+# The work is in scripts/gitlab-release.ps1. Builds here are not signed (SignPath runs on GitHub only).
+workflow:
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: &app
+        - src/**/*
+        - resources/**/*
+        - installer/**/*
+        - samples/**/*
+        - scripts/**/*
+        - CMakeLists.txt
+        - build.cmd
+        - LICENSE
+        - THIRD_PARTY_NOTICES.md
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: *app
+
+build:
+  tags: [saas-windows-medium-amd64]
+  timeout: 2h
+  resource_group: release
+  variables:
+    GIT_STRATEGY: clone
+    GIT_DEPTH: "0"              # tags are needed to pick the next version
+    GIT_CONFIG_COUNT: "1"       # keep LF: build-ffmpeg.sh must run in bash, and samples are hashed
+    GIT_CONFIG_KEY_0: core.autocrlf
+    GIT_CONFIG_VALUE_0: "false"
+  script:
+    - powershell -NoProfile -ExecutionPolicy Bypass -File scripts\gitlab-release.ps1
+    - if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+  artifacts:
+    paths: [release/]
+    expire_in: 3 days

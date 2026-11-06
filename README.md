@@ -111,7 +111,7 @@ scripts/build-ffmpeg.sh    # once, from an MSYS2 UCRT64 shell
 build.cmd Release
 ```
 
-The app and installer are written to `build\`. GitHub Actions builds and releases every push to `main`.
+The app and installer are written to `build\`. GitHub Actions and GitLab CI build and release every push to `main`.
 
 ## License
 
@@ -128,3 +128,5 @@ MIT, see [LICENSE](LICENSE). Third-party components are listed in [THIRD_PARTY_N
 
 Wallpapers in the screenshots belong to their authors. Screen+ is not affiliated with Lively Wallpaper, Wallpaper
 Engine or the Store's sites.
+
+Built with help from [Claude Code](https://claude.com/claude-code).

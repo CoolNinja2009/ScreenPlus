@@ -15,6 +15,8 @@ the report.
   `scripts/build-ffmpeg.sh` (MSYS2 UCRT64) rebuilds it. NSIS produces `build\ScreenPlus-Setup-<ver>.exe`.
 - `build\` gets `ScreenPlus.exe` (GUI), `ScreenPlus.com` (terminal CLI), FFmpeg DLLs, `samples\` and `licenses\`.
   Keep the build at 0 warnings (/W4).
+- GitLab mirror: `.gitlab-ci.yml` runs `scripts/gitlab-release.ps1` (Windows hosted runner, unsigned builds, FFmpeg kept
+  in the package registry). The app and updater still point at GitHub.
 - There is no unit-test suite. `tests/desktop_probe.c` and `tests/sysinfo_test.c` are validation helpers.
 - CI (`.github/workflows/release.yml`) releases every push to main as the next patch version, or as
   `SCREENPLUS_VERSION` in CMakeLists.txt when that is higher; a `vX.Y.Z` tag releases that exact version.
