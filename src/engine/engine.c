@@ -20,7 +20,11 @@
 #define WM_SP_HOST_LOST  (WM_APP + 41)
 #define WM_SP_SHELL_GONE (WM_APP + 42)
 
+<<<<<<< HEAD
 enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS };
+=======
+enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS, T_RESTACK, T_HELLO };
+>>>>>>> 4eca1b9 (bugfix: windows hello timeout)
 
 #define MAX_RETRIES 3
 #define SAFETY_MS   2000
@@ -49,6 +53,8 @@ static struct {
     HINSTANCE     inst;
     HWND          ctl;
     HWND          shell;
+    int           connected;      /* the shell answered our hello */
+    int           helloTries;
     int           safeMode;
     Config        cfg;
     DesktopHost   host;
@@ -622,7 +628,7 @@ static void status_dirty(void) { if (E.ctl) SetTimer(E.ctl, T_STATUS, 120, NULL)
 
 static void status_send(void)
 {
-    if (!E.shell) return;
+    if (!E.shell || !E.connected) return;
     IpcEngineStatus *st = (IpcEngineStatus *)calloc(1, sizeof *st);
     if (!st) return;
     st->version = SP_IPC_VERSION;
@@ -663,11 +669,23 @@ static void status_send(void)
     free(st);
 }
 
+/* The shell can't command us until it hears this, and it may be busy with library upkeep for
+ * a long while at sign-in: try until it answers. The short wait keeps this thread free. */
 static void send_hello(void)
 {
     IpcHello h = { SP_IPC_VERSION, GetCurrentProcessId(), (uint64_t)(uintptr_t)E.ctl, E.processStart };
-    if (E.shell && !ipc_send(E.ctl, E.shell, IPC_ENGINE_HELLO, &h, sizeof h, 2000))
-        LOGW(L"could not reach the shell window");
+    if (!E.shell || E.connected) return;
+    if (ipc_send(E.ctl, E.shell, IPC_ENGINE_HELLO, &h, sizeof h, 250)) {
+        E.connected = 1;
+        KillTimer(E.ctl, T_HELLO);
+        if (E.helloTries) LOGI(L"shell answered after %d retries", E.helloTries);
+        status_send();
+        return;
+    }
+    if (!E.helloTries++) {
+        LOGW(L"shell window is busy; retrying");
+        SetTimer(E.ctl, T_HELLO, 1000, NULL);
+    }
 }
 
 static void restart_renderers(int all)
@@ -958,6 +976,9 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             KillTimer(h, T_STATUS);
             status_send();
             break;
+        case T_HELLO:
+            send_hello();
+            break;
         case T_WALLPAPER_DATA:
             wallpaper_data_tick();
             break;
@@ -1105,7 +1126,6 @@ int engine_main(HINSTANCE inst, HWND shell, int safeMode)
     LOGI(L"engine initialized in %.1f ms (host: %ls, WebView2: %ls)", E.initMs, desktop_host_mode_name(E.host.mode),
          E.webview[0] ? E.webview : L"not installed");
     send_hello();
-    status_send();
 
     MSG m;
     while (GetMessageW(&m, NULL, 0, 0) > 0) {
