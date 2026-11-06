@@ -36,8 +36,39 @@ static int plasma_script(const char *script, char *out, size_t cap)
     return rc == 0;
 }
 
+/* Plasma's scripting has no refresh rate; kscreen-doctor (part of Plasma) does. It is only asked when the layout
+ * changes, since this runs on every poll. */
+typedef struct { LONG x, y; UINT hz; } OutputHz;
+
+static int read_output_hz(OutputHz *out, int max)
+{
+    static char text[262144];
+    const char *argv[] = { "kscreen-doctor", "-j", NULL };
+    if (sp_run(argv, text, sizeof text)) return 0;
+    JVal *j = json_parse(text, strlen(text));
+    const JVal *outs = j ? json_get(j, "outputs") : NULL;
+    int n = 0;
+    for (int i = 0; outs && outs->t == J_ARR && i < outs->n && n < max; i++) {
+        const JVal *o = &outs->kids[i], *modes = json_get(o, "modes"), *pos = json_get(o, "pos");
+        const char *now = json_str(json_get(o, "currentModeId"), "");
+        for (int k = 0; modes && modes->t == J_ARR && k < modes->n; k++) {
+            const JVal *m = &modes->kids[k];
+            if (strcmp(json_str(json_get(m, "id"), ""), now)) continue;
+            out[n].x = (LONG)json_num(json_get(pos, "x"), 0);
+            out[n].y = (LONG)json_num(json_get(pos, "y"), 0);
+            out[n++].hz = (UINT)(json_num(json_get(m, "refreshRate"), 0) + 0.5);
+            break;
+        }
+    }
+    json_free(j);
+    return n;
+}
+
 int kde_monitors(MonitorInfo *out, int max)
 {
+    static OutputHz hz[SP_MAX_MONITORS];
+    static int hzCount;
+    static long hzKey = -1;
     static const char script[] =
         "var r=[];for(var i=0;i<screenCount;i++){var g=screenGeometry(i);"
         "r.push({x:g.x,y:g.y,w:g.width,h:g.height});}print(JSON.stringify(r));";
@@ -61,6 +92,16 @@ int kde_monitors(MonitorInfo *out, int max)
         o->index = ++n;
     }
     json_free(j);
+    long key = n;
+    for (int i = 0; i < n; i++)
+        key = key * 31 + out[i].rect.left * 7 + out[i].rect.top * 5 + out[i].rect.right * 3 + out[i].rect.bottom;
+    if (n && key != hzKey) {
+        hzKey = key;
+        hzCount = read_output_hz(hz, SP_MAX_MONITORS);
+    }
+    for (int i = 0; i < n; i++)
+        for (int k = 0; k < hzCount; k++)
+            if (hz[k].x == out[i].rect.left && hz[k].y == out[i].rect.top) out[i].refreshHz = hz[k].hz;
     return n;
 }
 
@@ -111,6 +152,7 @@ static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int pau
     sb_printf(b, ",\"Kind\":\"%s\"", !e ? "none" : e->type == WP_HTML ? "html" : e->type == WP_IMAGE ? "image" : "video");
     sb_printf(b, ",\"Muted\":%s,\"Paused\":%s,\"PauseOnFullscreen\":%s", c->s.audio ? "false" : "true", paused ? "true" : "false",
               c->s.pauseOnFullscreen ? "true" : "false");
+    sb_printf(b, ",\"Mouse\":%s", c->s.htmlMouse ? "true" : "false");
     sb_printf(b, ",\"Brightness\":%d,\"Contrast\":%d,\"Saturation\":%d", a.brightness, a.contrast, a.saturation);
     if (e && e->type == WP_HTML) {
         char *shim = shim_url();

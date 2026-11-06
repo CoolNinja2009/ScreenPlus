@@ -68,7 +68,7 @@ jobs:
           mkdir -p "dist/$name/fonts"
           cp resources/fonts/*.ttf "dist/$name/fonts/"
           cp -r src/linux/kde samples LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
-          cp src/linux/install.sh "dist/$name/"
+          cp src/linux/install.sh src/linux/screenplus.png "dist/$name/"
           chmod +x "dist/$name/install.sh"
           tar -C dist -czf "release/$name.tar.gz" "$name"
           (cd release && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")

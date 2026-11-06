@@ -16,6 +16,7 @@ const char *desktop_name(DesktopKind k);
 int  sp_socket_path(char *out, size_t cap);
 /* Runs argv[0] from PATH, waits, returns its exit code (-1: could not run). out: its stdout, may be NULL. */
 int  sp_run(const char *const *argv, char *out, size_t cap);
+int  sp_run_read(const char *const *argv, char *out, size_t cap, size_t *got);   /* *got: bytes of output kept */
 int  sp_on_path(const char *name);
 int  sp_on_battery(void);                  /* mains exists and is unplugged */
 char *sp_file_uri(const wchar_t *path);    /* file:///... percent-encoded; http(s) unchanged; free() */

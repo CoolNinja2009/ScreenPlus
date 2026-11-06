@@ -14,6 +14,29 @@ WallpaperItem {
     readonly property bool held: configuration.Paused || (configuration.PauseOnFullscreen && fullscreenHere)
     readonly property bool graded: configuration.Brightness !== 0 || configuration.Contrast !== 0 || configuration.Saturation !== 0
 
+    /* What the view shows. Every switch gets a new view: Source and Kind change one after the other, and a GIF put
+     * into a view that was showing an image never starts. The timer lets both land first. */
+    property string shownKind
+    property string shownSrc
+
+    function show() {
+        view.source = ""
+        shownKind = kind
+        shownSrc = src
+        view.source = kind === "video" ? "VideoView.qml"
+                    : kind === "image" ? "ImageView.qml"
+                    : kind === "html" ? "WebView.qml" : ""
+    }
+    onKindChanged: settle.restart()
+    onSrcChanged: settle.restart()
+    Component.onCompleted: show()
+
+    Timer {
+        id: settle
+        interval: 0
+        onTriggered: root.show()
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "black"
@@ -22,17 +45,14 @@ WallpaperItem {
     Loader {
         id: view
         anchors.fill: parent
-        source: root.kind === "video" ? "VideoView.qml"
-              : root.kind === "image" ? "ImageView.qml"
-              : root.kind === "html" ? "WebView.qml" : ""
         onLoaded: {
-            if (root.kind === "html") {     /* the shim first: it has to be in place when the page loads */
+            if (root.shownKind === "html") {    /* the shim first: it has to be in place when the page loads */
                 item.shim = Qt.binding(() => root.configuration.ShimUrl)
                 item.script = Qt.binding(() => root.configuration.Script)
             }
             item.paused = Qt.binding(() => root.held)
             item.muted = Qt.binding(() => root.configuration.Muted)
-            item.source = Qt.binding(() => root.src)
+            item.source = root.shownSrc      /* not a binding: the old view lingers a moment after a switch */
         }
         layer.enabled: root.graded
         layer.effect: MultiEffect {
@@ -45,5 +65,11 @@ WallpaperItem {
     Loader {
         id: watch
         source: "FullscreenWatch.qml"
+    }
+
+    Loader {
+        active: root.shownKind === "html" && root.configuration.Mouse && !root.held && view.status === Loader.Ready
+        source: "PointerWatch.qml"
+        onLoaded: item.target = Qt.binding(() => view.item)
     }
 }

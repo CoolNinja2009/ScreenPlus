@@ -18,14 +18,25 @@ WebEngineView {
     settings.showScrollBars: false
 
     onSourceChanged: url = source      /* a binding on url stops following once the page has loaded */
-    onShimChanged: {
-        if (!shim) return
+    function pageScript(name, url) {
         const s = WebEngine.script()
-        s.name = "screenplus-shim"
-        s.sourceUrl = shim
+        s.name = name
+        s.sourceUrl = url
         s.injectionPoint = WebEngineScript.DocumentCreation
         s.worldId = WebEngineScript.MainWorld
-        userScripts.collection = [ s ]
+        return s
+    }
+    function addScripts() {
+        const list = [ pageScript("screenplus-pointer", Qt.resolvedUrl("pointer.js")) ]
+        if (shim) list.unshift(pageScript("screenplus-shim", shim))
+        userScripts.collection = list
+    }
+    Component.onCompleted: addScripts()
+    onShimChanged: addScripts()
+
+    /* From PointerWatch: type is move, down, up or leave */
+    function pointer(type, x, y, button, buttons) {
+        runJavaScript("window.__spPointer&&__spPointer('" + type + "'," + x + "," + y + "," + button + "," + buttons + ")")
     }
     onScriptChanged: if (script && !loading) runJavaScript(script)
     onLoadingChanged: (info) => {

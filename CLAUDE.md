@@ -18,11 +18,13 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
   `$XDG_RUNTIME_DIR/screenplus.sock`, the `app_*` API, stubs for what isn't ported). Plain libc.
 - KDE: `desktop_kde.c` copies `kde/org.screenplus.wallpaper` into Plasma and writes its config through `evaluateScript`
   (dbus-send). Playback is QML inside plasmashell (Qt Multimedia, Qt WebEngine); no engine process.
+  Plasma's icon layer sits over the wallpaper and takes the pointer, so `PointerWatch.qml` watches it from above without claiming it and `pointer.js` raises
+  the matching events in the page (`html_mouse`). Each switch makes a new view (`main.qml`). A changed plugin needs plasmashell restarted to load.
 - Hyprland: `screenplus-engine` = `engine_gtk.c`, a layer-shell window per display, libmpv (video, images) or WebKitGTK (pages).
   Reads config.ini itself; SIGUSR1 reloads. `desktop_hypr.c` reads Hyprland's socket. Load files only after mpv's render context exists.
 - Window: `screenplus-ui.so` (`screenplus show`), dlopened by the service so the service stays plain libc, running on its thread (`ui_pump`).
   `ui_core.c`, `ui_pages.c`, `textedit.c` are shared with Windows: `d2d_cairo.c` is the Direct2D/DirectWrite subset they use on Cairo and Pango,
-  `win_ui.h` the window messages and USER32 calls, `ui_sdl.c` feeds SDL3 events to `ui_proc`, draws menus and dialogs. Thumbnails: `ui_thumbs.c`, system ffmpeg.
+  `win_ui.h` the window messages and USER32 calls, `ui_sdl.c` feeds SDL3 events to `ui_proc`, draws menus and dialogs. Thumbnails: `ui_thumbs.c`, system ffmpeg (stills first, then animations, as `src/ui/thumbs.c`; pages without a preview GIF stay still, recording isn't ported).
   Icons: `resources/fonts` (Fluent System Icons, MIT); a new `GL_*` needs a line in `ui_icons.h`. `ui_stubs.c`: what isn't ported.
 - Build: `cmake -S . -B build-linux -G Ninja`. CI: `.github/workflows/linux.yml` (pushes to cross-platform; `release.yml` calls it).
 - KWin has layer-shell, so the engine can be tried on KDE with plasmashell stopped. In a VM, idle dimming and screen-off make screenshots dark or black, and with 3D on `VBoxManage screenshotpng` is stale: look at the VM window. Web wallpapers need 3D on; without a GPU Chromium stalls. A service started over SSH gets no keyboard in the window.

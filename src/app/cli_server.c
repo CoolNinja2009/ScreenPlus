@@ -434,7 +434,8 @@ static void cmd_import(Reply *r, const Req *q)
         paths[n++] = q->argv[i];
     }
     int before = c->count;
-    int added = library_import(paths, n, has_flag(q, L"--apply"));
+    int added = library_import(paths, n, FALSE);
+    if (added && has_flag(q, L"--apply")) app_apply_wallpaper(c->items[before].id, NULL);   /* even over one already showing */
     say(r, L"Added %d wallpaper(s) to the library.\n", added);
     sb_puts(&r->data, "{\"added\":[");
     for (int i = before; i < c->count; i++) {
@@ -937,15 +938,34 @@ static const wchar_t *setting_text(int kind, int v)
     return names[0];
 }
 
+#ifdef _WIN32
+static int setting_listed(const wchar_t *key) { (void)key; return 1; }
+#else
+/* Nothing on Linux reads these yet, so they aren't offered. */
+static int setting_listed(const wchar_t *key)
+{
+    static const wchar_t *const hidden[] = {
+        L"launch_to_tray", L"still_wallpaper", L"pause_when_covered", L"suspend_on_lock", L"html_audio", L"web_fps",
+        L"lively_auto_import", L"interactive_images", L"screensaver_audio", L"screensaver_displays",
+        L"screensaver_exit_on_mouse", L"auto_update", L"auto_update_samples",
+    };
+    for (size_t i = 0; i < SP_COUNTOF(hidden); i++) if (str_ieq(key, hidden[i])) return 0;
+    return 1;
+}
+#endif
+
 static void settings_print(Reply *r)
 {
     Settings *s = &g_app.cfg.s;
+    int first = 1;
     sb_puts(&r->data, "{");
     for (size_t i = 0; i < SP_COUNTOF(k_settings); i++) {
+        if (!setting_listed(k_settings[i].key)) continue;
         int v = *(int *)((char *)s + k_settings[i].off);
         const wchar_t *shown = setting_text(k_settings[i].kind, v);
         say(r, L"  %-26ls %-11ls %ls\n", k_settings[i].key, shown, k_settings[i].desc);
-        if (i) sb_puts(&r->data, ",");
+        if (!first) sb_puts(&r->data, ",");
+        first = 0;
         jstr(&r->data, k_settings[i].key);
         sb_puts(&r->data, ":");
         if (k_settings[i].kind != SK_BOOL) jstr(&r->data, shown);
@@ -994,21 +1014,61 @@ static void cmd_samples(Reply *r, const Req *q)
     sb_puts(&r->data, "}");
 }
 
+static void setting_reply(Reply *r, size_t i, int v)
+{
+    say(r, L"%ls = %ls\n", k_settings[i].key, setting_text(k_settings[i].kind, v));
+    sb_puts(&r->data, "{");
+    jstr(&r->data, k_settings[i].key);
+    sb_puts(&r->data, ":");
+    if (k_settings[i].kind != SK_BOOL) jstr(&r->data, setting_text(k_settings[i].kind, v));
+    else sb_puts(&r->data, v ? "true" : "false");
+    sb_puts(&r->data, "}");
+}
+
+static void cmd_mode(Reply *r, const Req *q)
+{
+    if (q->argc > 1) {
+        int mode = -1;
+        for (int i = 0; k_modeNames[i]; i++) if (str_ieq(q->argv[1], k_modeNames[i])) mode = i;
+        if (mode < 0) {
+            fail(r, L"Usage: screenplus mode [independent|duplicate|span]");
+            return;
+        }
+        app_set_display_mode(mode);
+        ui_on_config_changed();
+    }
+    const wchar_t *now = setting_text(SK_MODE, g_app.cfg.s.displayMode);
+    say(r, L"Displays: %ls\n", now);
+    sb_puts(&r->data, "{\"mode\":");
+    jstr(&r->data, now);
+    sb_puts(&r->data, "}");
+}
+
 static void cmd_settings(Reply *r, const Req *q)
 {
     const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
-    if (!sub[0] || str_ieq(sub, L"show") || str_ieq(sub, L"get")) {
+    if (!sub[0] || str_ieq(sub, L"show") || (str_ieq(sub, L"get") && q->argc < 3)) {
         settings_print(r);
         return;
     }
-    if (!str_ieq(sub, L"set") || q->argc < 4) {
-        fail(r, L"Usage: screenplus settings [set <key> <value>]   (see: screenplus settings)");
+    int get = str_ieq(sub, L"get");
+    if (!get && (!str_ieq(sub, L"set") || q->argc < 4)) {
+        fail(r, L"Usage: screenplus settings [get <key> | set <key> <value>]   (see: screenplus settings)");
         return;
     }
     wchar_t key[48];
     str_copy(key, SP_COUNTOF(key), q->argv[2]);
     for (wchar_t *c = key; *c; c++) if (*c == L'-') *c = L'_';
     Settings *s = &g_app.cfg.s;
+    if (get) {
+        for (size_t i = 0; i < SP_COUNTOF(k_settings); i++) {
+            if (!str_ieq(key, k_settings[i].key)) continue;
+            setting_reply(r, i, *(int *)((char *)s + k_settings[i].off));
+            return;
+        }
+        fail(r, L"Unknown setting \"%ls\". See: screenplus settings", q->argv[2]);
+        return;
+    }
     for (size_t i = 0; i < SP_COUNTOF(k_settings); i++) {
         if (!str_ieq(key, k_settings[i].key)) continue;
         int *field = (int *)((char *)s + k_settings[i].off);
@@ -1052,13 +1112,7 @@ static void cmd_settings(Reply *r, const Req *q)
             }
         }
         ui_on_config_changed();
-        say(r, L"%ls = %ls\n", k_settings[i].key, setting_text(k_settings[i].kind, *field));
-        sb_puts(&r->data, "{");
-        jstr(&r->data, k_settings[i].key);
-        sb_puts(&r->data, ":");
-        if (k_settings[i].kind != SK_BOOL) jstr(&r->data, setting_text(k_settings[i].kind, *field));
-        else sb_puts(&r->data, *field ? "true" : "false");
-        sb_puts(&r->data, "}");
+        setting_reply(r, i, *field);
         return;
     }
     fail(r, L"Unknown setting \"%ls\". See: screenplus settings", q->argv[2]);
@@ -1113,10 +1167,16 @@ static void run(Reply *r, const Req *q)
         say(r, L"Screensaver wallpaper: %ls\n", e ? e->name : L"the desktop's");
     } else if (str_ieq(c, L"hide")) {
         ui_destroy();
+#ifdef _WIN32
         say(r, L"Window closed (Screen+ keeps running in the notification area).\n");
+#else
+        say(r, L"Window closed (Screen+ keeps running in the background).\n");
+#endif
     } else if (str_ieq(c, L"stop") || str_ieq(c, L"quit-app")) {
         say(r, L"Screen+ is closing.\n");
         r->exitAfter = 1;
+    } else if (str_ieq(c, L"mode")) {
+        cmd_mode(r, q);
     } else if (str_ieq(c, L"look") || str_ieq(c, L"grade")) {
         cmd_look(r, q);
     } else if (str_ieq(c, L"props") || str_ieq(c, L"prop") || str_ieq(c, L"properties")) {

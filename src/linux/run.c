@@ -29,7 +29,7 @@ int sp_socket_path(char *out, size_t cap)
     return n > 0 && (size_t)n < cap;
 }
 
-int sp_run(const char *const *argv, char *out, size_t cap)
+int sp_run_read(const char *const *argv, char *out, size_t cap, size_t *got)
 {
     int fd[2] = { -1, -1 };
     if (out && pipe(fd)) return -1;
@@ -60,11 +60,14 @@ int sp_run(const char *const *argv, char *out, size_t cap)
         close(fd[0]);
         if (cap) out[have] = 0;
     }
+    if (got) *got = have;
     int st = 0;
     while (waitpid(pid, &st, 0) < 0 && errno == EINTR) {}
     if (!WIFEXITED(st)) return -1;
     return WEXITSTATUS(st) == 127 ? -1 : WEXITSTATUS(st);
 }
+
+int sp_run(const char *const *argv, char *out, size_t cap) { return sp_run_read(argv, out, cap, NULL); }
 
 int sp_on_path(const char *name)
 {

@@ -24,13 +24,17 @@ esac
 
 apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$apps"
-cat > "$apps/screenplus.desktop" <<EOF
+rm -f "$apps/screenplus.desktop"     # the name before it matched the window's app id
+icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
+mkdir -p "$icons"
+cp "$here/screenplus.png" "$icons/org.screenplus.ScreenPlus.png"
+cat > "$apps/org.screenplus.ScreenPlus.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Screen+
 Comment=Live wallpapers
 Exec="$app/screenplus" show
-Icon=preferences-desktop-wallpaper
+Icon=org.screenplus.ScreenPlus
 Categories=Utility;
 EOF
 case "${XDG_CURRENT_DESKTOP:-}" in

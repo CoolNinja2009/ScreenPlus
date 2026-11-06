@@ -92,6 +92,9 @@ static void engine_watch(void)
 
 /* ------------------------------------------------------------------ status and state */
 
+static double g_noticeAt;
+enum { NOTICE_INFO_MS = 10000 };
+
 static int effective_pause(void)
 {
     return g_app.cfg.s.paused || (g_app.cfg.s.pauseOnBattery && g_battery);
@@ -272,6 +275,11 @@ void app_show_ui(void)
 
 void app_notice(int kind, const wchar_t *fmt, ...)
 {
+    if (kind == NOTICE_NONE || !fmt) {      /* the notice's close button */
+        g_app.notice[0] = 0;
+        g_app.noticeKind = NOTICE_NONE;
+        return;
+    }
     wchar_t buf[512];
     va_list ap;
     va_start(ap, fmt);
@@ -279,6 +287,7 @@ void app_notice(int kind, const wchar_t *fmt, ...)
     va_end(ap);
     str_copy(g_app.notice, SP_COUNTOF(g_app.notice), buf);
     g_app.noticeKind = kind;
+    g_noticeAt = time_ms();
     log_write(kind == NOTICE_ERROR ? LOG_ERROR : kind == NOTICE_WARN ? LOG_WARN : LOG_INFO, L"%ls", buf);
 }
 
@@ -449,6 +458,10 @@ int service_main(void)
         if (g_desk == DESK_HYPRLAND) engine_watch();
         if (time_ms() >= nextPoll) {
             nextPoll = time_ms() + 5000;
+            if (g_app.notice[0] && g_app.noticeKind == NOTICE_INFO && time_ms() - g_noticeAt >= NOTICE_INFO_MS) {
+                app_notice(NOTICE_NONE, NULL);      /* warnings and errors stay until closed */
+                ui_on_config_changed();
+            }
             int was = monitors_key();
             int bat = sp_on_battery();
             app_refresh_monitors();
