@@ -588,7 +588,7 @@ int service_main(void)
     app_refresh_monitors();
     if (g_desk == DESK_KDE) kde_install_plugin();
     else engine_start();
-    push_to_desktop();
+    if (g_desk != DESK_KDE || g_app.monCount) push_to_desktop();    /* at sign-in Plasma isn't up yet: the loop applies when it is */
     g_app.processStart = filetime_now();
     LOGI(L"service started (%ls)", g_desk == DESK_KDE ? L"KDE Plasma" : L"Hyprland");
 

@@ -370,7 +370,7 @@ Second round (settings, each tested alone; pause measured by frames the page dra
 
 | Setting | Status | Notes |
 |---|---|---|
-| start_with_linux | pass, sign-in timing not measured | entries appear and go; the unit is in plasma-core.target |
+| start_with_linux | pass | real sign-in: started with KWin, 0.7 s before plasmashell; Living Room came up by itself, one copy running |
 | launch_to_tray | pass | window opens at --startup only when off |
 | pause_on_fullscreen, pause_when_covered, paused | fixed | pages never froze: Qt won't freeze a visible page. Now 0 frames, and back |
 | pause_on_battery | pass | through a stand-in power folder; the VM has no battery |
