@@ -1,19 +1,82 @@
 # Builds Screen+ for Linux on GitLab's own machines and releases every push to cross-platform as the next
-# 2.0.N-beta: nothing runs on, or lands on, the developer's PC. The work is in scripts/gitlab-linux.sh.
+# 2.0.N-beta: a tar.gz from Arch, a .deb each for Debian and Ubuntu, and an .rpm from Fedora. Nothing is
+# released unless all of them build and install. Nothing runs on, or lands on, the developer's PC.
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_COMMIT_BRANCH == "cross-platform" && $CI_PIPELINE_SOURCE == "push"
 
-linux:
-  image: archlinux:latest
+stages: [version, build, release]
+
+default:
   tags: [saas-linux-small-amd64]
-  timeout: 1h
+
+version:
+  stage: version
+  image: alpine:latest
   variables:
     GIT_DEPTH: "0"              # tags are needed to pick the next version
   script:
-    - pacman -Syu --noconfirm --needed base-devel git curl cmake ninja pkgconf sdl3 cairo pango fontconfig gtk4 gtk4-layer-shell mpv webkitgtk-6.0 libepoxy wayland wayland-protocols ffmpeg
-    - bash scripts/gitlab-linux.sh
+    - apk add --no-cache git
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - last=$(git tag -l 'v2.0.*-beta' | sed -E 's/^v2\.0\.([0-9]+)-beta$/\1/' | sort -n | tail -1)
+    - echo "BETA=2.0.$((${last:--1} + 1))" > version.env
+    - cat version.env
+  artifacts:
+    reports:
+      dotenv: version.env
+
+.build:
+  stage: build
+  needs: [version]
+  timeout: 1h
+  variables:
+    GIT_DEPTH: "1"
   artifacts:
     paths: [release/]
     expire_in: 7 days
+
+.apt: &apt
+  - export DEBIAN_FRONTEND=noninteractive
+  - apt-get update
+  - apt-get install -y --no-install-recommends ca-certificates build-essential cmake ninja-build pkg-config dpkg-dev libsdl3-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libgtk-4-dev libgtk4-layer-shell-dev libmpv-dev libwebkitgtk-6.0-dev libepoxy-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+
+arch:
+  extends: .build
+  image: archlinux:latest
+  script:
+    - pacman -Syu --noconfirm --needed base-devel cmake ninja pkgconf sdl3 cairo pango fontconfig gtk4 gtk4-layer-shell mpv webkitgtk-6.0 libepoxy wayland wayland-protocols ffmpeg
+    - bash scripts/gitlab-linux.sh tar
+
+debian:
+  extends: .build
+  image: debian:13
+  script:
+    - *apt
+    - bash scripts/gitlab-linux.sh deb debian
+
+ubuntu:
+  extends: .build
+  image: ubuntu:26.04
+  script:
+    - *apt
+    - bash scripts/gitlab-linux.sh deb ubuntu
+
+fedora:
+  extends: .build
+  image: fedora:latest
+  script:
+    - dnf install -y gcc cmake ninja-build pkgconf-pkg-config rpm-build 'pkgconfig(sdl3)' 'pkgconfig(cairo)' 'pkgconfig(pangocairo)' 'pkgconfig(fontconfig)' 'pkgconfig(gtk4)' 'pkgconfig(gtk4-layer-shell-0)' 'pkgconfig(webkitgtk-6.0)' 'pkgconfig(mpv)' 'pkgconfig(epoxy)' 'pkgconfig(libavformat)' 'pkgconfig(libavcodec)' 'pkgconfig(libavutil)' 'pkgconfig(libswscale)'
+    - bash scripts/gitlab-linux.sh rpm
+
+release:
+  stage: release
+  image: alpine:latest
+  needs: [version, arch, debian, ubuntu, fedora]
+  rules:
+    - if: $CI_COMMIT_BRANCH == "cross-platform"
+  variables:
+    GIT_DEPTH: "1"
+  script:
+    - apk add --no-cache curl
+    - sh scripts/gitlab-linux-release.sh
