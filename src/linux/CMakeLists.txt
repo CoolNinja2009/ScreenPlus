@@ -18,7 +18,7 @@ add_executable(screenplus cli.c service.c desktop_kde.c url_import.c http_linux.
 target_link_libraries(screenplus PRIVATE m pthread ${CMAKE_DL_LIBS})
 set_target_properties(screenplus PROPERTIES ENABLE_EXPORTS ON)   # screenplus-ui.so calls back into it
 
-add_compile_definitions(_GNU_SOURCE SP_VERSION_STR="${SCREENPLUS_VERSION}")
+add_compile_definitions(_GNU_SOURCE SP_VERSION_STR="${SCREENPLUS_VERSION}${SCREENPLUS_SUFFIX}")
 target_compile_options(screenplus PRIVATE -Wall -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas)
 
 option(SCREENPLUS_UI "Build screenplus-ui.so, the window (needs SDL3, Cairo, Pango, fontconfig)" ON)

@@ -1,5 +1,5 @@
-# Builds Screen+ for Linux on GitLab's own machines: nothing runs on, or lands on, the developer's PC.
-# The result is a job artifact that GitLab keeps for a week; nothing is released from this branch.
+# Builds Screen+ for Linux on GitLab's own machines and releases every push to cross-platform as the next
+# 2.0.N-beta: nothing runs on, or lands on, the developer's PC. The work is in scripts/gitlab-linux.sh.
 workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "web"
@@ -10,23 +10,10 @@ linux:
   tags: [saas-linux-small-amd64]
   timeout: 1h
   variables:
-    GIT_DEPTH: "1"
+    GIT_DEPTH: "0"              # tags are needed to pick the next version
   script:
-    - pacman -Syu --noconfirm --needed base-devel cmake ninja pkgconf sdl3 cairo pango fontconfig gtk4 gtk4-layer-shell mpv webkitgtk-6.0 libepoxy wayland wayland-protocols ffmpeg
-    - cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
-    - cmake --build build-linux
-    - build-linux/src/linux/screenplus version
-    - build-linux/src/linux/screenplus help > /dev/null
-    - ver=$(build-linux/src/linux/screenplus version | awk '{print $2}')
-    - name="ScreenPlus-$ver-linux-x86_64"
-    - mkdir -p "dist/$name/fonts" release
-    - cp build-linux/src/linux/screenplus build-linux/src/linux/screenplus-engine build-linux/src/linux/screenplus-ui.so build-linux/src/linux/screenplus-depth.so "dist/$name/"
-    - cp resources/depth.html resources/splat.html src/linux/install.sh src/linux/screenplus.png LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
-    - cp resources/fonts/*.ttf "dist/$name/fonts/"
-    - cp -r src/linux/kde samples "dist/$name/"
-    - chmod +x "dist/$name/install.sh"
-    - tar -C dist -czf "release/$name.tar.gz" "$name"
-    - (cd release && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
+    - pacman -Syu --noconfirm --needed base-devel git curl cmake ninja pkgconf sdl3 cairo pango fontconfig gtk4 gtk4-layer-shell mpv webkitgtk-6.0 libepoxy wayland wayland-protocols ffmpeg
+    - bash scripts/gitlab-linux.sh
   artifacts:
     paths: [release/]
     expire_in: 7 days
