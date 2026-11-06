@@ -18,6 +18,7 @@
 #define WM_SP_SAMPLES       (WM_APP + 67)   /* wParam 0: progress, 1: check finished (lParam: the job) */
 #define T_SHELL_SAMPLES     4               /* shell window timer: the next sample wallpaper update check */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
+#define WM_SP_ENGINE_RESYNC (WM_APP + 71)   /* the engine connected after commands went unsent */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
 
@@ -33,6 +34,7 @@ typedef struct AppState {
 
     /* supervisor */
     HWND             engineWnd;
+    int              engineMissed;   /* a command had no engine window to go to */
     DWORD            enginePid;
     HANDLE           engineProcess;
     HANDLE           engineWait;
@@ -89,6 +91,7 @@ void supervisor_on_hello(const IpcHello *h);
 void supervisor_on_exit(DWORD code, DWORD pid);
 void supervisor_on_timer(void);
 BOOL supervisor_send(uint32_t cmd, uint32_t arg);
+void supervisor_resync(void);
 void supervisor_stop(void);
 void supervisor_restart(void);
 void supervisor_sample_stats(void);

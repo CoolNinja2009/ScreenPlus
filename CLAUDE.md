@@ -55,7 +55,7 @@ the report.
   `HKCU\Control Panel\Desktop\SCRNSAVE.EXE` (8.3 path) and `SystemParametersInfo`; the build and setup ship the `.scr`.
 - **Child processes**: WebView2 browser processes, yt-dlp (+ qjs) for link wallpapers, `tar.exe` once to unpack ONNX Runtime.
 - **IPC** (`src/common/ipc.h`) is WM_COPYDATA:
-  - `IPC_ENGINE_HELLO` / `IPC_ENGINE_STATUS`: engine → shell.
+  - `IPC_ENGINE_HELLO` / `IPC_ENGINE_STATUS`: engine → shell. The engine retries the hello every second until the shell answers and sends status only after that; commands that had no engine window are resent as a config reload on connect.
   - `IPC_ENGINE_CMD`: shell → engine, `CMD_*`, sent with `supervisor_send`.
   - `IPC_SHELL_CMD`: second instance → shell.
   - `IPC_CLI_REQUEST` / `IPC_CLI_REPLY`: JSON between `ScreenPlus.com` and the shell.
