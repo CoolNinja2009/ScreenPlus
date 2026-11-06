@@ -30,7 +30,6 @@ variables:
 build:
   tags: [$BUILD_RUNNER]
   timeout: 2h
-  resource_group: release
   variables:
     GIT_STRATEGY: clone
     GIT_DEPTH: "0"              # tags are needed to pick the next version
