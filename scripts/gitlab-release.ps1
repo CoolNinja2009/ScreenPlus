@@ -59,8 +59,13 @@ if (-not $vs) {
             '--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended --passive'
     }
 }
-Invoke-Native 'Tools install' { choco install nsis ninja -y --no-progress }
-$env:PATH = "$env:PATH;C:\ProgramData\chocolatey\bin"
+if (-not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe')) {
+    Invoke-Native 'NSIS install' { choco install nsis -y --no-progress }
+}
+if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+    Invoke-Native 'Ninja install' { choco install ninja -y --no-progress }
+    $env:PATH = "$env:PATH;C:\ProgramData\chocolatey\bin"
+}
 
 # ---- FFmpeg: compiled once per revision of build-ffmpeg.sh, then kept in the package registry
 $hash = (Get-FileHash scripts\build-ffmpeg.sh -Algorithm SHA256).Hash.Substring(0, 16).ToLower()
@@ -72,6 +77,10 @@ catch { $hit = $false }
 if ($hit) {
     Expand-Archive $ffmpegZip -DestinationPath third_party -Force
     Write-Host "Using prebuilt ffmpeg-$hash"
+} elseif ($env:SCREENPLUS_FFMPEG) {
+    # The runner on the developer's PC has its own build.
+    Copy-Item $env:SCREENPLUS_FFMPEG third_party\ffmpeg -Recurse -Force
+    Write-Host "Using FFmpeg from $env:SCREENPLUS_FFMPEG"
 } else {
     Write-Host "No prebuilt ffmpeg-$hash yet: building FFmpeg once"
     Invoke-Native 'MSYS2 install' { choco install msys2 -y --no-progress }

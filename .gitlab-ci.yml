@@ -21,8 +21,13 @@ workflow:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
       changes: *app
 
+# The runner on the developer's PC. For GitLab's own Windows machines instead, start a pipeline by hand
+# with BUILD_RUNNER set to saas-windows-medium-amd64.
+variables:
+  BUILD_RUNNER: screenplus-pc
+
 build:
-  tags: [saas-windows-medium-amd64]
+  tags: [$BUILD_RUNNER]
   timeout: 2h
   resource_group: release
   variables:
