@@ -42,7 +42,10 @@ the report.
 - **Engine**: `ScreenPlus.exe --engine`, `src/engine/engine.c`. Owns the desktop-hosted windows, renderers,
   the per-monitor pause state machine (fullscreen, occlusion, battery, lock) and recovery. While an app is fullscreen,
   `watch_fullscreen` hooks EVENT_OBJECT_LOCATIONCHANGE for its thread only: leaving fullscreen in place fires no
-  global hook, and with every display paused the 2 s safety re-check is off. It reads
+  global hook, and with every display paused the 2 s safety re-check is off. App rules (`pause_apps`/`mute_apps`,
+  `config_rule_*`, CLI `rules`): the foreground process is matched in `update_occlusion` (`foreground_matches`);
+  mute reads `HKCU\...\CapabilityAccessManager\ConsentStore\microphone` (LastUsedTimeStop 0 = recording) on a
+  registry change notification (`mic_watch`, `WM_SP_MIC`), only while `mute_apps` is set. It reads
   `config.ini` itself and reloads on command.
 - **Preview helper**: `ScreenPlus.exe --capture-preview <id>` (`src/app/preview_capture.c`) records HTML
   previews into `cache\previews`.
@@ -188,6 +191,12 @@ Renderer details:
   in `depth*.bin` ("SPDV", JPEGs, index, trailer; `write_video`). The page plays the video with its sound (the renderer mutes it unless Sound is on) and blends the two
   depth frames around each frame's time. The "interactive images" setting stays pictures only.
 - Nothing downloads unless the user pressed Make wallpaper cooler or switched on `interactive_images`.
+- Motion (still pictures, not SHARP): `ensure_motion` also fetches UperNet + ConvNeXt-Tiny for ADE20K (MIT; `SEG_*` in
+  depth.c, `depth\models\upernet-convnext-tiny\`; never SegFormer, NVIDIA's weights are non-commercial). The child's
+  `segment_picture` (CPU, ~1 s) writes `motion.png`: 128 px grey, three maps stacked (sky, water, plants), softmax
+  summed per class group; nothing found writes `motion.none`. A missing model is not an error (depth only). depth.html
+  sways/ripples by sines and drifts with two half-cycle-apart samples cross-faded; with Motion on it draws every frame.
+  Props `motion`, `motionSpeed`, `wind`.
 - GPU or CPU: DirectML recompiles the model at every process start (~0.9-2.5 s), a fast CPU needs ~1 s, so the first
   run times both on the real picture and `depth\backend.json` keeps the quicker (re-tested when the ONNX Runtime
   version or the adapters change: fingerprint; delete the file or pass `--bench` to test again). A recorded GPU that
@@ -287,7 +296,7 @@ Renderer details:
 
 ## Known gaps (vs Lively)
 - There are no application, Unity or Godot wallpapers; they are reported as unsupported.
-- Missing features: per-app pause rules and in-app update notices. Web screensavers get no audio, system or
+- Missing features: in-app update notices. Web screensavers get no audio, system or
   track data.
 - Customise skips author property types `button` and `label`. Web grading has no gamma, because CSS has no
   equivalent.

@@ -76,6 +76,7 @@ const wchar_t *app_engine_state_text(int *severity)
     else if (st->flags & (ENGINE_FLAG_LOCKED | ENGINE_FLAG_SLEEPING | ENGINE_FLAG_DISPLAY_OFF)) { sev = 1; t = L"Suspended"; }
     else if (st->flags & ENGINE_FLAG_SCREENSAVER) { sev = 1; t = L"Paused for the screensaver"; }
     else if ((st->flags & ENGINE_FLAG_BATTERY) && g_app.cfg.s.pauseOnBattery) { sev = 1; t = L"Paused on battery"; }
+    else if (st->flags & ENGINE_FLAG_APP_PAUSE) { sev = 1; t = L"Paused for an app"; }
     else if ((st->flags & ENGINE_FLAG_FULLSCREEN) && g_app.cfg.s.pauseOnFullscreen && st->activeRenderers == 0) { sev = 1; t = L"Paused for fullscreen app"; }
     else if (st->activeRenderers == 0) { sev = 0; t = L"Idle (desktop covered)"; }
     if (severity) *severity = sev;

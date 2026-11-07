@@ -16,7 +16,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
  * are drawn only while something moves: an idle desktop costs no GPU time. A video's depth is __DEPTH__ too:
  * one small grey JPEG per depth frame (depth_infer.c's write_video), decoded a few frames ahead of playback;
  * each video frame is drawn with the two depth frames around its time blended. If WebGL2 or the files fail,
- * the plain picture or video stays. */
+ * the plain picture or video stays.
+ * Motion (pictures only): motion.png beside the page is three grey maps stacked top to bottom (sky, water,
+ * plants; depth_infer.c's segment_picture). Plants sway and water ripples by sines of time; sky and water also
+ * drift, which can't loop by itself, so the picture is pulled along the drift twice, half a cycle apart, and
+ * the two cross-fade so the one that jumps back is never seen. With motion on, frames run continuously
+ * (Screen+ suspends the page when it isn't seen); without motion.png the page stays still between moves. */
 (function () {
   var VIDEO = __VIDEO__;
   var cv = document.getElementById('c'), bg = document.getElementById('bg'), vid = null;
@@ -32,18 +37,30 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
   }
   var gl = cv.getContext('webgl2', { antialias: false, alpha: false, depth: false, stencil: false });
   if (!gl) return;
-  var P = { strength: 40, autoMove: false, autoSpeed: 100 };
+  var P = { strength: 40, autoMove: false, autoSpeed: 100, motion: true, motionSpeed: 100, wind: 60 };
+  var MOTION = 0, clock = 0;
   window.livelyPropertyListener = function (n, v) {
     if (!(n in P)) return;
     P[n] = v;
     if (n === 'autoMove' && !v) tx = ty = 0;
+    if (ready && !run) draw();               /* motion switched off: the still frame */
     kick();
   };
+  function moving() { return MOTION && P.motion; }
 
   var VS = '#version 300 es\nvoid main(){vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);gl_Position=vec4(p*2.-1.,0,1);}';
   var FS = '#version 300 es\nprecision highp float;\n' +
-    'uniform sampler2D I,D,E;uniform vec2 R,M,K;uniform float S,N,F;out vec4 o;\n' +
+    'uniform sampler2D I,D,E,W;uniform vec2 R,M,K;uniform float S,N,F,T,A,G;out vec4 o;\n' +
     'float h(vec2 u){u=clamp(u,.001,.999);return mix(textureLod(D,u,0.).r,textureLod(E,u,0.).r,F);}\n' +
+    'vec3 pic(vec2 u){return texture(I,clamp(u,.001,.999)).rgb;}\n' +
+    'vec3 moved(vec2 u){\n' +                /* sky r, water g, plants b; T in cycles, A the amount */
+    ' vec3 k=vec3(texture(W,vec2(u.x,2./3.+u.y/3.)).r,texture(W,vec2(u.x,1./3.+u.y/3.)).r,texture(W,vec2(u.x,u.y/3.)).r)*A;\n' +
+    ' float t=T*6.2832;\n' +
+    ' vec2 b=u+vec2(sin(t*.9+u.y*38.+u.x*9.)*.0016,sin(t*.6+u.x*31.)*.0008)*k.b\n' +
+    '   +vec2(sin(t*1.3+u.y*160.+sin(u.x*40.+t*.5)*2.)*.0012,sin(t+u.x*120.)*.0018)*k.g;\n' +
+    ' vec2 fl=vec2(G*.006,0.)*k.r+vec2(G*.006,-.004)*k.g;\n' +
+    ' float p=fract(T),q=fract(T+.5);\n' +
+    ' return mix(pic(b-fl*p),pic(b-fl*q),abs(1.-2.*p));}\n' +
     'void main(){\n' +
     ' vec2 st=(gl_FragCoord.xy/R-.5)*K+.5;\n' +
     ' vec2 off=-M*S,d=off/N,u=st-off*.5;\n' +
@@ -51,7 +68,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
     ' for(int i=0;i<40;i++){if(float(i)>=N||l<=m)break;u+=d;m=h(u);l-=ls;}\n' +
     ' float a=m-l,b=h(u-d)-(l+ls);\n' +
     ' u=mix(u,u-d,clamp(a/(a-b+1e-5),0.,1.));\n' +
-    ' o=vec4(texture(I,clamp(u,.001,.999)).rgb,1.);}';
+    ' o=vec4(A>0.?moved(clamp(u,.001,.999)):pic(u),1.);}';
   function shader(t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; }
   var pr = gl.createProgram();
   gl.attachShader(pr, shader(gl.VERTEX_SHADER, VS));
@@ -60,11 +77,13 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
   if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return;
   gl.useProgram(pr);
   var U = {};
-  ['I', 'D', 'E', 'R', 'M', 'K', 'S', 'N', 'F'].forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
+  ['I', 'D', 'E', 'W', 'R', 'M', 'K', 'S', 'N', 'F', 'T', 'A', 'G'].forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
   gl.uniform1i(U.I, 0);
   gl.uniform1i(U.D, 1);
   gl.uniform1i(U.E, 2);
+  gl.uniform1i(U.W, 3);
   gl.uniform1f(U.F, 0);
+  gl.uniform1f(U.A, 0);
 
   var T = [];
   function tex(unit, mip) {
@@ -87,6 +106,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
   tex(0, !VIDEO);
   tex(1, 0);
   tex(2, 0);
+  tex(3, 0);
 
   var ready = 0, run = 0, last = 0, ph = 0, mx = 0, my = 0, tx = 0, ty = 0, iw = 1, ih = 1, kx = 1, ky = 1;
   function size() {
@@ -105,6 +125,9 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
     gl.uniform2f(U.M, mx, my);
     gl.uniform1f(U.S, s);
     gl.uniform1f(U.N, Math.max(4, Math.min(40, Math.ceil(px / 2.5))));         /* a step per ~2.5 px of shift */
+    gl.uniform1f(U.A, moving() ? 1 : 0);
+    gl.uniform1f(U.T, clock);
+    gl.uniform1f(U.G, P.wind / 100);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
   function step(now) {                   /* the pointer's smoothing; true while it still moves */
@@ -118,7 +141,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
     var k = 1 - Math.exp(-dt * 5);
     mx += (tx - mx) * k;
     my += (ty - my) * k;
-    return P.autoMove || Math.abs(tx - mx) > 5e-4 || Math.abs(ty - my) > 5e-4;
+    if (moving()) clock = (clock + dt * P.motionSpeed / 100 / 4) % 1000;   /* a drift cycle is 4 s at 100% */
+    return P.autoMove || moving() || Math.abs(tx - mx) > 5e-4 || Math.abs(ty - my) > 5e-4;
   }
   function frame(now) {
     run = 0;
@@ -176,6 +200,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#000}
       upload(1, r[1], 0, 0);
       upload(2, r[1], 0, 0);
       if (show()) kick();                /* the pointer may have moved while the picture loaded */
+      return load('motion.png').then(function (m) {
+        upload(3, m, 0, 0);
+        MOTION = 1;
+        kick();
+      });
     }).catch(function () {});
     return;
   }

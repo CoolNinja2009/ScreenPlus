@@ -8,6 +8,7 @@
 #define CONFIG_SCHEMA     1
 #define CONFIG_MAX_ITEMS  4000
 #define CONFIG_MAX_ASSIGN 64
+#define SP_RULES_LEN      512
 
 typedef enum ThemeMode { THEME_SYSTEM = 0, THEME_LIGHT = 1, THEME_DARK = 2 } ThemeMode;
 /* How the displays share wallpapers. Independent: per-display overrides over the default.
@@ -101,6 +102,8 @@ typedef struct Settings {
     int       scrExitOnMouse; /* a mouse move ends the screensaver (keys and clicks always do) */
     int       autoUpdate;     /* check GitHub for a newer release and install it (update.c) */
     int       autoUpdateSamples; /* update the downloaded sample wallpapers that changed (samples_update.c) */
+    wchar_t   pauseApps[SP_RULES_LEN]; /* app rules: "a.exe;b.exe", pause while one is in front */
+    wchar_t   muteApps[SP_RULES_LEN];  /* mute while one uses the microphone ("*": any app) */
 } Settings;
 
 typedef struct Config {
@@ -120,6 +123,13 @@ BOOL            config_load(Config *c, const wchar_t *path);    /* FALSE: missin
 BOOL            config_save(const Config *c, const wchar_t *path);
 void            config_free(Config *c);
 BOOL            config_copy(Config *dst, const Config *src);
+
+/* App rule lists: lowercase exe names separated by ';'. */
+void            config_rule_name(wchar_t *out, size_t cap, const wchar_t *app);  /* path or name -> "name.exe" */
+BOOL            config_rule_has(const wchar_t *list, const wchar_t *app);
+BOOL            config_rule_add(wchar_t *list, size_t cap, const wchar_t *app);  /* FALSE: already there or full */
+BOOL            config_rule_remove(wchar_t *list, const wchar_t *app);
+int             config_rule_at(const wchar_t *list, int index, wchar_t *out, size_t cap);   /* 0: no such entry */
 
 WallpaperEntry *config_find(Config *c, const wchar_t *id);
 int             config_index_of(const Config *c, const wchar_t *id);

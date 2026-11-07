@@ -908,6 +908,55 @@ static float toggle_group(Ui *u, float x, float y, float w, const int *idx, cons
     return y + 62.0f * n;
 }
 
+/* An app rule list: label and Add app, then its apps as chips that remove themselves on click. */
+static float rule_row(Ui *u, float x, float y, float w, int which, const wchar_t *label, const wchar_t *list)
+{
+    wchar_t it[MAX_PATH], chip[MAX_PATH + 4];
+    float bw = ui_button_width(L"Add app", GL_ADD), pad = 18, rows = 0;
+    for (int pass = 0; pass < 2; pass++) {             /* measure, then draw inside the card */
+        float rx = x + pad, ry = y + 58;
+        if (pass) {
+            ui_glass(rectf(x, y, w, 62 + rows * 38), 14, 0, 0);
+            row_label(u, x, y, w - bw - 60, label, NULL);
+            ui_button(HIT_ID(HK_RULE_ADD, which), rectf(x + w - pad - bw, y + 14, bw, 34), L"Add app", GL_ADD, BTN_SECONDARY);
+        }
+        for (int i = 0; config_rule_at(list, i, it, SP_COUNTOF(it)); i++) {
+            str_printf(chip, SP_COUNTOF(chip), L"%ls  \x2715", wcscmp(it, L"*") ? it : L"Any app");
+            float c = ui_text_width(chip, u->fCenter) + 28;
+            if (rx + c > x + w - pad && rx > x + pad) { rx = x + pad; ry += 38; }
+            if (pass) ui_chip(HIT_ID(HK_RULE_DEL, which | (i << 8)), rectf(rx, ry - 4, c, 30), chip, 0);
+            else rows = (ry - (y + 58)) / 38 + 1;
+            rx += c + 8;
+        }
+    }
+    return y + 62 + rows * 38;
+}
+
+static void pick_rule_app(int which)
+{
+    IFileOpenDialog *dlg = NULL;
+    if (FAILED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog, (void **)&dlg))) return;
+    static const COMDLG_FILTERSPEC filters[] = { { L"Apps", L"*.exe" } };
+    FILEOPENDIALOGOPTIONS opts = 0;
+    IFileOpenDialog_GetOptions(dlg, &opts);
+    IFileOpenDialog_SetOptions(dlg, opts | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_NODEREFERENCELINKS);
+    IFileOpenDialog_SetFileTypes(dlg, (UINT)SP_COUNTOF(filters), filters);
+    IFileOpenDialog_SetTitle(dlg, which ? L"Mute while this app uses the microphone" : L"Pause while this app is in front");
+    IShellItem *it = NULL;
+    PWSTR path = NULL;
+    if (SUCCEEDED(IFileOpenDialog_Show(dlg, g_ui->hwnd)) && SUCCEEDED(IFileOpenDialog_GetResult(dlg, &it)) &&
+        SUCCEEDED(IShellItem_GetDisplayName(it, SIGDN_FILESYSPATH, &path)) && path) {
+        Settings *s = &g_app.cfg.s;
+        if (!str_ieq(path_ext(path), L".exe"))
+            app_notice(NOTICE_INFO, L"Choose the app's .exe file.");
+        else if (config_rule_add(which ? s->muteApps : s->pauseApps, SP_RULES_LEN, path))
+            app_save_config();
+        CoTaskMemFree(path);
+    }
+    SP_RELEASE(it);
+    IFileOpenDialog_Release(dlg);
+}
+
 static void draw_settings(Ui *u, float cx, float cw)
 {
     Settings *s = &g_app.cfg.s;
@@ -1015,6 +1064,12 @@ static void draw_settings(Ui *u, float cx, float cw)
         int v[] = { s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock, s->pauseOnBattery };
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 4);
     }
+    y += 26;
+
+    y = section(u, x, y, L"APP RULES");
+    y = rule_row(u, x, y, w, 0, L"Pause while these apps are in front", s->pauseApps);
+    y += 10;
+    y = rule_row(u, x, y, w, 1, L"Mute while these apps use the microphone", s->muteApps);
     y += 26;
 
     y = section(u, x, y, L"AUDIO & RECOVERY");
@@ -2310,6 +2365,12 @@ void pages_activate(int id, int dbl)
         g_app.cfg.s.scrDisplays = (ScrDisplays)SP_CLAMP(data, SCRD_ALL, SCRD_PRIMARY);
         app_save_config();
         break;
+    case HK_RULE_ADD:      pick_rule_app(data & 1); break;
+    case HK_RULE_DEL: {
+        wchar_t *list = (data & 1) ? g_app.cfg.s.muteApps : g_app.cfg.s.pauseApps, app[MAX_PATH];
+        if (config_rule_at(list, (data >> 8) & 0x7f, app, SP_COUNTOF(app)) && config_rule_remove(list, app)) app_save_config();
+        break;
+    }
     case HK_SCR_WINDOWS:   ShellExecuteW(NULL, NULL, L"control.exe", L"desk.cpl,,@screensaver", NULL, SW_SHOWNORMAL); break;
     case HK_UPDATE_CHECK:  update_check(TRUE); ui_invalidate(); break;
     case HK_SAMPLES_CHECK: samples_check(data != 0); ui_invalidate(); break;   /* data: it says Update */

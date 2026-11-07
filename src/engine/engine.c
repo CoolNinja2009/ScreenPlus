@@ -19,6 +19,7 @@
 
 #define WM_SP_HOST_LOST  (WM_APP + 41)
 #define WM_SP_SHELL_GONE (WM_APP + 42)
+#define WM_SP_MIC        (WM_APP + 43)
 
 enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS, T_RESTACK, T_HELLO };
 
@@ -78,6 +79,12 @@ static struct {
     int            screensaver;             /* ScreenPlus.scr is running: everything is hidden */
     DWORD          scrPid;
     HANDLE         scrProcess, scrWait;
+    int            appPaused;               /* app rules: a pause_apps app is in front */
+    DWORD          fgPid;                   /* the foreground process last matched against pause_apps */
+    int            fgMatch;
+    int            micMuted;                /* app rules: a mute_apps app is using the microphone */
+    HKEY           micKey;
+    HANDLE         micEvent, micWait;
 } E;
 
 static void apply_states(void);
@@ -116,7 +123,7 @@ static Slot *audio_slot(void)
 
 static BOOL slot_wants_audio(const Slot *s)
 {
-    return E.cfg.s.audio && audio_slot() == s;
+    return E.cfg.s.audio && !E.micMuted && audio_slot() == s;
 }
 
 static void slot_stop_renderer(Slot *s)
@@ -366,6 +373,139 @@ static void restack(void)
     }
 }
 
+/* ================================================================ app rules */
+
+/* pause_apps: is the foreground window's process one of them? Asked on every foreground change (the
+ * occlusion debounce), so the answer is kept per process. */
+static int foreground_matches(void)
+{
+    if (!E.cfg.s.pauseApps[0]) { E.fgPid = 0; return 0; }
+    DWORD pid = 0;
+    HWND fg = GetForegroundWindow();
+    if (fg) GetWindowThreadProcessId(fg, &pid);
+    if (pid && pid == E.fgPid) return E.fgMatch;
+    E.fgPid = pid;
+    E.fgMatch = 0;
+    HANDLE p = pid ? OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid) : NULL;
+    if (p) {
+        wchar_t path[MAX_PATH];
+        DWORD n = SP_COUNTOF(path);
+        if (QueryFullProcessImageNameW(p, 0, path, &n)) E.fgMatch = config_rule_has(E.cfg.s.pauseApps, path);
+        CloseHandle(p);
+    }
+    return E.fgMatch;
+}
+
+/* mute_apps reads Windows' own microphone record (the taskbar's mic indicator): under ConsentStore\microphone
+ * each app that used it has LastUsedTimeStart/Stop, and Stop is 0 while it still records. Packaged apps are
+ * keys named by package; desktop apps sit under NonPackaged as their path with '#' for '\'. A registry change
+ * notification wakes us; nothing is polled. */
+static const wchar_t k_micKey[] =
+    L"Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone";
+
+static int mic_key_in_use(HKEY parent, const wchar_t *name)
+{
+    ULONGLONG start = 0, stop = 1;
+    DWORD cb = sizeof start;
+    if (RegGetValueW(parent, name, L"LastUsedTimeStart", RRF_RT_REG_QWORD, NULL, &start, &cb) != ERROR_SUCCESS) return 0;
+    cb = sizeof stop;
+    if (RegGetValueW(parent, name, L"LastUsedTimeStop", RRF_RT_REG_QWORD, NULL, &stop, &cb) != ERROR_SUCCESS) return 0;
+    return start && !stop;
+}
+
+static int mic_rule_matches(const wchar_t *name, int packaged)
+{
+    const wchar_t *list = E.cfg.s.muteApps;
+    if (config_rule_has(list, L"*")) return 1;
+    if (!packaged) {
+        const wchar_t *f = wcsrchr(name, L'#');
+        return config_rule_has(list, f ? f + 1 : name);
+    }
+    wchar_t low[256], it[MAX_PATH];             /* "teams.exe" matches MSTeams_8wekyb3d8bbwe */
+    str_copy(low, SP_COUNTOF(low), name);
+    for (wchar_t *c = low; *c; c++) *c = (wchar_t)towlower(*c);
+    for (int i = 0; config_rule_at(list, i, it, SP_COUNTOF(it)); i++) {
+        wchar_t *dot = wcsrchr(it, L'.');
+        if (dot) *dot = 0;
+        if (wcslen(it) >= 3 && wcsstr(low, it)) return 1;
+    }
+    return 0;
+}
+
+static int mic_scan(HKEY k, int packaged)
+{
+    wchar_t name[512];
+    for (DWORD i = 0;; i++) {
+        DWORD n = SP_COUNTOF(name);
+        LONG rc = RegEnumKeyExW(k, i, name, &n, NULL, NULL, NULL, NULL);
+        if (rc == ERROR_NO_MORE_ITEMS) return 0;
+        if (rc != ERROR_SUCCESS || (packaged && str_ieq(name, L"NonPackaged"))) continue;
+        if (mic_key_in_use(k, name) && mic_rule_matches(name, packaged)) return 1;
+    }
+}
+
+static void mic_check(void)
+{
+    int on = 0;
+    if (E.micKey) {
+        HKEY np;
+        on = mic_scan(E.micKey, 1);
+        if (!on && RegOpenKeyExW(E.micKey, L"NonPackaged", 0, KEY_READ, &np) == ERROR_SUCCESS) {
+            on = mic_scan(np, 0);
+            RegCloseKey(np);
+        }
+    }
+    if (on == E.micMuted) return;
+    E.micMuted = on;
+    LOGI(on ? L"app rules: an app is using the microphone; wallpaper sound muted" : L"app rules: microphone free; sound back");
+    for (int i = 0; i < SP_MAX_MONITORS; i++)
+        if (E.slots[i].used && E.slots[i].r) E.slots[i].r->vt->set_audio(E.slots[i].r, slot_wants_audio(&E.slots[i]));
+    status_dirty();
+}
+
+static void CALLBACK mic_changed(void *ctx, BOOLEAN timedOut)
+{
+    (void)ctx; (void)timedOut;
+    if (E.ctl) PostMessageW(E.ctl, WM_SP_MIC, 0, 0);
+}
+
+/* One-shot: re-armed before every check so no change between the two is missed. */
+static void mic_arm(void)
+{
+    if (E.micKey && RegNotifyChangeKeyValue(E.micKey, TRUE, REG_NOTIFY_CHANGE_NAME | REG_NOTIFY_CHANGE_LAST_SET |
+                                            REG_NOTIFY_THREAD_AGNOSTIC, E.micEvent, TRUE) != ERROR_SUCCESS)
+        LOGW(L"app rules: microphone change notification failed");
+}
+
+static void mic_unwatch(void)
+{
+    if (E.micWait) UnregisterWaitEx(E.micWait, INVALID_HANDLE_VALUE);
+    if (E.micKey) RegCloseKey(E.micKey);
+    if (E.micEvent) CloseHandle(E.micEvent);
+    E.micWait = E.micEvent = NULL;
+    E.micKey = NULL;
+}
+
+/* Watches only while mute_apps has an entry. */
+static void mic_watch(void)
+{
+    int want = E.cfg.s.muteApps[0] != 0;
+    if (want && !E.micKey) {
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, k_micKey, 0, KEY_READ | KEY_NOTIFY, &E.micKey) != ERROR_SUCCESS) E.micKey = NULL;
+        E.micEvent = E.micKey ? CreateEventW(NULL, FALSE, FALSE, NULL) : NULL;
+        if (!E.micEvent || !RegisterWaitForSingleObject(&E.micWait, E.micEvent, mic_changed, NULL, INFINITE, WT_EXECUTEDEFAULT))
+            E.micWait = NULL;
+        if (E.micWait) mic_arm();
+        else {
+            LOGW(L"app rules: can't watch the microphone");
+            mic_unwatch();
+        }
+    } else if (!want && E.micKey) {
+        mic_unwatch();
+    }
+    mic_check();
+}
+
 /* ================================================================ adaptive state */
 
 static RenderState desired_state(const Slot *s, int *keepFrame)
@@ -376,7 +516,7 @@ static RenderState desired_state(const Slot *s, int *keepFrame)
         *keepFrame = 1;
         return RS_SUSPENDED;
     }
-    if (E.userPaused || (E.cfg.s.pauseOnBattery && (E.onBattery || E.energySaver))) {
+    if (E.userPaused || E.appPaused || (E.cfg.s.pauseOnBattery && (E.onBattery || E.energySaver))) {
         *keepFrame = 1;
         return RS_SUSPENDED;
     }
@@ -463,6 +603,13 @@ static void update_occlusion(void)
     }
     E.fullscreen = any;
     watch_fullscreen(any);
+    int app = foreground_matches();
+    if (app != E.appPaused) {
+        LOGI(L"app rules: %ls", app ? L"a pause app is in front; pausing" : L"pause app left; resuming");
+        E.appPaused = app;
+        changed = 1;
+        status_dirty();
+    }
     if (changed) apply_states();
 }
 
@@ -647,7 +794,8 @@ static void status_send(void)
                 (E.onBattery ? ENGINE_FLAG_BATTERY : 0) | (E.fullscreen ? ENGINE_FLAG_FULLSCREEN : 0) |
                 (E.displayOff ? ENGINE_FLAG_DISPLAY_OFF : 0) | (E.safeMode ? ENGINE_FLAG_SAFE_MODE : 0) |
                 (E.webview[0] ? ENGINE_FLAG_WEBVIEW2 : 0) | (E.sleeping ? ENGINE_FLAG_SLEEPING : 0) |
-                (E.screensaver ? ENGINE_FLAG_SCREENSAVER : 0);
+                (E.screensaver ? ENGINE_FLAG_SCREENSAVER : 0) | (E.appPaused ? ENGINE_FLAG_APP_PAUSE : 0) |
+                (E.micMuted ? ENGINE_FLAG_APP_MUTE : 0);
     str_copy(st->webviewVersion, SP_COUNTOF(st->webviewVersion), E.webview);
     str_copy(st->lastError, SP_COUNTOF(st->lastError), E.lastError);
     int n = 0, active = 0;
@@ -731,6 +879,8 @@ static void reload_config(void)
         for (int i = 0; i < SP_MAX_MONITORS; i++)
             if (E.slots[i].used && E.slots[i].r) E.slots[i].r->vt->set_audio(E.slots[i].r, slot_wants_audio(&E.slots[i]));
     }
+    E.fgPid = 0;                                   /* the pause list may have changed: ask again */
+    mic_watch();
     if (oldStill && !E.cfg.s.stillWallpaper) stills_restore();
     if (E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, oldStill ? 3000 : 500, NULL);   /* a new wallpaper or display */
     update_occlusion();
@@ -938,6 +1088,10 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case SP_MSG_SCREENSAVER:
         on_screensaver(wp != 0, (DWORD)lp);
         return 0;
+    case WM_SP_MIC:
+        mic_arm();
+        mic_check();
+        return 0;
     case WM_SP_SHELL_GONE:
         LOGW(L"shell process exited; stopping engine");
         DestroyWindow(h);
@@ -1133,6 +1287,7 @@ int engine_main(HINSTANCE inst, HWND shell, int safeMode)
         E.energySaver = (sps.SystemStatusFlag & 1) != 0;
     }
     html_runtime_version(E.webview, SP_COUNTOF(E.webview));
+    mic_watch();                                   /* before any renderer starts with sound */
 
     desktop_host_discover(&E.host);
     update_occlusion();
@@ -1159,6 +1314,7 @@ int engine_main(HINSTANCE inst, HWND shell, int safeMode)
     html_shutdown();
     for (int i = 0; i < E.hookCount; i++) UnhookWinEvent(E.hooks[i]);
     if (E.fullHook) UnhookWinEvent(E.fullHook);
+    mic_unwatch();
     for (int i = 0; i < 3; i++) if (E.pn[i]) UnregisterPowerSettingNotification(E.pn[i]);
     if (E.shellWait) UnregisterWaitEx(E.shellWait, INVALID_HANDLE_VALUE);
     if (E.scrWait) UnregisterWaitEx(E.scrWait, INVALID_HANDLE_VALUE);
