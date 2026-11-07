@@ -4,7 +4,7 @@
 
 # Screen+
 
-Live wallpapers for Windows.
+Live wallpapers for Windows and Linux.
 
 [![Release](https://img.shields.io/gitlab/v/release/screenplus-group/screenplus?style=flat-square&color=FFA500&label=release)](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square)](LICENSE)
@@ -13,7 +13,7 @@ Live wallpapers for Windows.
 
 ![Screen+ library](docs/media/library.gif)
 
-Screen+ sets videos, GIFs, pictures and web pages as your desktop wallpaper. It is a native Win32 app written in C
+Screen+ sets videos, GIFs, pictures and web pages as your desktop wallpaper. It is a native app written in C
 and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpapers work without changes.
 
 **[Download](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)** for Windows 10 or 11 (64-bit) and Linux (KDE Plasma 6 or Hyprland).
@@ -27,8 +27,9 @@ and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpap
 - A store that searches seven wallpaper sites at once
 - Per-monitor wallpapers, or one wallpaper duplicated or spanned across monitors
 - Screensaver mode
-- Make wallpaper cooler: turns a picture or video into a 3D wallpaper that follows the mouse
-- Colour grading and wallpaper properties
+- Make wallpaper cooler: turns a picture or video into a 3D wallpaper that follows the mouse, and makes the sky,
+  water and plants in a picture move
+- Colour grading and wallpaper properties, and recordings of your changes that play on a loop
 - Pauses for fullscreen apps, covered desktops, the lock screen and battery power
 - App rules: pause while chosen apps are in front, mute while chosen apps use the microphone (calls)
 - Starts the moment you sign in, with a still of your wallpaper on screen until it does
@@ -59,8 +60,10 @@ Silent install: `ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/NOURL] 
 - **Customise**: adjust colours and the wallpaper's own properties. **Make wallpaper cooler** works on pictures and
   videos. Pick a depth model (Depth Anything 2 or 3, Small to Large); each shows how well this PC runs it and how
   long it takes. A model downloads the first time you pick it (100 MB to 1.4 GB). It needs the Visual C++
-  Redistributable 14.44 or newer.
-- **Settings**: startup, screensaver, pausing, audio and updates.
+  Redistributable 14.44 or newer. Motion in pictures uses one more model (238 MB, downloaded once).
+  The record button on **Look & colour** or the wallpaper's properties records what you change until you stop it,
+  then plays it on a loop; edit it as graphs (speed, smoothing, draw over a line) or delete it.
+- **Settings**: startup, screensaver, pausing, app rules, audio and updates.
 
 | Type | Formats |
 | --- | --- |
@@ -86,6 +89,7 @@ screenplus apply <wallpaper> [--display N]
 screenplus import <path|link>... | remove <wallpaper>
 screenplus pause | resume | next | restart | audio [on|off]
 screenplus look | props | settings [set <key> <value>]
+screenplus rules [pause|mute add|remove <app>]
 screenplus screensaver | update | tools | vcredist
 screenplus start | show | hide | stop | logs [-f]
 screenplus help [command]
@@ -100,7 +104,7 @@ different folder.
 
 ## Linux
 
-KDE Plasma 6 and Hyprland. GNOME isn't supported yet. The window is `screenplus show`; there's no tray, Store or depth wallpapers yet.
+KDE Plasma 6 and Hyprland. GNOME isn't supported yet. The window is `screenplus show`; there's no tray or screensaver yet.
 Unpack `ScreenPlus-<version>-linux-x86_64.tar.gz`, run `./install.sh`, then:
 
 ```bash
@@ -138,7 +142,8 @@ MIT, see [LICENSE](LICENSE). Third-party components are listed in [THIRD_PARTY_N
 - [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT) and the depth models, each downloaded when it is first
   picked: [Depth Anything V2](https://huggingface.co/onnx-community/depth-anything-v2-small) Small (Apache-2.0), Base and
   Large (CC BY-NC 4.0); [Depth Anything 3](https://huggingface.co/onnx-community/depth-anything-v3-small) Small, Base and
-  Large (Apache-2.0)
+  Large (Apache-2.0); [UperNet ConvNeXt-Tiny](https://huggingface.co/openmmlab/upernet-convnext-tiny) for motion
+  (MIT)
 - [NSIS](https://nsis.sourceforge.io) for the installer
 
 Wallpapers in the screenshots belong to their authors. Screen+ is not affiliated with Lively Wallpaper, Wallpaper
