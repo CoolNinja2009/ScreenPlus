@@ -1184,6 +1184,51 @@ static void cmd_settings(Reply *r, const Req *q)
     fail(r, L"Unknown setting \"%ls\". See: screenplus settings", q->argv[2]);
 }
 
+static void rules_json(StrBuf *b, const wchar_t *list)
+{
+    wchar_t it[MAX_PATH];
+    sb_puts(b, "[");
+    for (int i = 0; config_rule_at(list, i, it, SP_COUNTOF(it)); i++) {
+        if (i) sb_puts(b, ",");
+        jstr(b, it);
+    }
+    sb_puts(b, "]");
+}
+
+/* rules: list; rules pause|mute add|remove <app.exe> (mute also takes "*": any app). */
+static void cmd_rules(Reply *r, const Req *q)
+{
+    Settings *s = &g_app.cfg.s;
+    if (q->argc >= 4) {
+        const wchar_t *which = q->argv[1], *op = q->argv[2], *app = q->argv[3];
+        int pause = str_ieq(which, L"pause"), mute = str_ieq(which, L"mute");
+        int add = str_ieq(op, L"add"), del = str_ieq(op, L"remove") || str_ieq(op, L"rm");
+        if ((pause || mute) && (add || del) && !(pause && wcscmp(app, L"*") == 0)) {
+            wchar_t *list = pause ? s->pauseApps : s->muteApps;
+            BOOL ok = add ? config_rule_add(list, SP_RULES_LEN, app) : config_rule_remove(list, app);
+            if (!ok) {
+                fail(r, add ? L"%ls is already there, or the list is full." : L"%ls isn't in the list.", app);
+                return;
+            }
+            app_save_config();
+            ui_on_config_changed();
+        } else {
+            fail(r, L"Usage: screenplus rules [pause|mute add|remove <app.exe>]   (mute also takes *: any app)");
+            return;
+        }
+    } else if (q->argc > 1) {
+        fail(r, L"Usage: screenplus rules [pause|mute add|remove <app.exe>]   (mute also takes *: any app)");
+        return;
+    }
+    say(r, L"Pause while in front:       %ls\n", s->pauseApps[0] ? s->pauseApps : L"(none)");
+    say(r, L"Mute while using the mic:   %ls\n", s->muteApps[0] ? s->muteApps : L"(none)");
+    sb_puts(&r->data, "{\"pause\":");
+    rules_json(&r->data, s->pauseApps);
+    sb_puts(&r->data, ",\"mute\":");
+    rules_json(&r->data, s->muteApps);
+    sb_puts(&r->data, "}");
+}
+
 /* ------------------------------------------------------------------ dispatch */
 
 static void run(Reply *r, const Req *q)
@@ -1194,6 +1239,8 @@ static void run(Reply *r, const Req *q)
         sb_printf(&r->data, "{\"pid\":%lu}", GetCurrentProcessId());
     } else if (str_ieq(c, L"status")) {
         cmd_status(r);
+    } else if (str_ieq(c, L"rules")) {
+        cmd_rules(r, q);
     } else if (str_ieq(c, L"list") || str_ieq(c, L"ls")) {
         cmd_list(r, q);
     } else if (str_ieq(c, L"displays") || str_ieq(c, L"monitors")) {

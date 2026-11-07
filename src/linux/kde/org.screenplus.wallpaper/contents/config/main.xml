@@ -9,6 +9,8 @@
     <entry name="Muted" type="Bool"><default>true</default></entry>
     <entry name="Paused" type="Bool"><default>false</default></entry>
     <entry name="PauseOnFullscreen" type="Bool"><default>true</default></entry>
+    <entry name="PauseApps" type="String"><default></default></entry>
+    <entry name="Recording" type="String"><default></default></entry>
     <entry name="Mouse" type="Bool"><default>true</default></entry>
     <entry name="PauseWhenCovered" type="Bool"><default>true</default></entry>
     <entry name="SpanX" type="Int"><default>0</default></entry>

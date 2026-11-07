@@ -16,6 +16,7 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/util.h"
+#include "../common/json.h"
 #include "../renderer/html/wallpaper_api.h"
 
 /* A fixed table: mpv's update callback can outlive a teardown, so a slot's address must stay valid. */
@@ -32,10 +33,15 @@ typedef struct Slot {
     int                 paused;
     JVal               *sent;           /* the property values the page has */
     char               *uri;            /* mpv: loaded once its render context exists */
+    Rec                 rec[REC_SECTIONS];   /* Customise recordings playing here */
+    WallpaperAdjust     recBase;
+    JVal               *recProps;
 } Slot;
 
 static Slot   g_slots[SP_MAX_MONITORS];
 static Config g_cfg;
+static int    g_appHeld, g_micHeld;      /* app rules: a pause app is focused; a mute app is recording */
+static guint  g_micSource;
 static GtkApplication *g_app;
 
 /* ------------------------------------------------------------------ mpv */
@@ -256,8 +262,82 @@ static GtkWidget *web_view(Slot *s, const WallpaperEntry *e)
 
 /* ------------------------------------------------------------------ slots */
 
+/* ------------------------------------------------------------------ recordings (played from memory) */
+
+static guint g_recSource;
+
+static void rec_unload(Slot *s)
+{
+    for (int k = 0; k < REC_SECTIONS; k++) wprec_free(&s->rec[k]);
+    json_free(s->recProps);
+    s->recProps = NULL;
+    if (s->wallpaper[0]) wpapi_live_set(s->wallpaper, NULL, NULL);
+}
+
+static void rec_load(Slot *s)
+{
+    rec_unload(s);
+    if (!s->wallpaper[0]) return;
+    wpapi_load_adjust(s->wallpaper, &s->recBase);
+    for (int k = 0; k < REC_SECTIONS; k++) wprec_load(s->wallpaper, k, &s->rec[k]);
+}
+
+static int rec_playing(const Slot *s) { return s->win && !s->paused && (s->rec[0].n || s->rec[1].n); }
+
+static gboolean rec_tick(gpointer data)
+{
+    static unsigned ticks;
+    (void)data;
+    double now = wprec_now();
+    int props = ++ticks % 3 == 0, any = 0;
+    for (int i = 0; i < SP_MAX_MONITORS; i++) {
+        Slot *s = &g_slots[i];
+        if (!rec_playing(s)) continue;
+        any = 1;
+        Rec *look = &s->rec[REC_LOOK], *pr = &s->rec[REC_PROPS];
+        WallpaperAdjust a = s->recBase;
+        if (look->n) wprec_look(look, wprec_pos(look, now), &a);
+        int sendProps = pr->n && (props || !s->recProps);
+        if (sendProps) {
+            StrBuf b = { 0 };
+            double pos = wprec_pos(pr, now);
+            sb_puts(&b, "{");
+            for (int k = 0; k < pr->count; k++) {
+                JVal *v = wprec_value(&pr->t[k], pr->n, pos);
+                if (!v) continue;
+                if (b.len > 1) sb_puts(&b, ",");
+                json_write_string(&b, pr->t[k].key);
+                sb_puts(&b, ":");
+                json_write(&b, v);
+                json_free(v);
+            }
+            sb_puts(&b, "}");
+            json_free(s->recProps);
+            s->recProps = b.failed ? NULL : json_parse(b.p, b.len);
+            sb_free(&b);
+        }
+        if (!look->n && !sendProps) continue;
+        wpapi_live_set(s->wallpaper, look->n ? &a : NULL, s->recProps);
+        WallpaperEntry *e = config_find(&g_cfg, s->wallpaper);
+        if (!e) continue;
+        if (s->mpv && look->n) mpv_look(s, e);
+        if (s->web && sendProps) web_send_properties(s, e);
+    }
+    if (!any) g_recSource = 0;
+    return any ? G_SOURCE_CONTINUE : G_SOURCE_REMOVE;
+}
+
+/* The ~30 Hz playback tick runs only while a shown, unpaused display has a recording. */
+static void rec_schedule(void)
+{
+    int any = 0;
+    for (int i = 0; i < SP_MAX_MONITORS; i++) any |= rec_playing(&g_slots[i]);
+    if (any && !g_recSource) g_recSource = g_timeout_add(33, rec_tick, NULL);
+}
+
 static void slot_clear(Slot *s)
 {
+    rec_unload(s);
     if (s->win) gtk_window_destroy(s->win);     /* unrealizes the GL area, which frees mpv's context */
     if (s->mpv) mpv_terminate_destroy(s->mpv);
     json_free(s->sent);
@@ -334,13 +414,16 @@ static int should_pause(const Slot *s)
         battery = sp_on_battery();
         checked = now;
     }
-    return g_cfg.s.paused || (g_cfg.s.pauseOnBattery && battery)
+    return g_cfg.s.paused || g_appHeld || (g_cfg.s.pauseOnBattery && battery)
         || (g_cfg.s.pauseOnFullscreen && hypr_fullscreen_on(s->monitor));
 }
 
 static gboolean tick(gpointer data)
 {
     (void)data;
+    int held = g_cfg.s.pauseApps[0] && sp_pid_matches(hypr_active_pid(), g_cfg.s.pauseApps);
+    if (held != g_appHeld) LOGI(L"app rules: %ls", held ? L"a pause app is focused; pausing" : L"pause app left; resuming");
+    g_appHeld = held;
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &g_slots[i];
         if (!s->win) continue;
@@ -351,6 +434,7 @@ static gboolean tick(gpointer data)
             if (end->reason == MPV_END_FILE_REASON_ERROR) LOGE(L"mpv: %s: playback failed", s->monitor);
         }
     }
+    rec_schedule();                                  /* a display came back from a pause */
     return G_SOURCE_CONTINUE;
 }
 
@@ -395,7 +479,8 @@ static void sync_slots(void)
                 if (s->mpv) mpv_look(s, e);
                 if (s->web) web_send_properties(s, e);
             }
-            if (s->win) slot_set_sound(s, g_cfg.s.audio);
+            if (s->win) slot_set_sound(s, g_cfg.s.audio && !g_micHeld);
+            if (s->win) rec_load(s);                 /* a recording made, edited or deleted */
             free(id);
         }
         g_object_unref(m);
@@ -412,11 +497,50 @@ static void sync_slots(void)
     tick(NULL);
 }
 
+static void mic_check(void)
+{
+    int busy = sp_mic_busy(g_cfg.s.muteApps);
+    if (busy == g_micHeld) return;
+    LOGI(L"app rules: %ls", busy ? L"an app is using the microphone; sound muted" : L"microphone free; sound back");
+    g_micHeld = busy;
+    for (int i = 0; i < SP_MAX_MONITORS; i++)
+        if (g_slots[i].win) slot_set_sound(&g_slots[i], g_cfg.s.audio && !g_micHeld);
+}
+
+static gboolean on_mic(gint fd, GIOCondition c, gpointer data)
+{
+    (void)fd; (void)c; (void)data;
+    int r = sp_mic_watch_read();
+    if (r < 0) {
+        LOGW(L"app rules: pactl subscribe ended");
+        sp_mic_watch_stop();
+        g_micSource = 0;
+        return G_SOURCE_REMOVE;
+    }
+    if (r) mic_check();
+    return G_SOURCE_CONTINUE;
+}
+
+/* The microphone is watched only while mute_apps has an entry. */
+static void mic_watch(void)
+{
+    int want = g_cfg.s.muteApps[0] != 0, fd;
+    if (want && !g_micSource && (fd = sp_mic_watch_start()) >= 0)
+        g_micSource = g_unix_fd_add(fd, G_IO_IN | G_IO_HUP | G_IO_ERR, on_mic, NULL);
+    else if (!want && g_micSource) {
+        g_source_remove(g_micSource);
+        g_micSource = 0;
+        sp_mic_watch_stop();
+    }
+}
+
 static void reload(void)
 {
     config_free(&g_cfg);
     memset(&g_cfg, 0, sizeof g_cfg);
     config_load(&g_cfg, paths_config());
+    mic_watch();
+    g_micHeld = sp_mic_busy(g_cfg.s.muteApps);
     sync_slots();
 }
 

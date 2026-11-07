@@ -9,6 +9,7 @@ static inline uint32_t ui_icon_map(uint32_t c)
     case 0xE8F1: return 0xF4D3;   /* LIBRARY: library */
     case 0xE7F4: return 0xF35A;   /* DISPLAY: desktop */
     case 0xE713: return 0xF6AA;   /* SETTINGS: settings */
+    case 0xE74D: return 0xF34D;   /* TRASH: delete */
     case 0xE710: return 0xF10A;   /* ADD: add */
     case 0xE8B7: return 0xF419;   /* FOLDER: folder */
     case 0xE71B: return 0xF4E5;   /* LINK: link */

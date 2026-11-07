@@ -912,6 +912,68 @@ static float toggle_group(Ui *u, float x, float y, float w, const int *idx, cons
     return y + 62.0f * n;
 }
 
+/* An app rule list: label and Add app, then its apps as chips that remove themselves on click. */
+static float rule_row(Ui *u, float x, float y, float w, int which, const wchar_t *label, const wchar_t *list)
+{
+    wchar_t it[MAX_PATH], chip[MAX_PATH + 4];
+    float bw = ui_button_width(L"Add app", GL_ADD), pad = 18, rows = 0;
+    for (int pass = 0; pass < 2; pass++) {             /* measure, then draw inside the card */
+        float rx = x + pad, ry = y + 58;
+        if (pass) {
+            ui_glass(rectf(x, y, w, 62 + rows * 38), 14, 0, 0);
+            row_label(u, x, y, w - bw - 60, label, NULL);
+            ui_button(HIT_ID(HK_RULE_ADD, which), rectf(x + w - pad - bw, y + 14, bw, 34), L"Add app", GL_ADD, BTN_SECONDARY);
+        }
+        for (int i = 0; config_rule_at(list, i, it, SP_COUNTOF(it)); i++) {
+            str_printf(chip, SP_COUNTOF(chip), L"%ls  \x2715", wcscmp(it, L"*") ? it : L"Any app");
+            float c = ui_text_width(chip, u->fCenter) + 28;
+            if (rx + c > x + w - pad && rx > x + pad) { rx = x + pad; ry += 38; }
+            if (pass) ui_chip(HIT_ID(HK_RULE_DEL, which | (i << 8)), rectf(rx, ry - 4, c, 30), chip, 0);
+            else rows = (ry - (y + 58)) / 38 + 1;
+            rx += c + 8;
+        }
+    }
+    return y + 62 + rows * 38;
+}
+
+#ifndef _WIN32
+/* Any program file: its name is what /proc/<pid>/exe ends in (Hyprland) or the app's id (Plasma). */
+static void pick_rule_app(int which)
+{
+    wchar_t **paths = NULL;
+    Settings *s = &g_app.cfg.s;
+    int n = sp_pick_paths(0, &paths);
+    if (n && config_rule_add(which ? s->muteApps : s->pauseApps, SP_RULES_LEN, paths[0])) app_save_config();
+    for (int i = 0; i < n; i++) free(paths[i]);
+    free(paths);
+}
+#else
+static void pick_rule_app(int which)
+{
+    IFileOpenDialog *dlg = NULL;
+    if (FAILED(CoCreateInstance(&CLSID_FileOpenDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileOpenDialog, (void **)&dlg))) return;
+    static const COMDLG_FILTERSPEC filters[] = { { L"Apps", L"*.exe" } };
+    FILEOPENDIALOGOPTIONS opts = 0;
+    IFileOpenDialog_GetOptions(dlg, &opts);
+    IFileOpenDialog_SetOptions(dlg, opts | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_NODEREFERENCELINKS);
+    IFileOpenDialog_SetFileTypes(dlg, (UINT)SP_COUNTOF(filters), filters);
+    IFileOpenDialog_SetTitle(dlg, which ? L"Mute while this app uses the microphone" : L"Pause while this app is in front");
+    IShellItem *it = NULL;
+    PWSTR path = NULL;
+    if (SUCCEEDED(IFileOpenDialog_Show(dlg, g_ui->hwnd)) && SUCCEEDED(IFileOpenDialog_GetResult(dlg, &it)) &&
+        SUCCEEDED(IShellItem_GetDisplayName(it, SIGDN_FILESYSPATH, &path)) && path) {
+        Settings *s = &g_app.cfg.s;
+        if (!str_ieq(path_ext(path), L".exe"))
+            app_notice(NOTICE_INFO, L"Choose the app's .exe file.");
+        else if (config_rule_add(which ? s->muteApps : s->pauseApps, SP_RULES_LEN, path))
+            app_save_config();
+        CoTaskMemFree(path);
+    }
+    SP_RELEASE(it);
+    IFileOpenDialog_Release(dlg);
+}
+#endif
+
 static void draw_settings(Ui *u, float cx, float cw)
 {
     Settings *s = &g_app.cfg.s;
@@ -1030,6 +1092,12 @@ static void draw_settings(Ui *u, float cx, float cw)
     }
     y += 26;
 
+    y = section(u, x, y, L"APP RULES");
+    y = rule_row(u, x, y, w, 0, L"Pause while these apps are in front", s->pauseApps);
+    y += 10;
+    y = rule_row(u, x, y, w, 1, L"Mute while these apps use the microphone", s->muteApps);
+    y += 26;
+
     y = section(u, x, y, L"AUDIO & RECOVERY");
     {
         int idx[] = { TOG_AUDIO, TOG_RECOVER };
@@ -1144,6 +1212,14 @@ static struct {
     wchar_t         edit[SP_MAX_PATH]; /* text of the field being typed into (u->textFocus) */
     int             forceReload;       /* re-resolve property values (after a reset) */
     double          lastSend;          /* time_ms of the last commit */
+    Rec             rec[REC_SECTIONS]; /* the wallpaper's recordings (buttons, graphs) */
+    int             graphs[REC_SECTIONS];   /* a section shows its recording's graphs instead of its controls */
+    RecTake        *take;              /* recording now */
+    int             takeSec;
+    wchar_t         takeId[SP_ID_LEN];
+    WallpaperAdjust takeAdj, takeLast; /* the look when recording began; as last noted */
+    JVal          **takeProps;         /* the property values when recording began */
+    int             takePropCount;
 } cus;
 
 /* The card's name line: plain text, or the rename editor while typing (double-click starts one). */
@@ -1168,6 +1244,10 @@ static WallpaperEntry *customise_entry(void)
     return config_find(&g_app.cfg, app_wallpaper_for(target_id()));
 }
 
+static void rec_stop(void);
+static void rec_drop_take(void);
+static void rec_reload(void);
+
 static void customise_refresh(void)
 {
     Ui *u = g_ui;
@@ -1182,6 +1262,10 @@ static void customise_refresh(void)
         return;
     }
     if (str_ieq(cus.wpId, e->id) && !cus.forceReload) return;
+    if (!str_ieq(cus.wpId, e->id)) {
+        if (cus.take) rec_stop();                    /* the take belongs to the wallpaper being left */
+        cus.graphs[REC_LOOK] = cus.graphs[REC_PROPS] = 0;
+    }
     str_copy(cus.wpId, SP_COUNTOF(cus.wpId), e->id);
     if (u->textFocus) pages_text_end(0);   /* the edited field belonged to the previous wallpaper */
     u->textFocus = 0;
@@ -1189,11 +1273,12 @@ static void customise_refresh(void)
     wpapi_load_adjust(e->id, &cus.adj);
     wpapi_props_free(cus.props, cus.propCount);
     cus.props = wpapi_props_list(e, &cus.propCount);
+    if (cus.take && cus.takePropCount != cus.propCount) rec_drop_take();   /* the list changed under the take */
+    rec_reload();
 }
 
-static int *look_field(int def)
+static int *adj_field(WallpaperAdjust *a, int def)
 {
-    WallpaperAdjust *a = &cus.adj;
     switch (def) {
     case SL_BRIGHT:   return &a->brightness;
     case SL_CONTRAST: return &a->contrast;
@@ -1205,6 +1290,8 @@ static int *look_field(int def)
     default:          return NULL;
     }
 }
+
+static int *look_field(int def) { return adj_field(&cus.adj, def); }
 
 /* Slider geometry shared with ui_slider (track inset 11 on both sides). */
 static float slider_norm_from_x(D2D1_RECT_F r, float x)
@@ -1228,9 +1315,118 @@ static uint32_t tint_effective(void)
     return rgb_of((D2D1_COLOR_F){ c.r * v, c.g * v, c.b * v, 1.0f });
 }
 
+/* ---- recordings: the record button notes every change the user makes to a section (at full drag rate,
+ * before the live throttle), stop turns them into a loop the engine plays (wallpaper_api.c's wprec_*). */
+
+static const struct { const char *key; int def; } k_lookKeys[] = {
+    { "brightness", SL_BRIGHT }, { "contrast", SL_CONTRAST }, { "saturation", SL_SAT }, { "hue", SL_HUE },
+    { "gamma", SL_GAMMA }, { "tintLift", SL_TINTLIFT }, { "tintBrightness", SL_TINTV },
+};
+
+static void rec_reload(void)
+{
+    for (int s = 0; s < REC_SECTIONS; s++) {
+        wprec_free(&cus.rec[s]);
+        if (cus.wpId[0]) wprec_load(cus.wpId, s, &cus.rec[s]);
+        if (!cus.rec[s].n) cus.graphs[s] = 0;
+    }
+}
+
+static void rec_note_look(void)
+{
+    if (!cus.take || cus.takeSec != REC_LOOK) return;
+    for (int i = 0; i < (int)SP_COUNTOF(k_lookKeys); i++) {
+        int def = k_lookKeys[i].def, *now = adj_field(&cus.adj, def), *last = adj_field(&cus.takeLast, def);
+        if (*now == *last) continue;
+        JVal *b = wpapi_num_value(*adj_field(&cus.takeAdj, def), 1), *v = wpapi_num_value(*now, 1);
+        wprec_take_note(cus.take, k_lookKeys[i].key, RT_NUM, 0, 1, k_look[def].min, k_look[def].max, b, v);
+        json_free(b);
+        json_free(v);
+        *last = *now;
+    }
+    if (cus.adj.tint != cus.takeLast.tint) {
+        JVal *b = wpapi_num_value(cus.takeAdj.tint, 1), *v = wpapi_num_value(cus.adj.tint, 1);
+        wprec_take_note(cus.take, "tint", RT_COLOR, 0, 1, 0, 0, b, v);
+        json_free(b);
+        json_free(v);
+        cus.takeLast.tint = cus.adj.tint;
+    }
+}
+
+static void rec_note_prop(CustomProp *cp)
+{
+    int idx = (int)(cp - cus.props), kind, style = 0;
+    if (!cus.take || cus.takeSec != REC_PROPS || idx < 0 || idx >= cus.takePropCount) return;
+    switch (cp->type) {
+    case CP_SLIDER:   kind = RT_NUM; break;
+    case CP_CHECKBOX: kind = RT_BOOL; break;
+    case CP_COLOR:    kind = RT_COLOR; wpapi_color_get(cp, &style); break;
+    default:          kind = RT_CHOICE; break;      /* dropdowns, combos, files, text */
+    }
+    wprec_take_note(cus.take, cp->name, kind, style, cp->step, cp->min, cp->max, cus.takeProps[idx], cp->value);
+}
+
+static void rec_drop_take(void)
+{
+    for (int i = 0; i < cus.takePropCount; i++) json_free(cus.takeProps[i]);
+    free(cus.takeProps);
+    cus.takeProps = NULL;
+    cus.takePropCount = 0;
+}
+
+static void rec_stop(void)
+{
+    if (!cus.take) return;
+    Rec r;
+    BOOL ok = wprec_take_finish(cus.take, &r);
+    cus.take = NULL;
+    rec_drop_take();
+    if (ok) wprec_save(cus.takeId, cus.takeSec, &r);
+    wprec_free(&r);
+    rec_reload();
+    app_apply_customise();
+    if (!ok) app_notice(NOTICE_INFO, L"Nothing changed while recording, so there is nothing to play.");
+    ui_invalidate();
+}
+
+static void rec_start(int sec)
+{
+    WallpaperEntry *e = customise_entry();
+    if (!e) return;
+    rec_stop();
+    wprec_save(e->id, sec, NULL);                    /* a new take replaces the old one, which stops playing */
+    cus.graphs[sec] = 0;
+    cus.takeSec = sec;
+    str_copy(cus.takeId, SP_COUNTOF(cus.takeId), e->id);
+    cus.takeAdj = cus.takeLast = cus.adj;
+    cus.takeProps = cus.propCount ? (JVal **)calloc((size_t)cus.propCount, sizeof *cus.takeProps) : NULL;
+    cus.takePropCount = cus.takeProps ? cus.propCount : 0;
+    for (int i = 0; i < cus.takePropCount; i++) wpapi_jval_copy(&cus.takeProps[i], cus.props[i].value);
+    cus.take = wprec_take_start();
+    rec_reload();
+    app_apply_customise();
+    ui_invalidate();
+}
+
+static void rec_delete(int sec)
+{
+    if (!cus.wpId[0]) return;
+    wprec_save(cus.wpId, sec, NULL);
+    rec_reload();
+    app_apply_customise();
+    ui_invalidate();
+}
+
+static void rec_save_edit(int sec)
+{
+    if (cus.wpId[0] && cus.rec[sec].n) wprec_save(cus.wpId, sec, &cus.rec[sec]);
+    app_apply_customise();
+}
+
 /* Saves and pushes the look; `live` commits (mid-drag) are throttled, the release always sends. */
 static void look_commit(int live)
 {
+    rec_note_look();
     ui_invalidate();
     WallpaperEntry *e = customise_entry();
     double now = time_ms();
@@ -1247,6 +1443,7 @@ static void prop_commit(CustomProp *cp, JVal *nv, int live)
         json_free(cp->value);
         cp->value = nv;
         cp->overridden = 1;
+        rec_note_prop(cp);
     }
     ui_invalidate();
     WallpaperEntry *e = customise_entry();
@@ -1434,10 +1631,69 @@ static double prop_snap(const CustomProp *cp, double v)
 
 /* ---- dragging (sliders, colour wheel): called on press, move and release */
 
+int pages_is_drag(int kind)
+{
+    return kind == HK_SLIDER || kind == HK_DISC || kind == HK_PSLIDER || kind == HK_REC_SPEED || kind == HK_REC_SMOOTH ||
+           kind == HK_REC_GRAPH;
+}
+
+/* The graph view: speed and smoothing, and drawing over a track (the stroke sets every sample it passes). */
+static void rec_drag(int kind, int data, D2D1_RECT_F r, float x, float y, int commit)
+{
+    static int stroke;
+    static float lastX, lastY;
+    int sec = data & 1;
+    Rec *rec = &cus.rec[sec];
+    if (!rec->n) return;
+    if (kind == HK_REC_SPEED || kind == HK_REC_SMOOTH) {
+        float nrm = slider_norm_from_x(r, x);
+        if (kind == HK_REC_SPEED) {                  /* 0.25x..4x on a log scale; the playhead stays where it is */
+            double now = wprec_now(), pos = wprec_pos(rec, now);
+            rec->speed = SP_CLAMP(round(0.25 * pow(16.0, nrm) * 20.0) / 20.0, 0.25, 4.0);
+            rec->epoch = now - pos / (rec->speed * REC_RATE) * 1000.0;
+        } else {
+            rec->smooth = (int)lroundf(nrm * 100.0f);
+            wprec_prepare(rec);
+        }
+    } else {
+        int ti = data >> 1;
+        if (ti < 0 || ti >= rec->count || rec->t[ti].kind == RT_COLOR) return;   /* colours are recorded, not drawn */
+        RecTrack *t = &rec->t[ti];
+        float w = SP_MAX(r.right - r.left, 1.0f), h = SP_MAX(r.bottom - r.top, 1.0f);
+        float fx = SP_CLAMP((x - r.left) / w, 0.0f, 1.0f), fy = SP_CLAMP(1.0f - (y - r.top) / h, 0.0f, 1.0f);
+        if (stroke != HIT_ID(kind, data)) {
+            stroke = HIT_ID(kind, data);
+            lastX = fx;
+            lastY = fy;
+        }
+        int a = SP_CLAMP((int)(lastX * rec->n), 0, rec->n - 1), b = SP_CLAMP((int)(fx * rec->n), 0, rec->n - 1);
+        int lo = SP_MIN(a, b), hi = SP_MAX(a, b), levels = t->kind == RT_CHOICE && t->opts ? SP_MAX(t->opts->n - 1, 1) : 1;
+        for (int k = lo; k <= hi; k++) {
+            float f = hi > lo ? (float)(k - a) / (float)(b - a) : 1.0f, v = lastY + (fy - lastY) * f;
+            if (t->kind == RT_NUM) {
+                double val = t->lo + v * (t->hi - t->lo), step = t->step > 0 ? t->step : 1.0;
+                t->v[k] = (float)(round(val / step) * step);
+            } else {
+                t->v[k] = t->kind == RT_BOOL ? (v >= 0.5f) : (float)lroundf(v * levels);
+            }
+        }
+        lastX = fx;
+        lastY = fy;
+        wprec_prepare(rec);
+        if (commit) stroke = 0;
+    }
+    if (commit) rec_save_edit(sec);
+    ui_invalidate();
+}
+
 void pages_drag(int id, float x, float y, int commit)
 {
     int kind = HIT_KIND(id), data = HIT_DATA(id);
     D2D1_RECT_F r = g_ui->pressedRect;
+    if (kind == HK_REC_SPEED || kind == HK_REC_SMOOTH || kind == HK_REC_GRAPH) {
+        rec_drag(kind, data, r, x, y, commit);
+        return;
+    }
     if (kind == HK_SLIDER) {
         int *f = look_field(data);
         if (!f) return;
@@ -1858,11 +2114,163 @@ static void look_slider(Ui *u, float x, float y, float w, float labelW, int def,
     }
 }
 
+/* ---- recordings: the buttons on a section's title row, and its graph view */
+
+#define GL_TRASH 0xE74D
+
+static void icon_button(Ui *u, int id, D2D1_RECT_F r, wchar_t glyph, D2D1_COLOR_F c)
+{
+    if (ui_is_hot(id)) ui_rrect(r, 8, u->t.panelHover);
+    if (glyph) ui_icon(glyph, u->fIconS, r, c);
+    ui_hit(id, r, 1, 1);
+    ui_focus_ring(r, 8, id);
+}
+
+/* Right end of the title row at y: record (or stop while recording), then edit and delete once there is one. */
+static void rec_header(Ui *u, float x, float y, float w, int sec)
+{
+    Theme *t = &u->t;
+    float s = 30.0f, bx = x + w - s, by = y - 8.0f;
+    if (cus.take && cus.takeSec == sec) {
+        int id = HIT_ID(HK_REC, sec);
+        D2D1_RECT_F r = rectf(bx, by, s, s);
+        icon_button(u, id, r, 0, t->danger);
+        ui_rrect(rectf(bx + s * 0.5f - 6, by + s * 0.5f - 6, 12, 12), 2.5f, t->danger);   /* stop */
+        wchar_t tm[48];
+        int secs = (int)wprec_take_seconds(cus.take);
+        str_printf(tm, SP_COUNTOF(tm), L"Recording  %d:%02d", secs / 60, secs % 60);
+        text_right(tm, u->fSmall, bx - 8, by, s, t->danger);
+        ui_animate();                                /* the clock */
+        return;
+    }
+    if (cus.rec[sec].n) {
+        icon_button(u, HIT_ID(HK_REC_DEL, sec), rectf(bx, by, s, s), GL_TRASH, t->text2);
+        bx -= s + 2;
+        icon_button(u, HIT_ID(HK_REC_EDIT, sec), rectf(bx, by, s, s), GL_SETTINGS, cus.graphs[sec] ? t->accent : t->text2);
+        bx -= s + 2;
+    }
+    int id = HIT_ID(HK_REC, sec);
+    icon_button(u, id, rectf(bx, by, s, s), 0, t->danger);
+    ui_circle(bx + s * 0.5f, by + s * 0.5f, 6.0f, t->danger);                         /* record */
+}
+
+static void rec_track_label(const RecTrack *tk, int sec, wchar_t *out, size_t cap)
+{
+    if (sec == REC_LOOK) {
+        if (!strcmp(tk->key, "tint")) { str_copy(out, cap, L"Tint colour"); return; }
+        for (int i = 0; i < (int)SP_COUNTOF(k_lookKeys); i++) {
+            if (strcmp(tk->key, k_lookKeys[i].key)) continue;
+            int def = k_lookKeys[i].def;
+            str_printf(out, cap, def == SL_TINTLIFT ? L"Tint strength" : def == SL_TINTV ? L"Tint brightness" : L"%ls", k_look[def].label);
+            return;
+        }
+    }
+    for (int i = 0; i < cus.propCount; i++)
+        if (!strcmp(cus.props[i].name, tk->key)) { str_copy(out, cap, cus.props[i].label); return; }
+    wchar_t *w = wide_from_utf8(tk->key, -1);
+    str_copy(out, cap, w ? w : L"?");
+    free(w);
+}
+
+/* A track's value at the playhead, as text. */
+static void rec_value_text(const RecTrack *tk, int n, double pos, wchar_t *out, size_t cap)
+{
+    double v = wprec_num(tk, n, pos);
+    if (tk->kind == RT_COLOR) str_printf(out, cap, L"#%06X", (unsigned)v & 0xFFFFFF);
+    else if (tk->kind == RT_BOOL) str_copy(out, cap, v >= 0.5 ? L"On" : L"Off");
+    else if (tk->kind == RT_NUM) str_printf(out, cap, L"%.4g", v);
+    else {
+        JVal *j = wprec_value(tk, n, pos);
+        if (j && j->t == J_STR) json_str_w(j, out, cap);
+        else str_printf(out, cap, L"%.4g", json_num(j, 0));
+        json_free(j);
+    }
+}
+
+/* 0..1 for the graph: numbers on their range, choices by index, a colour channel (ch 0 blue .. 2 red) of 255. */
+static float rec_norm(const RecTrack *tk, float v, int ch)
+{
+    if (tk->kind == RT_COLOR) return (float)(((uint32_t)v >> (ch * 8)) & 255) / 255.0f;
+    if (tk->kind == RT_BOOL) return v;
+    if (tk->kind == RT_CHOICE) return tk->opts && tk->opts->n > 1 ? v / (float)(tk->opts->n - 1) : 0.5f;
+    return (float)((v - tk->lo) / SP_MAX(tk->hi - tk->lo, 1e-9));
+}
+
+static float draw_rec_graphs(Ui *u, float x, float y, float w, int sec)
+{
+    Theme *t = &u->t;
+    Rec *r = &cus.rec[sec];
+    const float top = 62.0f, rowH = 66.0f, labelW = 170.0f;
+    float card = top + r->count * rowH + 10.0f;
+    ui_glass(rectf(x, y, w, card), 14, 0, 0);
+
+    /* speed, smoothing, length, done */
+    wchar_t v[48];
+    float cx = x + 18, sw = SP_MIN(170.0f, (w - 420.0f) / 2.0f);
+    ui_text(L"Speed", u->fBody, rectf(cx, y, 60, 56), t->text);
+    ui_slider(HIT_ID(HK_REC_SPEED, sec), rectf(cx + 56, y + 16, sw, 24), (float)(log(r->speed / 0.25) / log(16.0)));
+    str_printf(v, SP_COUNTOF(v), L"%.2f×", r->speed);
+    ui_text(v, u->fBody, rectf(cx + 62 + sw, y, 60, 56), t->text2);
+    cx += 62 + sw + 66;
+    ui_text(L"Smooth", u->fBody, rectf(cx, y, 70, 56), t->text);
+    ui_slider(HIT_ID(HK_REC_SMOOTH, sec), rectf(cx + 66, y + 16, sw, 24), r->smooth / 100.0f);
+    str_printf(v, SP_COUNTOF(v), L"%d%%", r->smooth);
+    ui_text(v, u->fBody, rectf(cx + 72 + sw, y, 50, 56), t->text2);
+    float bw = ui_button_width(L"Done", GL_CHECK);
+    ui_button(HIT_ID(HK_REC_EDIT, sec), rectf(x + w - 14 - bw, y + 12, bw, 32), L"Done", GL_CHECK, BTN_SECONDARY);
+    str_printf(v, SP_COUNTOF(v), L"%.1f s loop", r->n / (double)REC_RATE / r->speed);
+    text_right(v, u->fSmall, x + w - 26 - bw, y, 56, t->text3);
+
+    double pos = wprec_pos(r, wprec_now());
+    for (int i = 0; i < r->count; i++) {
+        RecTrack *tk = &r->t[i];
+        float ry = y + top + i * rowH;
+        row_separator(u, x, ry - 4, w);
+        wchar_t label[80], val[64];
+        rec_track_label(tk, sec, label, SP_COUNTOF(label));
+        rec_value_text(tk, r->n, pos, val, SP_COUNTOF(val));
+        ui_text(label, u->fBody, rectf(x + 18, ry + 8, labelW - 24, 20), t->text);
+        float tx = x + 18;
+        if (tk->kind == RT_COLOR) {                  /* the colour now, as a swatch beside its changing #RRGGBB */
+            ui_rrect(rectf(tx, ry + 33, 16, 16), 4, col((uint32_t)wprec_num(tk, r->n, pos), 1.0f));
+            tx += 22;
+        }
+        ui_text(val, u->fSmall, rectf(tx, ry + 31, labelW - 24, 20), t->text2);
+
+        D2D1_RECT_F g = rectf(x + labelW, ry + 4, w - labelW - 18, rowH - 14);
+        int id = HIT_ID(HK_REC_GRAPH, sec | (i << 1));
+        ui_rrect(g, 8, t->field);
+        if (tk->kind != RT_COLOR && ui_is_hot(id)) ui_rrect_stroke(g, 8, 1, t->accent);
+        float gx = g.left + 6, gw = (g.right - g.left) - 12, gy = g.top + 6, gh = (g.bottom - g.top) - 12;
+        const float *s = tk->play ? tk->play : tk->v;
+        static const uint32_t chCol[3] = { 0x4A8CFF, 0x3DDC84, 0xFF5A5A };         /* blue, green, red */
+        int lines = tk->kind == RT_COLOR ? 3 : 1;
+        for (int ch = 0; ch < lines; ch++) {
+            D2D1_COLOR_F lc = tk->kind == RT_COLOR ? col(chCol[ch], 0.95f) : t->accent;
+            float px = gx, py = 0;
+            for (float dx = 0; dx <= gw; dx += 2.0f) {
+                int k = SP_CLAMP((int)(dx / gw * r->n), 0, r->n - 1);
+                float ny = gy + gh - SP_CLAMP(rec_norm(tk, s[k], ch), 0.0f, 1.0f) * gh;
+                if (dx > 0) ui_line(px, py, gx + dx, ny, 1.6f, lc);
+                px = gx + dx;
+                py = ny;
+            }
+        }
+        float hx = gx + (float)(pos / r->n) * gw;                                      /* playhead */
+        ui_line(hx, g.top + 2, hx, g.bottom - 2, 1.5f, col_a(t->text, 0.7f));
+        if (tk->kind != RT_COLOR) ui_hit(id, g, 0, 1);
+    }
+    ui_animate();                                    /* the playhead and the values move */
+    return y + card + 26.0f;
+}
+
 static float draw_look_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
 {
     Theme *t = &u->t;
     int web = e->type == WP_HTML;
     y = section(u, x, y, L"LOOK & COLOUR");
+    rec_header(u, x, y - 24, w, REC_LOOK);
+    if (cus.graphs[REC_LOOK] && cus.rec[REC_LOOK].n) return draw_rec_graphs(u, x, y, w, REC_LOOK);
     const int rows[] = { SL_BRIGHT, SL_CONTRAST, SL_SAT, SL_HUE, SL_GAMMA };
     /* the tint band fits the wheel and the column beside it: title, two sliders, the swatch row */
     int resettable = adjust_active(&cus.adj) || cus.adj.tint != adjust_defaults().tint || cus.adj.tintBrightness != 100;
@@ -1994,6 +2402,8 @@ static float draw_props_section(Ui *u, float x, float y, float w)
         ui_text(L"This wallpaper has no properties.", u->fSmall, rectf(x + 18, y, w - 36, 56), t->text2);
         return y + 56 + 26;
     }
+    rec_header(u, x, y - 24, w, REC_PROPS);
+    if (cus.graphs[REC_PROPS] && cus.rec[REC_PROPS].n) return draw_rec_graphs(u, x, y, w, REC_PROPS);
     int anyOverride = 0;
     for (int i = 0; i < cus.propCount; i++) anyOverride |= cus.props[i].overridden;
     float footH = anyOverride ? 52.0f : 0.0f;
@@ -2372,6 +2782,15 @@ void pages_activate(int id, int dbl)
         g_app.cfg.s.scrDisplays = (ScrDisplays)SP_CLAMP(data, SCRD_ALL, SCRD_PRIMARY);
         app_save_config();
         break;
+    case HK_REC:           if (cus.take && cus.takeSec == (data & 1)) rec_stop(); else rec_start(data & 1); break;
+    case HK_REC_EDIT:      cus.graphs[data & 1] = !cus.graphs[data & 1]; ui_invalidate(); break;
+    case HK_REC_DEL:       rec_delete(data & 1); break;
+    case HK_RULE_ADD:      pick_rule_app(data & 1); break;
+    case HK_RULE_DEL: {
+        wchar_t *list = (data & 1) ? g_app.cfg.s.muteApps : g_app.cfg.s.pauseApps, app[MAX_PATH];
+        if (config_rule_at(list, (data >> 8) & 0x7f, app, SP_COUNTOF(app)) && config_rule_remove(list, app)) app_save_config();
+        break;
+    }
 #ifdef _WIN32
     case HK_SCR_WINDOWS:   ShellExecuteW(NULL, NULL, L"control.exe", L"desk.cpl,,@screensaver", NULL, SW_SHOWNORMAL); break;
 #endif
@@ -2639,6 +3058,11 @@ const wchar_t *pages_tooltip(int id)
         return tip;
     }
     case HK_STORE_DL:      return store_dl_tip(HIT_DATA(id));
+    case HK_REC:           return cus.take && cus.takeSec == (HIT_DATA(id) & 1) ? L"Stop recording"
+                                : L"Record your changes; they play on a loop";
+    case HK_REC_EDIT:      return L"Edit the recording";
+    case HK_REC_DEL:       return L"Delete the recording";
+    case HK_REC_GRAPH:     return L"Draw over the line to change it";
     default:               return NULL;
     }
 }

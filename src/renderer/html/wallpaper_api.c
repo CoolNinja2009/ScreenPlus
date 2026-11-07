@@ -189,12 +189,15 @@ static int jval_same(const JVal *a, const JVal *b)
     return same;
 }
 
+static JVal *with_live(const wchar_t *id, JVal *over);
+static int   live_adjust(const wchar_t *id, WallpaperAdjust *out);
+
 char *wpapi_properties_js(const WallpaperEntry *wp, JVal **sent)
 {
     if (!wp || (wp->format != WPF_LIVELY && wp->format != WPF_WE)) return NULL;
     wchar_t op[SP_MAX_PATH];
     wpapi_overrides_path(wp->id, op, SP_COUNTOF(op));
-    JVal *over = file_exists(op) ? json_parse_file(op) : NULL;
+    JVal *over = with_live(wp->id, file_exists(op) ? json_parse_file(op) : NULL);
     JVal *vals = property_values(wp, over);
     json_free(over);
     if (!vals || vals->t != J_OBJ) {
@@ -509,6 +512,7 @@ BOOL wpapi_load_adjust(const wchar_t *wallpaperId, WallpaperAdjust *out)
     WallpaperAdjust d = adjust_defaults();
     *out = d;
     if (!wallpaperId || !wallpaperId[0]) return FALSE;
+    if (live_adjust(wallpaperId, out)) return TRUE;     /* a recording is playing */
     wchar_t p[SP_MAX_PATH];
     wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
     JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
@@ -738,4 +742,442 @@ void wpapi_props_free(CustomProp *list, int count)
         json_free(list[i].items);
     }
     free(list);
+}
+
+/* ================================================================ recordings */
+
+static const char *const k_recSection[REC_SECTIONS] = { "look", "props" };
+
+double wprec_now(void) { return (double)(filetime_now() / 10000ULL) - 11644473600000.0; }
+
+void wprec_free(Rec *r)
+{
+    for (int i = 0; r && i < r->count; i++) {
+        free(r->t[i].v);
+        free(r->t[i].play);
+        json_free(r->t[i].opts);
+    }
+    if (r) {
+        free(r->t);
+        memset(r, 0, sizeof *r);
+    }
+}
+
+static float colour_mix(uint32_t a, uint32_t b, double f)
+{
+    uint32_t o = 0;
+    for (int s = 0; s <= 16; s += 8) {
+        double x = ((a >> s) & 255) + ((double)((b >> s) & 255) - ((a >> s) & 255)) * f;
+        o |= (uint32_t)SP_CLAMP((int)lround(x), 0, 255) << s;
+    }
+    return (float)o;
+}
+
+/* play[] = v[] smoothed with a circular box filter (it loops, so the seam is smoothed too). Colours smooth per
+ * channel; on/off and choices are never smoothed. */
+void wprec_prepare(Rec *r)
+{
+    int rad = r->smooth * REC_RATE / 100;            /* up to a second either side */
+    for (int i = 0; i < r->count; i++) {
+        RecTrack *t = &r->t[i];
+        free(t->play);
+        t->play = (float *)malloc(sizeof(float) * (size_t)SP_MAX(r->n, 1));
+        if (!t->play) continue;
+        int smooth = rad > 0 && (t->kind == RT_NUM || t->kind == RT_COLOR) && r->n > 2;
+        for (int k = 0; k < r->n; k++) {
+            if (!smooth) { t->play[k] = t->v[k]; continue; }
+            double s[3] = { 0 }, cnt = 0;
+            for (int d = -rad; d <= rad; d++) {
+                float x = t->v[((k + d) % r->n + r->n) % r->n];
+                if (t->kind == RT_COLOR) for (int c = 0; c < 3; c++) s[c] += ((uint32_t)x >> (c * 8)) & 255;
+                else s[0] += x;
+                cnt++;
+            }
+            if (t->kind == RT_COLOR) {
+                uint32_t o = 0;
+                for (int c = 0; c < 3; c++) o |= (uint32_t)lround(s[c] / cnt) << (c * 8);
+                t->play[k] = (float)o;
+            } else {
+                t->play[k] = (float)(s[0] / cnt);
+            }
+        }
+    }
+}
+
+double wprec_pos(const Rec *r, double unixMs)
+{
+    if (r->n < 1) return 0.0;
+    double p = fmod((unixMs - r->epoch) / 1000.0 * r->speed * REC_RATE, (double)r->n);
+    return p < 0 ? p + r->n : p;
+}
+
+double wprec_num(const RecTrack *t, int n, double pos)
+{
+    const float *v = t->play ? t->play : t->v;
+    if (n < 1 || !v) return 0.0;
+    int a = SP_CLAMP((int)pos, 0, n - 1), b = (a + 1) % n;
+    double f = pos - floor(pos);
+    if (t->kind == RT_NUM) return v[a] + (v[b] - v[a]) * f;
+    if (t->kind == RT_COLOR) return colour_mix((uint32_t)v[a], (uint32_t)v[b], f);
+    return v[a];
+}
+
+JVal *wprec_value(const RecTrack *t, int n, double pos)
+{
+    double x = wprec_num(t, n, pos);
+    switch (t->kind) {
+    case RT_BOOL:   return wpapi_bool_value(x >= 0.5);
+    case RT_COLOR:  return wpapi_color_value((uint32_t)x & 0xFFFFFF, t->style);
+    case RT_CHOICE: {
+        JVal *o = NULL;
+        int i = (int)x;
+        if (t->opts && i >= 0 && i < t->opts->n) wpapi_jval_copy(&o, &t->opts->kids[i]);
+        return o;
+    }
+    default:        return wpapi_num_value(x, t->step > 0 ? t->step : 0.01);
+    }
+}
+
+void wprec_look(const Rec *r, double pos, WallpaperAdjust *a)
+{
+    for (int i = 0; i < r->count; i++) {
+        const RecTrack *t = &r->t[i];
+        double x = wprec_num(t, r->n, pos);
+        int v = (int)lround(x);
+        if (!strcmp(t->key, "brightness")) a->brightness = SP_CLAMP(v, -100, 100);
+        else if (!strcmp(t->key, "contrast")) a->contrast = SP_CLAMP(v, -100, 100);
+        else if (!strcmp(t->key, "saturation")) a->saturation = SP_CLAMP(v, -100, 100);
+        else if (!strcmp(t->key, "hue")) a->hue = SP_CLAMP(v, -180, 180);
+        else if (!strcmp(t->key, "gamma")) a->gamma = SP_CLAMP(v, -100, 100);
+        else if (!strcmp(t->key, "tint")) a->tint = (uint32_t)x & 0xFFFFFF;
+        else if (!strcmp(t->key, "tintLift")) a->tintLift = SP_CLAMP(v, 0, 100);
+        else if (!strcmp(t->key, "tintBrightness")) a->tintBrightness = SP_CLAMP(v, 0, 100);
+    }
+    a->used = adjust_active(a);
+}
+
+static void rec_write(StrBuf *b, const Rec *r, int played)   /* played: the smoothed samples (Plasma plays them as they are) */
+{
+    sb_printf(b, "{\"n\":%d,\"speed\":%.3f,\"smooth\":%d,\"epoch\":%.0f,\"tracks\":[", r->n, r->speed, r->smooth, r->epoch);
+    for (int i = 0; i < r->count; i++) {
+        const RecTrack *t = &r->t[i];
+        if (i) sb_puts(b, ",");
+        sb_puts(b, "{\"key\":");
+        json_write_string(b, t->key);
+        sb_printf(b, ",\"kind\":%d,\"style\":%d,\"step\":%.6g,\"lo\":%.6g,\"hi\":%.6g", t->kind, t->style, t->step, t->lo, t->hi);
+        if (t->opts) {
+            sb_puts(b, ",\"opts\":");
+            json_write(b, t->opts);
+        }
+        sb_puts(b, ",\"v\":[");
+        for (int k = 0; k < r->n; k++) sb_printf(b, k ? ",%.7g" : "%.7g", (played && t->play ? t->play : t->v)[k]);
+        sb_puts(b, "]}");
+    }
+    sb_puts(b, "]}");
+}
+
+char *wprec_json(const Rec *r)
+{
+    StrBuf b = { 0 };
+    rec_write(&b, r, 1);
+    if (b.failed) { sb_free(&b); return NULL; }
+    return b.p;
+}
+
+static BOOL rec_from(const JVal *j, Rec *out)
+{
+    memset(out, 0, sizeof *out);
+    const JVal *tr = json_get(j, "tracks");
+    int n = (int)json_num(json_get(j, "n"), 0);
+    if (n < 2 || n > REC_MAX_SEC * REC_RATE || !tr || tr->t != J_ARR || !tr->n) return FALSE;
+    out->t = (RecTrack *)calloc((size_t)tr->n, sizeof *out->t);
+    if (!out->t) return FALSE;
+    out->n = n;
+    out->speed = SP_CLAMP(json_num(json_get(j, "speed"), 1.0), 0.25, 4.0);
+    out->smooth = SP_CLAMP((int)json_num(json_get(j, "smooth"), 0), 0, 100);
+    out->epoch = json_num(json_get(j, "epoch"), 0);
+    for (int i = 0; i < tr->n; i++) {
+        const JVal *x = &tr->kids[i], *v = json_get(x, "v");
+        if (!v || v->t != J_ARR || v->n != n) continue;
+        RecTrack *t = &out->t[out->count];
+        strncpy_s(t->key, sizeof t->key, json_str(json_get(x, "key"), ""), _TRUNCATE);
+        t->kind = SP_CLAMP((int)json_num(json_get(x, "kind"), 0), RT_NUM, RT_COLOR);
+        t->style = (int)json_num(json_get(x, "style"), 0);
+        t->step = json_num(json_get(x, "step"), 1);
+        t->lo = json_num(json_get(x, "lo"), 0);
+        t->hi = json_num(json_get(x, "hi"), 100);
+        if (json_get(x, "opts")) wpapi_jval_copy(&t->opts, json_get(x, "opts"));
+        if (!t->key[0] || !(t->v = (float *)malloc(sizeof(float) * (size_t)n))) {
+            json_free(t->opts);
+            t->opts = NULL;
+            continue;
+        }
+        for (int k = 0; k < n; k++) t->v[k] = (float)json_num(&v->kids[k], 0);
+        out->count++;
+    }
+    if (!out->count) { wprec_free(out); return FALSE; }
+    wprec_prepare(out);
+    return TRUE;
+}
+
+BOOL wprec_load(const wchar_t *wallpaperId, int section, Rec *out)
+{
+    memset(out, 0, sizeof *out);
+    if (!wallpaperId || !wallpaperId[0] || section < 0 || section >= REC_SECTIONS) return FALSE;
+    wchar_t p[SP_MAX_PATH];
+    wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
+    JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
+    BOOL ok = rec_from(json_get(json_get(over, "_screenplus_rec"), k_recSection[section]), out);
+    json_free(over);
+    return ok;
+}
+
+BOOL wprec_save(const wchar_t *wallpaperId, int section, const Rec *r)
+{
+    if (!wallpaperId || !wallpaperId[0] || section < 0 || section >= REC_SECTIONS) return FALSE;
+    Rec other;
+    StrBuf b = { 0 };
+    int count = 0;
+    sb_puts(&b, "{");
+    for (int s = 0; s < REC_SECTIONS; s++) {
+        int mine = s == section, loaded = !mine && wprec_load(wallpaperId, s, &other);
+        const Rec *x = mine ? r : loaded ? &other : NULL;
+        if (x && x->n > 1 && x->count) {
+            if (count++) sb_puts(&b, ",");
+            sb_printf(&b, "\"%s\":", k_recSection[s]);
+            rec_write(&b, x, 0);
+        }
+        if (loaded) wprec_free(&other);
+    }
+    sb_puts(&b, "}");
+    int ok = !b.failed && save_override_file(wallpaperId, "_screenplus_rec", count ? b.p : NULL);
+    sb_free(&b);
+    return ok;
+}
+
+/* ---- the recorder: every change with its time; turned into REC_RATE samples when it stops */
+
+typedef struct TakeEvent { double t; int track; JVal *v; } TakeEvent;
+typedef struct TakeTrack { char key[80]; int kind, style; double step, lo, hi; JVal *start; } TakeTrack;
+struct RecTake {
+    double     t0;
+    TakeTrack *tr;
+    int        trCount, trCap;
+    TakeEvent *ev;
+    int        evCount, evCap;
+};
+
+RecTake *wprec_take_start(void)
+{
+    RecTake *k = (RecTake *)calloc(1, sizeof *k);
+    if (k) k->t0 = time_ms();
+    return k;
+}
+
+double wprec_take_seconds(const RecTake *k) { return k ? (time_ms() - k->t0) / 1000.0 : 0.0; }
+
+void wprec_take_note(RecTake *k, const char *key, int kind, int style, double step, double lo, double hi,
+                     const JVal *before, const JVal *now)
+{
+    if (!k || !now || wprec_take_seconds(k) > REC_MAX_SEC) return;
+    int i = 0;
+    while (i < k->trCount && strcmp(k->tr[i].key, key)) i++;
+    if (i == k->trCount) {
+        if (k->trCount == k->trCap) {
+            int cap = k->trCap ? k->trCap * 2 : 8;
+            TakeTrack *n = (TakeTrack *)realloc(k->tr, sizeof *n * (size_t)cap);
+            if (!n) return;
+            k->tr = n;
+            k->trCap = cap;
+        }
+        TakeTrack *t = &k->tr[k->trCount++];
+        memset(t, 0, sizeof *t);
+        strncpy_s(t->key, sizeof t->key, key, _TRUNCATE);
+        t->kind = kind;
+        t->style = style;
+        t->step = step;
+        t->lo = lo;
+        t->hi = hi;
+        wpapi_jval_copy(&t->start, before ? before : now);
+    }
+    if (k->evCount == k->evCap) {
+        int cap = k->evCap ? k->evCap * 2 : 256;
+        TakeEvent *n = (TakeEvent *)realloc(k->ev, sizeof *n * (size_t)cap);
+        if (!n) return;
+        k->ev = n;
+        k->evCap = cap;
+    }
+    TakeEvent *e = &k->ev[k->evCount++];
+    e->t = wprec_take_seconds(k);
+    e->track = i;
+    wpapi_jval_copy(&e->v, now);
+}
+
+static int same_json(const JVal *a, const JVal *b)
+{
+    StrBuf x = { 0 }, y = { 0 };
+    json_write(&x, a);
+    json_write(&y, b);
+    int same = !x.failed && !y.failed && x.len == y.len && (!x.len || !memcmp(x.p, y.p, x.len));
+    sb_free(&x);
+    sb_free(&y);
+    return same;
+}
+
+/* A value as a sample: on/off as 0/1, a choice as its index in opts (added when new), a colour as 0xRRGGBB. */
+static float sample_of(RecTrack *t, const JVal *v)
+{
+    if (t->kind == RT_BOOL) return json_bool(v, json_num(v, 0) != 0) ? 1.0f : 0.0f;
+    if (t->kind == RT_COLOR) {
+        if (v && v->t == J_NUM) return (float)((uint32_t)v->num & 0xFFFFFF);
+        CustomProp cp;
+        memset(&cp, 0, sizeof cp);
+        cp.value = (JVal *)v;
+        cp.type = CP_COLOR;
+        int style = 0;
+        return (float)(wpapi_color_get(&cp, &style) & 0xFFFFFF);
+    }
+    if (t->kind == RT_CHOICE) {
+        for (int i = 0; t->opts && i < t->opts->n; i++) if (same_json(&t->opts->kids[i], v)) return (float)i;
+        StrBuf b = { 0 };
+        sb_puts(&b, "[");
+        for (int i = 0; t->opts && i < t->opts->n; i++) { json_write(&b, &t->opts->kids[i]); sb_puts(&b, ","); }
+        json_write(&b, v);
+        sb_puts(&b, "]");
+        JVal *n = b.failed ? NULL : json_parse(b.p, b.len);
+        sb_free(&b);
+        if (!n) return 0.0f;
+        json_free(t->opts);
+        t->opts = n;
+        return (float)(n->n - 1);
+    }
+    return (float)json_num(v, 0);
+}
+
+BOOL wprec_take_finish(RecTake *k, Rec *out)
+{
+    memset(out, 0, sizeof *out);
+    if (!k) return FALSE;
+    double secs = SP_MIN(wprec_take_seconds(k), (double)REC_MAX_SEC);
+    int n = SP_MAX((int)ceil(secs * REC_RATE), 2);
+    BOOL ok = k->evCount > 0 && (out->t = (RecTrack *)calloc((size_t)SP_MAX(k->trCount, 1), sizeof *out->t)) != NULL;
+    out->n = n;
+    out->speed = 1.0;
+    out->epoch = wprec_now();
+    for (int i = 0; ok && i < k->trCount; i++) {
+        TakeTrack *tt = &k->tr[i];
+        RecTrack *t = &out->t[out->count];
+        strncpy_s(t->key, sizeof t->key, tt->key, _TRUNCATE);
+        t->kind = tt->kind;
+        t->style = tt->style;
+        t->step = tt->step;
+        t->lo = tt->lo;
+        t->hi = tt->hi;
+        if (!(t->v = (float *)malloc(sizeof(float) * (size_t)n))) continue;
+        float cur = sample_of(t, tt->start);
+        int e = 0, changed = 0;
+        for (int s = 0; s < n; s++) {                 /* hold each value until the next change */
+            double at = (double)s / REC_RATE;
+            for (; e < k->evCount && k->ev[e].t <= at; e++)
+                if (k->ev[e].track == i) cur = sample_of(t, k->ev[e].v);
+            t->v[s] = cur;
+            changed |= s && cur != t->v[0];
+        }
+        if (!changed) {                               /* touched but never moved: nothing to play */
+            free(t->v);
+            json_free(t->opts);
+            memset(t, 0, sizeof *t);
+            continue;
+        }
+        if (t->kind == RT_NUM || t->kind == RT_COLOR) {   /* the loop's seam: ease the last half second into the start */
+            int m = SP_MIN(REC_RATE / 2, n / 4);
+            float end = t->v[n - 1 - m];
+            for (int s = n - m; s < n; s++) {
+                double f = (double)(s - (n - 1 - m)) / (m + 1), w = f * f * (3 - 2 * f);
+                t->v[s] = t->kind == RT_COLOR ? colour_mix((uint32_t)end, (uint32_t)t->v[0], w) : (float)(end + (t->v[0] - end) * w);
+            }
+        }
+        out->count++;
+    }
+    for (int i = 0; i < k->trCount; i++) json_free(k->tr[i].start);
+    for (int i = 0; i < k->evCount; i++) json_free(k->ev[i].v);
+    free(k->tr);
+    free(k->ev);
+    free(k);
+    if (!ok || !out->count) {
+        wprec_free(out);
+        return FALSE;
+    }
+    wprec_prepare(out);
+    return TRUE;
+}
+
+/* ---- live values (engine processes) */
+
+typedef struct LiveVals { wchar_t id[SP_ID_LEN]; int hasAdj; WallpaperAdjust adj; JVal *props; } LiveVals;
+static LiveVals g_live[SP_MAX_MONITORS];
+
+static LiveVals *live_find(const wchar_t *id)
+{
+    for (int i = 0; id && id[0] && i < SP_MAX_MONITORS; i++) if (g_live[i].id[0] && str_ieq(g_live[i].id, id)) return &g_live[i];
+    return NULL;
+}
+
+void wpapi_live_set(const wchar_t *wallpaperId, const WallpaperAdjust *adj, const JVal *props)
+{
+    LiveVals *l = live_find(wallpaperId);
+    if (!adj && !props) {
+        if (l) {
+            json_free(l->props);
+            memset(l, 0, sizeof *l);
+        }
+        return;
+    }
+    for (int i = 0; !l && i < SP_MAX_MONITORS; i++) if (!g_live[i].id[0]) l = &g_live[i];
+    if (!l) return;
+    str_copy(l->id, SP_COUNTOF(l->id), wallpaperId);
+    l->hasAdj = adj != NULL;
+    if (adj) l->adj = *adj;
+    json_free(l->props);
+    l->props = NULL;
+    if (props) wpapi_jval_copy(&l->props, props);
+}
+
+/* The overrides with playback's property values on top. */
+static JVal *with_live(const wchar_t *id, JVal *over)
+{
+    LiveVals *l = live_find(id);
+    if (!l || !l->props || l->props->t != J_OBJ) return over;
+    StrBuf b = { 0 };
+    int count = 0;
+    sb_puts(&b, "{");
+    for (int i = 0; over && over->t == J_OBJ && i < over->n; i++) {
+        if (!over->keys[i] || json_get(l->props, over->keys[i])) continue;
+        if (count++) sb_puts(&b, ",");
+        json_write_string(&b, over->keys[i]);
+        sb_puts(&b, ":");
+        json_write(&b, &over->kids[i]);
+    }
+    for (int i = 0; i < l->props->n; i++) {
+        if (!l->props->keys[i]) continue;
+        if (count++) sb_puts(&b, ",");
+        json_write_string(&b, l->props->keys[i]);
+        sb_puts(&b, ":");
+        json_write(&b, &l->props->kids[i]);
+    }
+    sb_puts(&b, "}");
+    JVal *m = b.failed ? NULL : json_parse(b.p, b.len);
+    sb_free(&b);
+    if (!m) return over;
+    json_free(over);
+    return m;
+}
+
+static int live_adjust(const wchar_t *id, WallpaperAdjust *out)
+{
+    LiveVals *l = live_find(id);
+    if (!l || !l->hasAdj) return 0;
+    *out = l->adj;
+    out->used = adjust_active(out);
+    return 1;
 }

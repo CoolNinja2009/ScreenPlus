@@ -140,8 +140,20 @@ static void refresh_status(void)
     g_app.haveStatus = 1;
 }
 
+int g_micBusy;
+
+/* Plasma: mute_apps is watched here and reaches the plugin as Muted (Hyprland's engine watches it itself). */
+static void mic_sync(void)
+{
+    if (g_desk != DESK_KDE) return;
+    if (g_app.cfg.s.muteApps[0]) sp_mic_watch_start();
+    else sp_mic_watch_stop();
+    g_micBusy = sp_mic_busy(g_app.cfg.s.muteApps);
+}
+
 static void push_to_desktop(void)
 {
+    mic_sync();
     refresh_status();
     feed_set_paused(effective_pause());
     feed_set_audio(g_app.cfg.s.htmlAudio);
@@ -599,9 +611,18 @@ int service_main(void)
     double nextPoll = time_ms() + (g_app.monCount ? 5000 : 200);
     int windowDue = g_startupLaunch && !g_app.cfg.s.launchToTray;
     while (!g_quit) {
-        struct pollfd pf[3] = { { ls, POLLIN, 0 }, { g_wake[0], POLLIN, 0 }, { g_child[0], POLLIN, 0 } };
+        int mic = g_desk == DESK_KDE && g_app.cfg.s.muteApps[0] ? sp_mic_watch_start() : -1;
+        struct pollfd pf[4] = { { ls, POLLIN, 0 }, { g_wake[0], POLLIN, 0 }, { g_child[0], POLLIN, 0 }, { mic, POLLIN, 0 } };
         int open = g_ui_mod.is_open && g_ui_mod.is_open();
-        int r = poll(pf, 3, open ? 15 : 500);
+        int r = poll(pf, 4, open ? 15 : 500);
+        if (mic >= 0 && (pf[3].revents & (POLLIN | POLLHUP))) {
+            int ev = sp_mic_watch_read();
+            if (ev < 0) sp_mic_watch_stop();        /* pactl went away: tried again next round */
+            if (ev > 0 && sp_mic_busy(g_app.cfg.s.muteApps) != g_micBusy) {
+                LOGI(L"app rules: microphone %ls", g_micBusy ? L"free; sound back" : L"in use; sound muted");
+                push_to_desktop();
+            }
+        }
         if (open) g_ui_mod.pump();
         if (pf[1].revents & POLLIN) {
             char drain[256];

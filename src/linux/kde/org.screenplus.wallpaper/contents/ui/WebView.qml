@@ -33,6 +33,9 @@ Item {
     }
     onScriptChanged: if (script && !web.loading) web.runJavaScript(script)
 
+    /* A Customise recording's property values (Recording.qml) */
+    function run(js) { if (!web.loading) web.runJavaScript(js) }
+
     /* From PointerWatch: type is move, down, up or leave */
     function pointer(type, x, y, button, buttons) {
         web.runJavaScript("window.__spPointer&&__spPointer('" + type + "'," + x + "," + y + "," + button + "," + buttons + ")")

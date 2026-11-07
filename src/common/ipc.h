@@ -70,7 +70,9 @@ enum {
     ENGINE_FLAG_SAFE_MODE   = 0x20,
     ENGINE_FLAG_WEBVIEW2    = 0x40,
     ENGINE_FLAG_SLEEPING    = 0x80,
-    ENGINE_FLAG_SCREENSAVER = 0x100
+    ENGINE_FLAG_SCREENSAVER = 0x100,
+    ENGINE_FLAG_APP_PAUSE   = 0x200,   /* an app rule's app is in front */
+    ENGINE_FLAG_APP_MUTE    = 0x400    /* an app rule's app is using the microphone */
 };
 
 typedef struct IpcMonitorStatus {

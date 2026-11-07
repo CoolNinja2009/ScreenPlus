@@ -57,6 +57,12 @@
 #define ORT_DLL_SHA  "e7eedec6a6f26dc39dc948276a75ef6d2bee3fff944d874ceed0bbd3b97bff40"
 #endif
 #define HF           L"https://huggingface.co/onnx-community/"
+/* Motion regions (depth_infer.c's segment_picture): UperNet + ConvNeXt-Tiny for ADE20K (openmmlab, MIT), an
+ * unmodified FP32 ONNX export. Not SegFormer: NVIDIA's weights are non-commercial (see SHARP). Pictures only;
+ * downloaded with the depth model the first time a picture is made cooler. */
+#define SEG_URL      L"https://huggingface.co/JElvis/upernet-convnext-tiny-ade-onnx/resolve/main/model.onnx"
+#define SEG_SIZE     ((int64_t)238434293)
+#define SEG_SHA      "fea729ab6c5d338bc79ad3d986b073e6faa12c97255eafd78a1f7145326e534e"
 #define INFER_MS     (15 * 60 * 1000)          /* a picture */
 #define VIDEO_MS     (6 * 60 * 60 * 1000)      /* a whole video on a slow machine */
 
@@ -91,7 +97,10 @@ static const DepthModel k_models[] = {
 static const char k_props[] =
     "{\"strength\":{\"type\":\"slider\",\"text\":\"Depth strength\",\"min\":0,\"max\":100,\"step\":1,\"value\":40},"
     "\"autoMove\":{\"type\":\"checkbox\",\"text\":\"Auto move\",\"value\":false},"
-    "\"autoSpeed\":{\"type\":\"slider\",\"text\":\"Auto move speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100}}";
+    "\"autoSpeed\":{\"type\":\"slider\",\"text\":\"Auto move speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100},"
+    "\"motion\":{\"type\":\"checkbox\",\"text\":\"Motion (sky, water, plants)\",\"value\":true},"
+    "\"motionSpeed\":{\"type\":\"slider\",\"text\":\"Motion speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100},"
+    "\"wind\":{\"type\":\"slider\",\"text\":\"Wind direction\",\"min\":-100,\"max\":100,\"step\":10,\"value\":60}}";
 static const char k_splatProps[] =
     "{\"strength\":{\"type\":\"slider\",\"text\":\"Depth strength\",\"min\":0,\"max\":100,\"step\":1,\"value\":40},"
     "\"autoMove\":{\"type\":\"checkbox\",\"text\":\"Auto move\",\"value\":false},"
@@ -543,6 +552,35 @@ static BOOL ensure_assets(DepthJob *j)
     return TRUE;
 }
 
+void depth_motion_model(wchar_t *out, size_t cap) { in_depth(out, cap, L"models\\upernet-convnext-tiny\\model.onnx"); }
+
+/* The motion model is a bonus: if it can't be fetched the picture still gets its depth, just no motion. */
+static BOOL ensure_motion(DepthJob *j)
+{
+    wchar_t file[SP_MAX_PATH], dir[SP_MAX_PATH];
+    depth_motion_model(file, SP_COUNTOF(file));
+    if (file_is(file, SEG_SIZE, NULL)) return TRUE;
+    path_dirname(dir, SP_COUNTOF(dir), file);
+    if (dir_create_recursive(dir) && download(j, L"Downloading the motion model", SEG_URL, SEG_SIZE, SEG_SHA, file)) {
+        LOGI(L"depth: installed the motion model (UperNet ConvNeXt-Tiny)");
+        return TRUE;
+    }
+    if (cancelled(j)) return FALSE;
+    LOGW(L"depth: no motion model (%ls); the picture gets depth only", j->error);
+    j->error[0] = 0;
+    return TRUE;
+}
+
+/* A picture made before motion existed, or before its model was there, is looked at once more. */
+static BOOL motion_missing(const wchar_t *dir)
+{
+    wchar_t a[SP_MAX_PATH], b[SP_MAX_PATH], m[SP_MAX_PATH];
+    depth_motion_model(m, SP_COUNTOF(m));
+    path_join(a, SP_COUNTOF(a), dir, L"motion.png");
+    path_join(b, SP_COUNTOF(b), dir, L"motion.none");
+    return file_exists(m) && !file_exists(a) && !file_exists(b);
+}
+
 static BOOL is_local_video(const WallpaperEntry *e)
 {
     return e->type == WP_VIDEO && !(e->flags & (WPFLAG_URL | WPFLAG_YTDLP)) && !wallpaper_is_url(e->path);
@@ -940,9 +978,15 @@ static void run(DepthJob *j)
         fail(j, L"Could not create the wallpaper's folder in the data folder.");
         return;
     }
+    int still = !j->video && !depth_model(j->model)->splat;      /* only still pictures move */
+    if (still && !ensure_motion(j)) {
+        fail(j, L"Cancelled.");
+        return;
+    }
     model_name(j->model, L"depth", j->video || depth_model(j->model)->splat ? L".bin" : L".png", name, SP_COUNTOF(name));
     path_join(depthFile, SP_COUNTOF(depthFile), j->dir, name);
-    if (!depth_current(j->source, depthFile) || (depth_model(j->model)->splat && splat_old(depthFile))) {
+    if (!depth_current(j->source, depthFile) || (depth_model(j->model)->splat && splat_old(depthFile)) ||
+        (still && motion_missing(j->dir))) {
         set_status(-1, j->video ? L"Finding the depth of every frame…" : L"Finding the depth of the picture…");
         double t0 = time_ms();
         int png = !j->video && web_ext(path_ext(j->source)) == NULL;

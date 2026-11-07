@@ -36,7 +36,11 @@ enum HitKind {
     HK_STORE_TEXT, HK_STORE_CLEAR, HK_STORE_CARD, HK_STORE_DL, HK_STORE_RETRY,  /* Store; data: the item's index */
     HK_STORE_FILTER,                                                            /* data: SF_* */
     HK_UPDATE_CHECK, HK_SAMPLES_CHECK, HK_RESET_SETTINGS,
-    HK_DEPTH_PICK, HK_DEPTH_MODEL     /* depth model list: open/close; pick (data: depth_model index) */
+    HK_DEPTH_PICK, HK_DEPTH_MODEL,    /* depth model list: open/close; pick (data: depth_model index) */
+    HK_RULE_ADD, HK_RULE_DEL,         /* app rules; data: list (0 pause, 1 mute), DEL adds index << 8 */
+    HK_REC, HK_REC_EDIT, HK_REC_DEL,  /* Customise recordings; data: section (REC_LOOK, REC_PROPS) */
+    HK_REC_SPEED, HK_REC_SMOOTH,      /* the graph view's sliders; data: section */
+    HK_REC_GRAPH                      /* a track's graph (draw over it); data: section | track << 1 */
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -171,6 +175,7 @@ int  pages_key(UINT vk, int ctrl, int shift);
 void pages_rebuild_view(void);
 void pages_scroll_into_view(int id);
 void pages_drag(int id, float x, float y, int commit);      /* sliders + colour wheel tracking */
+int  pages_is_drag(int kind);                               /* a control pages_drag tracks while pressed */
 void pages_customise_reload(void);                         /* Customise values changed elsewhere */
 void pages_search_open(void);                              /* focus + caret in the search box */
 void pages_store_search_open(void);                        /* the same for the Store's search box */

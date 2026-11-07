@@ -94,3 +94,54 @@ JVal *wpapi_choice_value(const CustomProp *cp, int i);                     /* va
 uint32_t wpapi_color_get(const CustomProp *cp, int *style);
 JVal    *wpapi_color_value(uint32_t rgb, int style);
 int      wpapi_parse_rgb(const wchar_t *s, uint32_t *rgb);                 /* typed "#RRGGBB", "0xRRGGBB" or "RRGGBB" */
+
+/* ---- Recordings (Customise's record button): what the user did to a section's settings, played back on a
+ * loop. Stored in props\<id>.json as "_screenplus_rec": {"look": rec, "props": rec}, each sampled REC_RATE times a
+ * second. Playback position comes from the wall clock (epoch = unix ms of sample 0), so the engine, the window's
+ * graphs and Plasma's plugin agree without talking. */
+enum { REC_LOOK = 0, REC_PROPS = 1, REC_SECTIONS = 2 };
+enum { RT_NUM, RT_BOOL, RT_CHOICE, RT_COLOR };   /* interpolated number; on/off; one of opts; 0xRRGGBB per channel */
+#define REC_RATE    30
+#define REC_MAX_SEC 600
+
+typedef struct RecTrack {
+    char   key[80];       /* look: "brightness", "tint"...; props: the property name */
+    int    kind;          /* RT_* */
+    int    style;         /* RT_COLOR on a property: wpapi_color_value's style */
+    double step, lo, hi;  /* RT_NUM: rounding and the graph's range */
+    float *v;             /* n samples as recorded (RT_CHOICE: index into opts) */
+    float *play;          /* n samples as played: v smoothed (wprec_prepare) */
+    JVal  *opts;          /* RT_CHOICE: J_ARR of the values seen */
+} RecTrack;
+
+typedef struct Rec {
+    int       n;          /* samples; 0: no recording */
+    double    speed;      /* 0.25..4 */
+    int       smooth;     /* 0..100 */
+    double    epoch;      /* unix ms */
+    int       count;
+    RecTrack *t;
+} Rec;
+
+double    wprec_now(void);                                   /* unix ms */
+void      wprec_free(Rec *r);
+BOOL      wprec_load(const wchar_t *wallpaperId, int section, Rec *out);
+BOOL      wprec_save(const wchar_t *wallpaperId, int section, const Rec *r);   /* r NULL or empty: delete it */
+char     *wprec_json(const Rec *r);                          /* one section, smoothed samples, as JSON (Plasma plays it); free() */
+void      wprec_prepare(Rec *r);                             /* rebuild play[] after an edit or a smooth change */
+double    wprec_pos(const Rec *r, double unixMs);            /* fractional sample index */
+double    wprec_num(const RecTrack *t, int n, double pos);   /* RT_NUM/BOOL/CHOICE: value; RT_COLOR: packed rgb */
+JVal     *wprec_value(const RecTrack *t, int n, double pos); /* a property's value at pos; json_free */
+void      wprec_look(const Rec *r, double pos, WallpaperAdjust *a);   /* overwrites the recorded fields */
+
+/* The recorder: notes each change with the value it had when recording began. */
+typedef struct RecTake RecTake;
+RecTake  *wprec_take_start(void);
+void      wprec_take_note(RecTake *k, const char *key, int kind, int style, double step, double lo, double hi,
+                          const JVal *before, const JVal *now);
+double    wprec_take_seconds(const RecTake *k);
+BOOL      wprec_take_finish(RecTake *k, Rec *out);           /* frees k; FALSE: nothing changed */
+
+/* Live values (engine processes only): playback's look and properties, used instead of the stored ones by
+ * wpapi_load_adjust and wpapi_properties_js. Both NULL: back to the stored values. */
+void      wpapi_live_set(const wchar_t *wallpaperId, const WallpaperAdjust *adj, const JVal *props);

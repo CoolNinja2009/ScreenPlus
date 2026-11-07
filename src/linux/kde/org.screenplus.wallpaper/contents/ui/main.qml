@@ -12,9 +12,24 @@ WallpaperItem {
     readonly property string src: configuration.Source
     property bool fullscreenHere: watch.item ? watch.item.fullscreen : false
     property bool coveredHere: watch.item ? watch.item.covered : false
+    property bool appHere: watch.item ? watch.item.ruleApp : false
     readonly property bool held: configuration.Paused || (configuration.PauseOnFullscreen && fullscreenHere)
-                                 || (configuration.PauseWhenCovered && coveredHere)
+                                 || (configuration.PauseWhenCovered && coveredHere) || appHere
     readonly property bool graded: configuration.Brightness !== 0 || configuration.Contrast !== 0 || configuration.Saturation !== 0
+                                   || recording.hasLook
+
+    /* A Customise recording's value while one plays, else the stored one. */
+    function lookValue(key, stored) {
+        const v = recording.look[key]
+        return v === undefined ? stored : v
+    }
+
+    Recording {
+        id: recording
+        json: root.configuration.Recording
+        running: !root.held
+        onPropsScript: js => { if (root.shownKind === "html" && view.item && view.item.run) view.item.run(js) }
+    }
 
     /* What the view shows. Every switch gets a new view: Source and Kind change one after the other, and a GIF put
      * into a view that was showing an image never starts. The timer lets both land first. */
@@ -58,18 +73,20 @@ WallpaperItem {
             item.paused = Qt.binding(() => root.held)
             item.muted = Qt.binding(() => root.configuration.Muted)
             item.source = root.shownSrc      /* not a binding: the old view lingers a moment after a switch */
+            recording.reset()
         }
         layer.enabled: root.graded
         layer.effect: MultiEffect {
-            brightness: root.configuration.Brightness / 100
-            contrast: root.configuration.Contrast / 100
-            saturation: root.configuration.Saturation / 100
+            brightness: root.lookValue("brightness", root.configuration.Brightness) / 100
+            contrast: root.lookValue("contrast", root.configuration.Contrast) / 100
+            saturation: root.lookValue("saturation", root.configuration.Saturation) / 100
         }
     }
 
     Loader {
         id: watch
         source: "FullscreenWatch.qml"
+        onLoaded: item.rules = Qt.binding(() => root.configuration.PauseApps)
     }
 
     Loader {

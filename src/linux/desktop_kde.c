@@ -219,6 +219,32 @@ static char *stream_address(const wchar_t *link)
     return out[0] ? strdup(out) : NULL;
 }
 
+/* Customise recordings for the plugin to play (Recording.qml): {"we":0|1,"look":rec,"props":rec}; "" when none. */
+static char *recording_json(const WallpaperEntry *e)
+{
+    StrBuf b = { 0 };
+    int any = 0;
+    sb_printf(&b, "{\"we\":%d", e->format == WPF_WE);
+    for (int s = 0; s < REC_SECTIONS; s++) {
+        Rec r;
+        if (!wprec_load(e->id, s, &r)) continue;
+        char *j = wprec_json(&r);
+        if (j) {
+            sb_printf(&b, ",\"%s\":", s == REC_LOOK ? "look" : "props");
+            sb_puts(&b, j);
+            any = 1;
+        }
+        free(j);
+        wprec_free(&r);
+    }
+    sb_puts(&b, "}");
+    if (!any || b.failed) {
+        sb_free(&b);
+        return NULL;
+    }
+    return b.p;
+}
+
 static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int paused, const RECT *span)
 {
     const WallpaperEntry *e = id && id[0] ? config_find((Config *)c, id) : NULL;
@@ -229,12 +255,20 @@ static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int pau
     sb_puts(b, "{\"Source\":");
     json_write_string(b, uri ? uri : "");
     sb_printf(b, ",\"Kind\":\"%s\"", !e ? "none" : e->type == WP_HTML ? "html" : e->type == WP_IMAGE ? "image" : "video");
-    sb_printf(b, ",\"Muted\":%s,\"Paused\":%s,\"PauseOnFullscreen\":%s", c->s.audio ? "false" : "true", paused ? "true" : "false",
-              c->s.pauseOnFullscreen ? "true" : "false");
+    sb_printf(b, ",\"Muted\":%s,\"Paused\":%s,\"PauseOnFullscreen\":%s", c->s.audio && !g_micBusy ? "false" : "true",
+              paused ? "true" : "false", c->s.pauseOnFullscreen ? "true" : "false");
+    char *apps = utf8_from_wide(c->s.pauseApps, NULL);
+    sb_puts(b, ",\"PauseApps\":");
+    json_write_string(b, apps ? apps : "");
+    free(apps);
     sb_printf(b, ",\"Mouse\":%s,\"PauseWhenCovered\":%s", c->s.htmlMouse ? "true" : "false", c->s.pauseWhenCovered ? "true" : "false");
     sb_printf(b, ",\"SpanX\":%d,\"SpanY\":%d,\"SpanW\":%d,\"SpanH\":%d", span ? span->left : 0, span ? span->top : 0,
               span ? span->right - span->left : 0, span ? span->bottom - span->top : 0);
     sb_printf(b, ",\"Brightness\":%d,\"Contrast\":%d,\"Saturation\":%d", a.brightness, a.contrast, a.saturation);
+    char *rec = e ? recording_json(e) : NULL;
+    sb_puts(b, ",\"Recording\":");
+    json_write_string(b, rec ? rec : "");
+    free(rec);
     if (e && e->type == WP_HTML) {
         char *shim = shim_url(c->s.webFps);
         JVal *sent = NULL;

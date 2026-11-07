@@ -78,6 +78,14 @@ static int shown_workspace(const JVal *mons, const char *name)
     return 0;
 }
 
+int hypr_active_pid(void)
+{
+    JVal *w = query_json("j/activewindow");
+    int pid = w && w->t == J_OBJ ? (int)json_num(json_get(w, "pid"), 0) : 0;
+    json_free(w);
+    return pid;
+}
+
 int hypr_fullscreen_on(const char *monitorName)
 {
     JVal *mons = query_json("j/monitors"), *wss = query_json("j/workspaces");

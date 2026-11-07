@@ -27,6 +27,72 @@ int wallpaper_is_url(const wchar_t *path)
     return str_istarts(path, L"https://") || str_istarts(path, L"http://");
 }
 
+/* ---- app rules: "a.exe;b.exe", kept lowercase so a match is a plain compare */
+
+void config_rule_name(wchar_t *out, size_t cap, const wchar_t *app)
+{
+    const wchar_t *f = wcspbrk(app, L"\\/") ? path_filename(app) : app;
+    size_t n = 0;
+    for (; *f && n + 1 < cap; f++)
+        if (*f != L';' && *f != L' ' && *f != L'"') out[n++] = (wchar_t)towlower(*f);
+    out[n] = 0;
+#ifdef _WIN32
+    if (n && wcscmp(out, L"*") != 0 && !wcschr(out, L'.')) str_cat(out, cap, L".exe");   /* Linux programs have no extension */
+#endif
+}
+
+int config_rule_at(const wchar_t *list, int index, wchar_t *out, size_t cap)
+{
+    const wchar_t *p = list;
+    for (int i = 0; *p; i++) {
+        const wchar_t *end = wcschr(p, L';');
+        size_t len = end ? (size_t)(end - p) : wcslen(p);
+        if (len && i == index) {
+            size_t n = SP_MIN(len, cap - 1);
+            wmemcpy(out, p, n);
+            out[n] = 0;
+            return 1;
+        }
+        if (!len) i--;
+        if (!end) break;
+        p = end + 1;
+    }
+    return 0;
+}
+
+BOOL config_rule_has(const wchar_t *list, const wchar_t *app)
+{
+    wchar_t want[MAX_PATH], it[MAX_PATH];
+    config_rule_name(want, SP_COUNTOF(want), app);
+    for (int i = 0; want[0] && config_rule_at(list, i, it, SP_COUNTOF(it)); i++)
+        if (wcscmp(it, want) == 0) return TRUE;
+    return FALSE;
+}
+
+BOOL config_rule_add(wchar_t *list, size_t cap, const wchar_t *app)
+{
+    wchar_t name[MAX_PATH];
+    config_rule_name(name, SP_COUNTOF(name), app);
+    if (!name[0] || config_rule_has(list, name) || wcslen(list) + wcslen(name) + 2 > cap) return FALSE;
+    if (list[0]) str_cat(list, cap, L";");
+    str_cat(list, cap, name);
+    return TRUE;
+}
+
+BOOL config_rule_remove(wchar_t *list, const wchar_t *app)
+{
+    wchar_t want[MAX_PATH], it[MAX_PATH], out[SP_RULES_LEN] = L"";
+    config_rule_name(want, SP_COUNTOF(want), app);
+    BOOL found = FALSE;
+    for (int i = 0; config_rule_at(list, i, it, SP_COUNTOF(it)); i++) {
+        if (wcscmp(it, want) == 0) { found = TRUE; continue; }
+        if (out[0]) str_cat(out, SP_COUNTOF(out), L";");
+        str_cat(out, SP_COUNTOF(out), it);
+    }
+    if (found) str_copy(list, SP_RULES_LEN, out);
+    return found;
+}
+
 int wallpaper_source_exists(const WallpaperEntry *e)
 {
     return wallpaper_is_url(e->path) || file_exists(e->path);
@@ -334,6 +400,8 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"url_import")) s->urlImport = parse_bool(val, s->urlImport);
             else if (str_ieq(key, L"interactive_images")) s->depthAll = parse_bool(val, s->depthAll);
             else if (str_ieq(key, L"depth_model")) str_copy(s->depthModel, SP_COUNTOF(s->depthModel), val);
+            else if (str_ieq(key, L"pause_apps")) str_copy(s->pauseApps, SP_COUNTOF(s->pauseApps), val);
+            else if (str_ieq(key, L"mute_apps")) str_copy(s->muteApps, SP_COUNTOF(s->muteApps), val);
             else if (str_ieq(key, L"display_mode"))
                 s->displayMode = str_ieq(val, L"span") ? DM_SPAN : str_ieq(val, L"duplicate") ? DM_DUPLICATE : DM_INDEPENDENT;
             else if (str_ieq(key, L"screensaver_audio")) s->scrAudio = parse_bool(val, s->scrAudio);
@@ -467,6 +535,10 @@ BOOL config_save(const Config *c, const wchar_t *path)
               s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system");
     sb_puts(&b, "depth_model=");     /* its own line: sb_printf formats into 512 bytes */
     sb_put_wide(&b, s->depthModel);
+    sb_puts(&b, "\r\npause_apps=");
+    sb_put_wide(&b, s->pauseApps);
+    sb_puts(&b, "\r\nmute_apps=");
+    sb_put_wide(&b, s->muteApps);
     sb_puts(&b, "\r\n\r\n[assignments]\r\n");
     if (c->defaultWallpaper[0]) {
         sb_puts(&b, "default=");

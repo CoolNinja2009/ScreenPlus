@@ -1225,6 +1225,101 @@ static int sharp_picture(IWICImagingFactory *f, IWICBitmapSource *src, UINT sw, 
     return ok ? 0 : 4;
 }
 
+/* ---------------------------------------------------------------- motion regions (UperNet ConvNeXt-T, ADE20K) */
+
+/* The picture's regions that move on the page (depth.html): sky drifts, water flows and ripples, plants sway.
+ * UperNet + ConvNeXt-Tiny (ADE20K's 150 classes, 512x512 in, logits at 128x128 out) runs on the CPU (a second
+ * or two); each pixel's softmax is summed per group, so edges stay soft. <dir>\motion.png is grey and three
+ * maps tall: sky, water, plants, top to bottom (a grey PNG is all the Linux WIC shim needs to write).
+ * Optional: no model, or any failure, leaves the page still. */
+#define SEG_IN 512
+static void write_marker(const wchar_t *path)
+{
+    HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+}
+
+static unsigned char seg_group(int c)
+{
+    switch (c) {
+    case 2: return 1;                                                         /* sky */
+    case 21: case 26: case 60: case 104: case 109: case 113: case 128: return 2;  /* water, sea, river, fountain, pool, waterfall, lake */
+    case 4: case 9: case 17: case 29: case 66: case 72: case 149: return 3;   /* tree, grass, plant, field, flower, palm, flag */
+    default: return 0;
+    }
+}
+
+static void segment_picture(IWICImagingFactory *f, IWICBitmapSource *src, HMODULE dll, const wchar_t *dir)
+{
+    wchar_t model[SP_MAX_PATH], out[SP_MAX_PATH], tmp[SP_MAX_PATH];
+    uint8_t *rgb = NULL, *mask = NULL;
+    float *chw = NULL;
+    OrtValue *in = NULL, *res = NULL;
+    OrtTensorTypeAndShapeInfo *info = NULL;
+    Sess x;
+    memset(&x, 0, sizeof x);
+    double t0 = time_ms();
+    depth_motion_model(model, SP_COUNTOF(model));
+    path_join(out, SP_COUNTOF(out), dir, L"motion.png");
+    if (!file_exists(model)) return;
+    if (!(rgb = scaled_rgb(f, src, SEG_IN, SEG_IN)) || !(chw = to_tensor(rgb, SEG_IN, SEG_IN))) goto done;
+    if (!sess_open(&x, dll, 0, model, 0, SEG_IN, SEG_IN)) goto done;
+    int64_t shape[4] = { 1, 3, SEG_IN, SEG_IN }, dims[4] = { 0 };
+    ORT(g_o->CreateTensorWithDataAsOrtValue(x.mi, chw, (size_t)SEG_IN * SEG_IN * 3 * sizeof(float), shape, 4,
+                                            ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in));
+    const char *inName[] = { "pixel_values" }, *outName[] = { "logits" };
+    ORT(g_o->Run(x.s, NULL, inName, (const OrtValue *const *)&in, 1, outName, 1, &res));
+    float *lg = NULL;
+    size_t nd = 0;
+    ORT(g_o->GetTensorMutableData(res, (void **)&lg));
+    ORT(g_o->GetTensorTypeAndShape(res, &info));
+    ORT(g_o->GetDimensionsCount(info, &nd));
+    if (nd == 4) ORT(g_o->GetDimensions(info, dims, 4));
+    if (nd != 4 || dims[1] != 150 || dims[2] < 8 || dims[3] < 8) {
+        LOGW(L"depth: motion: unexpected SegFormer output");
+        goto done;
+    }
+    int cls = (int)dims[1], mw = (int)dims[3], mh = (int)dims[2];
+    size_t n = (size_t)mw * mh;
+    if (!(mask = (uint8_t *)calloc(n * 3, 1))) goto done;
+    int any = 0;
+    for (size_t i = 0; i < n; i++) {
+        float mx = -1e30f, sum = 0.0f, g[4] = { 0 };
+        for (int c = 0; c < cls; c++) mx = SP_MAX(mx, lg[(size_t)c * n + i]);
+        for (int c = 0; c < cls; c++) {
+            float e = expf(lg[(size_t)c * n + i] - mx);
+            sum += e;
+            g[seg_group(c)] += e;
+        }
+        for (int k = 0; k < 3; k++) {
+            int v = (int)(g[k + 1] / sum * 255.0f + 0.5f);
+            mask[k * n + i] = (uint8_t)v;
+            any |= v > 128;
+        }
+    }
+    if (!any) {                                     /* nothing to move: no map, the page stays still */
+        DeleteFileW(out);
+        path_join(tmp, SP_COUNTOF(tmp), dir, L"motion.none");   /* looked: depth.c doesn't ask again */
+        write_marker(tmp);
+        LOGI(L"depth: motion: no sky, water or plants found (%.0f ms)", time_ms() - t0);
+        goto done;
+    }
+    for (int k = 0; k < 3; k++) blur(mask + k * n, mw, mh, 1);
+    path_join(tmp, SP_COUNTOF(tmp), dir, L"motion.tmp");
+    if (save_png(f, tmp, NULL, (UINT)mw, (UINT)mh * 3, &GUID_WICPixelFormat8bppGray, mask) && MoveFileExW(tmp, out, MOVEFILE_REPLACE_EXISTING))
+        LOGI(L"depth: motion regions in %.0f ms", time_ms() - t0);
+    else
+        DeleteFileW(tmp);
+done:
+    if (info) g_o->ReleaseTensorTypeAndShapeInfo(info);
+    if (res) g_o->ReleaseValue(res);
+    if (in) g_o->ReleaseValue(in);
+    if (x.s) sess_close(&x);
+    free(mask);
+    free(chw);
+    free(rgb);
+}
+
 int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng, const wchar_t *modelKey, int video, HWND notifyWnd)
 {
     IWICImagingFactory *f = NULL;
@@ -1345,6 +1440,7 @@ int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wan
         path_join(tmp, SP_COUNTOF(tmp), dir, L"image.png");
         if (!save_picture_copy(f, src, sw, sh, tmp)) goto done;
     }
+    segment_picture(f, src, dll, dir);
     rc = 0;
     LOGI(L"depth: finished in %.0f ms", time_ms() - t0);
 done:

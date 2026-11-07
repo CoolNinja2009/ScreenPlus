@@ -238,6 +238,7 @@ void              depth_model_dir(int i, wchar_t *out, size_t cap);    /* its fo
 BOOL              depth_choose_model(int i, HWND owner);               /* a user model: asks for its .onnx; FALSE: cancelled */
 BOOL              depth_set_model_file(int i, const wchar_t *path);    /* a user model: remembers its .onnx */
 BOOL              depth_model_has_weights(const wchar_t *onnx);        /* FALSE: a small graph with no weights file beside it */
+void              depth_motion_model(wchar_t *out, size_t cap);        /* SegFormer (motion regions): its model.onnx */
 /* How well this PC runs a model: level 5 very good .. 1 very hard, 0 can't run; seconds: the estimated time
  * for one picture, or for `videoSeconds` of video when that is > 0. */
 typedef struct DepthEstimate { int level; double seconds; int gpu; } DepthEstimate;

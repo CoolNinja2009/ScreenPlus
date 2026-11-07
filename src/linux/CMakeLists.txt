@@ -8,7 +8,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(ROOT ${CMAKE_SOURCE_DIR}/src)
 set(SHARED
-    compat.c winobj.c run.c desktop_hypr.c
+    compat.c winobj.c run.c desktop_hypr.c apprules.c
     ${ROOT}/common/util.c ${ROOT}/common/paths.c ${ROOT}/common/log.c ${ROOT}/common/json.c
     ${ROOT}/settings/config.c ${ROOT}/renderer/html/wallpaper_api.c)
 

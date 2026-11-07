@@ -26,6 +26,14 @@ int  sp_on_path(const char *name);
 int  sp_on_battery(void);                  /* mains exists and is unplugged */
 char *sp_file_uri(const wchar_t *path);    /* file:///... percent-encoded; http(s) unchanged; free() */
 
+/* apprules.c: app rules (pause_apps, mute_apps) */
+int  sp_pid_matches(int pid, const wchar_t *rules);   /* the process's program is on the list */
+int  sp_mic_busy(const wchar_t *rules);               /* an app on the list is recording ("*": any app) */
+int  sp_mic_watch_start(void);                        /* fd that turns readable on audio events; -1: no pactl */
+int  sp_mic_watch_read(void);                         /* 1: a recording stream came or went, -1: watcher gone */
+void sp_mic_watch_stop(void);
+extern int g_micBusy;                                 /* service: mute_apps says mute now (desktop_kde.c's Muted) */
+
 /* desktop_kde.c */
 int  kde_monitors(MonitorInfo *out, int max);
 int  kde_install_plugin(void);
@@ -36,3 +44,4 @@ void kde_restore(void);
 char *hypr_query(const char *request);     /* the reply to a socket request ("j/monitors"); free(); NULL: none */
 int  hypr_monitors(MonitorInfo *out, int max);
 int  hypr_fullscreen_on(const char *monitorName);   /* the workspace showing there has a fullscreen window */
+int  hypr_active_pid(void);                         /* the focused window's process, 0: none */

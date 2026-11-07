@@ -31,6 +31,7 @@ and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpap
 - Make wallpaper cooler: turns a picture or video into a 3D wallpaper that follows the mouse
 - Colour grading and wallpaper properties
 - Pauses for fullscreen apps, covered desktops, the lock screen and battery power
+- App rules: pause while chosen apps are in front, mute while chosen apps use the microphone (calls)
 - Starts the moment you sign in, with a still of your wallpaper on screen until it does
 - No admin rights needed, portable version available
 - Command-line control
