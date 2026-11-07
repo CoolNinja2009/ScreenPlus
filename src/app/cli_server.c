@@ -463,6 +463,34 @@ static void cmd_remove(Reply *r, const Req *q)
     sb_puts(&r->data, "}");
 }
 
+/* move <wallpaper> <place>: its place in the library order (1 = first; first, last). */
+static void cmd_move(Reply *r, const Req *q)
+{
+    const wchar_t *place = q->argc > 2 ? q->argv[q->argc - 1] : L"";
+    wchar_t *end = NULL;
+    long to = str_ieq(place, L"first") ? 1 : str_ieq(place, L"last") ? g_app.cfg.count : wcstol(place, &end, 10);
+    if (end && *end) to = 0;
+    if (q->argc < 3 || to < 1) {
+        fail(r, L"Usage: screenplus move <wallpaper> <place>   (1 = first; first, last)");
+        return;
+    }
+    Req rest = *q;
+    rest.argc--;
+    wchar_t what[SP_MAX_PATH];
+    join_args(&rest, 1, what, SP_COUNTOF(what));
+    WallpaperEntry *e = find_wallpaper(r, what);
+    if (!e) return;
+    wchar_t id[SP_ID_LEN], name[SP_NAME_LEN];
+    str_copy(id, SP_COUNTOF(id), e->id);
+    str_copy(name, SP_COUNTOF(name), e->name);
+    int at = (int)SP_MIN(to, (long)g_app.cfg.count);
+    library_move(id, at - 1);
+    say(r, L"\"%ls\" is now number %d of %d in the library.\n", name, at, g_app.cfg.count);
+    sb_printf(&r->data, "{\"moved\":");
+    jstr(&r->data, id);
+    sb_printf(&r->data, ",\"place\":%d}", at);
+}
+
 static void cmd_next(Reply *r)
 {
     app_next_wallpaper();
@@ -993,7 +1021,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"screensaver_audio",   offsetof(Settings, scrAudio),          SK_BOOL,  L"Screensaver sound" },
     { L"screensaver_displays", offsetof(Settings, scrDisplays),      SK_SCRDISP, L"Screensaver on all displays, span or primary" },
     { L"screensaver_exit_on_mouse", offsetof(Settings, scrExitOnMouse), SK_BOOL, L"A mouse move ends the screensaver" },
-    { L"auto_update",         offsetof(Settings, autoUpdate),        SK_BOOL,  L"Install new Screen+ releases from GitHub automatically" },
+    { L"auto_update",         offsetof(Settings, autoUpdate),        SK_BOOL,  L"Install new Screen+ releases automatically (GitHub, else GitLab)" },
     { L"auto_update_samples", offsetof(Settings, autoUpdateSamples), SK_BOOL,  L"Update the downloaded sample wallpapers when they change" },
 };
 
@@ -1251,6 +1279,8 @@ static void run(Reply *r, const Req *q)
         cmd_import(r, q);
     } else if (str_ieq(c, L"remove") || str_ieq(c, L"rm")) {
         cmd_remove(r, q);
+    } else if (str_ieq(c, L"move")) {
+        cmd_move(r, q);
     } else if (str_ieq(c, L"next")) {
         cmd_next(r);
     } else if (str_ieq(c, L"pause") || str_ieq(c, L"resume") || str_ieq(c, L"toggle")) {

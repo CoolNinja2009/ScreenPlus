@@ -41,6 +41,7 @@ static const char k_help[] =
     "  apply <wallpaper>      Set a wallpaper (--display N for one display)\n"
     "  next                   The next wallpaper\n"
     "  remove <wallpaper>     Remove it from the library\n"
+    "  move <wallpaper> <n>   Put it at place n in the library (first, last)\n"
     "  displays               Connected displays\n"
     "  mode [independent|duplicate|span]\n"
     "  store [search <words> | more | get <n>]   The Store: list, search, download\n"

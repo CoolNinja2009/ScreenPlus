@@ -113,6 +113,7 @@ int  library_auto_import_lively(void); /* silent startup discovery; returns newl
 int  library_add_samples(void);        /* the bundled samples\ wallpapers, silently; returns newly-added entries */
 void library_import_wallpaper_engine(void);
 void library_remove(const wchar_t *id);
+BOOL library_move(const wchar_t *id, int to);   /* to: 0-based place in the library order; saves */
 void library_check_missing(void);
 void library_discard(const wchar_t *path, BOOL folder);   /* a removed entry's file or folder: now, or at the next start */
 void library_purge(void);              /* startup: what library_discard couldn't delete then */

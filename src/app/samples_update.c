@@ -84,7 +84,7 @@ static BOOL fetch(SamplesJob *j, const JVal *root, const wchar_t *name, int64_t 
     char sha[65], hex[65] = "";
     int64_t size;
     if (!release_asset(root, j->version, name, max, url, SP_COUNTOF(url), &size, sha)) {
-        str_printf(j->error, SP_COUNTOF(j->error), L"Screen+ %ls on GitHub has no %ls this copy can verify", j->version, name);
+        str_printf(j->error, SP_COUNTOF(j->error), L"Screen+ %ls has no %ls this copy can verify", j->version, name);
         return FALSE;
     }
     path_join(dir, SP_COUNTOF(dir), paths_root(), L"updates");
@@ -96,7 +96,7 @@ static BOOL fetch(SamplesJob *j, const JVal *root, const wchar_t *name, int64_t 
     if (ok) ok = http_save(g, dest, size, cb, j, hex, why, SP_COUNTOF(why));
     http_close(g);
     if (ok && strcmp(hex, sha) != 0) {
-        str_copy(why, SP_COUNTOF(why), L"the file did not match the SHA-256 checksum GitHub lists for it");
+        str_copy(why, SP_COUNTOF(why), L"the file did not match the SHA-256 checksum the release lists for it");
         DeleteFileW(dest);
         ok = FALSE;
     }

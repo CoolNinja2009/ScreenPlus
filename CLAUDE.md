@@ -9,6 +9,10 @@ reach the CLI where it applies, in the same change: a command in `src/app/cli_se
 for local ones), a settings key in `k_settings`, and the CLI help text. If it doesn't apply to the CLI, say so in
 the report.
 
+**Windows/Linux parity (always):** Windows and Linux ship together in one release, so every change to the Windows
+app must also reach the Linux app in the same change (shared code, or its `src/linux/` counterpart: engine_gtk.c for
+Hyprland, the Plasma plugin's QML for KDE, `linux/cli.c` help). If it can't apply on Linux, say so in the report.
+
 ## Linux (`src/linux/`; merged into main for 2.0, both platforms release together)
 KDE Plasma 6 and Hyprland: no tray, GNOME or screensaver. `compat.h`/`compat.c` stand in for the Win32 the
 shared code uses, so `config.c`, `json.c`, `log.c`, `util.c`, `paths.c`, `library.c`, `cli_server.c` and `wallpaper_api.c` build

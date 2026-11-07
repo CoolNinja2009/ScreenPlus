@@ -119,6 +119,7 @@ typedef struct Rec {
     double    speed;      /* 0.25..4 */
     int       smooth;     /* 0..100 */
     double    epoch;      /* unix ms */
+    double    paused;     /* unix ms it was paused at (the playhead stays there); 0: playing */
     int       count;
     RecTrack *t;
 } Rec;

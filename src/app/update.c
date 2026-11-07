@@ -1,6 +1,6 @@
 /* Auto update: the "Auto update" setting (on by default), Settings' Check now and `screenplus update`.
- * GitHub's latest release of Screen+ (never a pre-release) is compared with this build. A newer release's
- * installer is downloaded into <data>\updates and kept only if its size and SHA-256 match what GitHub lists
+ * The latest release of Screen+ (GitHub, else the GitLab mirror) (never a pre-release) is compared with this build. A newer release's
+ * installer is downloaded into <data>\updates and kept only if its size and SHA-256 match what the release lists
  * for that asset; it then runs silently with /UPDATE: setup closes Screen+, updates it in place (library and
  * settings are kept) and starts it again. Only installed copies update (uninstall.exe beside the exe):
  * portable and development builds are never replaced. With the setting on, the first check runs a few
@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <wctype.h>
+#include <ctype.h>
 
 #ifdef _WIN32
 #define SETUP_NAME   L"ScreenPlus-Setup-%ls.exe"
@@ -25,6 +26,11 @@
 #endif
 #define RELEASE_API  L"https://api.github.com/repos/CoolNinja2009/ScreenPlus/releases/latest"
 #define RELEASE_DL   L"https://github.com/CoolNinja2009/ScreenPlus/releases/download/v"
+/* The GitLab mirror, asked when GitHub doesn't answer: its assets live in the project's package registry and
+ * SHA256SUMS.txt beside them lists every file's SHA-256. */
+#define GITLAB_API   L"https://gitlab.com/api/v4/projects/88596566/releases/permalink/latest"
+#define GITLAB_DL    L"https://gitlab.com/api/v4/projects/88596566/packages/generic/screenplus/"
+#define SUMS_MAX     (64 * 1024)
 #define FIRST_MS     (3 * 60 * 1000)
 #define EVERY_MS     (12 * 60 * 60 * 1000)
 #define RETRY_MS     (60 * 60 * 1000)
@@ -118,30 +124,54 @@ static int dl_progress(void *ctx, int64_t done, int64_t total)
     return 1;
 }
 
-/* GitHub's latest release (also samples_update.c): its JSON and version ("1.8.4"), or NULL with err set. */
-JVal *release_latest(wchar_t *version, size_t cap, int v[3], wchar_t *err, size_t errCap)
+/* A small body over HTTPS (at most cap bytes), or NULL with *status set (0: not reached, why says why). */
+static char *get_body(const wchar_t *url, int cap, int *n, int *status, wchar_t *why, size_t whyCap)
+{
+    HttpGet *g = http_open(url, 0, why, whyCap);
+    *n = 0;
+    *status = g ? http_status(g) : 0;
+    if (!g) return NULL;
+    int got;
+    char *body = *status == 200 ? (char *)malloc((size_t)cap + 1) : NULL;
+    while (body && *n < cap && (got = http_read(g, body + *n, cap - *n)) > 0) *n += got;
+    http_close(g);
+    if (body) body[*n] = 0;
+    return body;
+}
+
+static JVal *get_json(const wchar_t *url, const wchar_t *site, wchar_t *err, size_t errCap)
 {
     wchar_t why[SP_ERR_LEN];
-    HttpGet *g = http_open(RELEASE_API, 0, why, SP_COUNTOF(why));
-    if (!g) {
-        str_printf(err, errCap, L"Could not reach GitHub: %ls", why);
-        return NULL;
-    }
-    int status = http_status(g), n = 0, got;
-    char *body = status == 200 ? (char *)malloc(API_MAX) : NULL;
-    while (body && n < API_MAX && (got = http_read(g, body + n, API_MAX - n)) > 0) n += got;
-    http_close(g);
+    int n, status;
+    char *body = get_body(url, API_MAX, &n, &status, why, SP_COUNTOF(why));
     JVal *root = body ? json_parse(body, (size_t)n) : NULL;
     free(body);
     if (!root) {
-        if (status != 200) str_printf(err, errCap, L"GitHub answered HTTP %d", status);
-        else str_copy(err, errCap, L"GitHub's answer could not be read");
-        return NULL;
+        if (!status) str_printf(err, errCap, L"Could not reach %ls: %ls", site, why);
+        else if (status != 200) str_printf(err, errCap, L"%ls answered HTTP %d", site, status);
+        else str_printf(err, errCap, L"%ls's answer could not be read", site);
+    }
+    return root;
+}
+
+/* The latest release (also samples_update.c): its JSON and version ("1.8.4"), or NULL with err set. GitHub
+ * first; when it doesn't answer (the account was hidden in 2026-11), the GitLab mirror. */
+JVal *release_latest(wchar_t *version, size_t cap, int v[3], wchar_t *err, size_t errCap)
+{
+    wchar_t hubErr[SP_ERR_LEN], labErr[SP_ERR_LEN];
+    JVal *root = get_json(RELEASE_API, L"GitHub", hubErr, SP_COUNTOF(hubErr));
+    if (!root) {
+        root = get_json(GITLAB_API, L"GitLab", labErr, SP_COUNTOF(labErr));
+        if (!root) {
+            str_printf(err, errCap, L"%ls; %ls", hubErr, labErr);
+            return NULL;
+        }
+        LOGI(L"update: %ls; asked GitLab instead", hubErr);
     }
     wchar_t tag[40];
     json_str_w(json_get(root, "tag_name"), tag, SP_COUNTOF(tag));
     if (!parse_version(tag, v)) {
-        str_copy(err, errCap, L"The latest release on GitHub has no version number");
+        str_copy(err, errCap, L"The latest release has no version number");
         json_free(root);
         return NULL;
     }
@@ -149,21 +179,66 @@ JVal *release_latest(wchar_t *version, size_t cap, int v[3], wchar_t *err, size_
     return root;
 }
 
+/* GitLab: the asset's link in the package registry for that very version, and its line in SHA256SUMS.txt.
+ * GitLab lists no size, so the download is capped at max and the checksum decides. */
+static BOOL gitlab_asset(const JVal *links, const wchar_t *version, const wchar_t *name, int64_t max,
+                         wchar_t *url, size_t urlCap, int64_t *size, char sha[65])
+{
+    wchar_t prefix[160], sums[SP_MAX_PATH] = L"", why[SP_ERR_LEN];
+    str_printf(prefix, SP_COUNTOF(prefix), GITLAB_DL L"%ls/", version);
+    for (int i = 0; links->t == J_ARR && i < links->n; i++) {
+        wchar_t an[96];
+        json_str_w(json_get(&links->kids[i], "name"), an, SP_COUNTOF(an));
+        if (str_ieq(an, name)) json_str_w(json_get(&links->kids[i], "url"), url, urlCap);
+        else if (str_ieq(an, L"SHA256SUMS.txt")) json_str_w(json_get(&links->kids[i], "url"), sums, SP_COUNTOF(sums));
+    }
+    if (!str_istarts(url, prefix) || !str_istarts(sums, prefix)) return FALSE;
+    int n, status;
+    char *body = get_body(sums, SUMS_MAX, &n, &status, why, SP_COUNTOF(why));
+    if (!body) return FALSE;
+    char want[96];
+    WideCharToMultiByte(CP_UTF8, 0, name, -1, want, sizeof want, NULL, NULL);
+    BOOL ok = FALSE;
+    for (char *line = body; line && *line && !ok;) {       /* "<64 hex>  <name>" (or " *<name>") */
+        char *next = strchr(line, '\n');
+        if (next) *next++ = 0;
+        size_t len = strlen(line);
+        if (len && line[len - 1] == '\r') line[--len] = 0;
+        if (len > 66 && line[64] == ' ' && (line[65] == ' ' || line[65] == '*') && !_stricmp(line + 66, want)) {
+            ok = TRUE;
+            for (int k = 0; ok && k < 64; k++) {
+                ok = isxdigit((unsigned char)line[k]) != 0;
+                sha[k] = (char)tolower((unsigned char)line[k]);
+            }
+        }
+        line = next;
+    }
+    free(body);
+    sha[64] = 0;
+    *size = max;
+    return ok;
+}
+
 /* An asset of that release: its address (this repository's download for that very version), its size (at most
- * max) and the SHA-256 GitHub lists for it. */
+ * max) and the SHA-256 the release lists for it. */
 BOOL release_asset(const JVal *root, const wchar_t *version, const wchar_t *name, int64_t max,
                    wchar_t *url, size_t urlCap, int64_t *size, char sha[65])
 {
     wchar_t prefix[160], digest[80] = L"";
     const JVal *assets = json_get(root, "assets"), *a = NULL;
+    url[0] = 0;
+    *size = 0;
+    sha[0] = 0;
+    if (assets && assets->t == J_OBJ) {                    /* a GitLab release */
+        const JVal *links = json_get(assets, "links");
+        return links && gitlab_asset(links, version, name, max, url, urlCap, size, sha);
+    }
     str_printf(prefix, SP_COUNTOF(prefix), RELEASE_DL L"%ls/", version);
     for (int i = 0; assets && assets->t == J_ARR && i < assets->n && !a; i++) {
         wchar_t an[96];
         json_str_w(json_get(&assets->kids[i], "name"), an, SP_COUNTOF(an));
         if (str_ieq(an, name)) a = &assets->kids[i];
     }
-    url[0] = 0;
-    *size = 0;
     if (a) {
         json_str_w(json_get(a, "browser_download_url"), url, urlCap);
         json_str_w(json_get(a, "digest"), digest, SP_COUNTOF(digest));
@@ -191,7 +266,7 @@ static BOOL read_release(UpdateJob *j, wchar_t *url, size_t urlCap, int64_t *siz
         wchar_t name[64];
         str_printf(name, SP_COUNTOF(name), SETUP_NAME, j->version);
         ok = release_asset(root, j->version, name, SETUP_MAX, url, urlCap, size, sha);
-        if (!ok) str_printf(j->error, SP_COUNTOF(j->error), L"Screen+ %ls on GitHub has no installer this copy can verify", j->version);
+        if (!ok) str_printf(j->error, SP_COUNTOF(j->error), L"Screen+ %ls has no installer this copy can verify", j->version);
     }
     json_free(root);
     return ok;
@@ -221,7 +296,7 @@ static void run(UpdateJob *j)
     if (ok) ok = http_save(g, part, size, dl_progress, j, hex, why, SP_COUNTOF(why));
     http_close(g);
     if (ok && strcmp(hex, sha) != 0) {
-        str_copy(why, SP_COUNTOF(why), L"the file did not match the SHA-256 checksum GitHub lists for it");
+        str_copy(why, SP_COUNTOF(why), L"the file did not match the SHA-256 checksum the release lists for it");
         ok = FALSE;
     }
     if (ok && !MoveFileExW(part, dest, MOVEFILE_REPLACE_EXISTING)) {
@@ -383,7 +458,7 @@ void update_on_event(WPARAM wp, LPARAM lp)
     } else if (!j->setup[0] || (!j->user && !g_app.cfg.s.autoUpdate)) {
         LOGI(L"update: Screen+ %ls is available", j->version);
         str_printf(text, SP_COUNTOF(text), can_install() ? L"Screen+ %ls is available"
-                                                         : L"Screen+ %ls is available on GitHub", j->version);
+                                                         : L"Screen+ %ls is available", j->version);
         set_status(0, -1, text);
     } else {
         LOGI(L"update: Screen+ %ls downloaded and verified", j->version);

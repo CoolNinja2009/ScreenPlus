@@ -735,7 +735,7 @@ static void set_animation(Ui *u, Thumb *t, ThumbResult *res)
            SUCCEEDED(ID2D1RenderTarget_CreateBitmap(RT, sz, res->bgra + fsz * (size_t)n, (UINT32)res->w * 4, &bp, &frames[n])))
         n++;
     D2D1_BITMAP_BRUSH_PROPERTIES bbp = { D2D1_EXTEND_MODE_CLAMP, D2D1_EXTEND_MODE_CLAMP, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR };
-    if (n != res->frames || FAILED(ID2D1RenderTarget_CreateBitmapBrush(RT, frames[0], &bbp, NULL, &brush))) {
+    if (n == 0 || n != res->frames || FAILED(ID2D1RenderTarget_CreateBitmapBrush(RT, frames[0], &bbp, NULL, &brush))) {
         for (int i = 0; i < n; i++) SP_RELEASE(frames[i]);
         free(frames);
         return;
@@ -1118,6 +1118,12 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             TrackMouseEvent(&tme);
             u->tracking = 1;
         }
+        if (HIT_KIND(u->pressed) == HK_CARD) {          /* a card dragged past a few pixels moves in the library */
+            if (!u->cardDrag && fabsf(u->mx - u->pressX) + fabsf(u->my - u->pressY) > 8.0f)
+                u->cardDrag = pages_card_drag(u->mx, u->my);
+            else if (u->cardDrag) pages_card_drag(u->mx, u->my);
+            if (u->cardDrag) return 0;
+        }
         int hot = hit_at(u, u->mx, u->my);
         if (hot != u->hot) {                            /* keep the drag target while the button is down */
             u->hot = pages_is_drag(HIT_KIND(u->pressed))
@@ -1153,6 +1159,9 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         SetCapture(h);
         u->pressed = u->hot;
         u->pressedRect = rectf(0, 0, 0, 0);
+        u->pressX = u->mx;
+        u->pressY = u->my;
+        u->cardDrag = 0;
         if (u->hot) {
             const Hit *hit = hit_find(u, u->hot);
             if (hit) {
@@ -1171,10 +1180,12 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         ui_invalidate();
         return 0;
     case WM_LBUTTONUP: {
-        int id = u->pressed;
+        int id = u->pressed, dragged = u->cardDrag;
         u->pressed = 0;
+        u->cardDrag = 0;
         ReleaseCapture();
-        if (id) {
+        if (dragged) pages_card_drop();
+        else if (id) {
             int k = HIT_KIND(id);
             if (pages_is_drag(k)) pages_drag(id, u->mx, u->my, 1);
             if (id == u->hot && k != HK_SEARCH && !is_text_kind(k)) pages_activate(id, 0);

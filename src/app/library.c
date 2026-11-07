@@ -597,6 +597,15 @@ void library_remove(const wchar_t *id)
     ui_on_config_changed();
 }
 
+BOOL library_move(const wchar_t *id, int to)
+{
+    int from = config_index_of(&g_app.cfg, id);
+    if (!config_move(&g_app.cfg, from, SP_CLAMP(to, 0, g_app.cfg.count - 1))) return FALSE;
+    app_save_config();
+    ui_on_config_changed();
+    return TRUE;
+}
+
 void library_check_missing(void)
 {
     for (int i = 0; i < g_app.cfg.count; i++)

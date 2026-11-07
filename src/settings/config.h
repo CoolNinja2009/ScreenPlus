@@ -136,6 +136,7 @@ int             config_index_of(const Config *c, const wchar_t *id);
 WallpaperEntry *config_find_path(Config *c, const wchar_t *path);
 WallpaperEntry *config_add(Config *c, WallpaperType type, const wchar_t *path, const wchar_t *name);
 BOOL            config_remove(Config *c, const wchar_t *id);
+BOOL            config_move(Config *c, int from, int to);   /* library order: the entry at from goes to index to */
 
 /* Effective wallpaper id for a monitor: per-monitor override (independent mode only), else the
  * default ("" if none). */

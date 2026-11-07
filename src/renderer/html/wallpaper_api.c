@@ -807,6 +807,7 @@ void wprec_prepare(Rec *r)
 double wprec_pos(const Rec *r, double unixMs)
 {
     if (r->n < 1) return 0.0;
+    if (r->paused > 0) unixMs = r->paused;
     double p = fmod((unixMs - r->epoch) / 1000.0 * r->speed * REC_RATE, (double)r->n);
     return p < 0 ? p + r->n : p;
 }
@@ -858,7 +859,8 @@ void wprec_look(const Rec *r, double pos, WallpaperAdjust *a)
 
 static void rec_write(StrBuf *b, const Rec *r, int played)   /* played: the smoothed samples (Plasma plays them as they are) */
 {
-    sb_printf(b, "{\"n\":%d,\"speed\":%.3f,\"smooth\":%d,\"epoch\":%.0f,\"tracks\":[", r->n, r->speed, r->smooth, r->epoch);
+    sb_printf(b, "{\"n\":%d,\"speed\":%.3f,\"smooth\":%d,\"epoch\":%.0f,\"paused\":%.0f,\"tracks\":[", r->n, r->speed,
+              r->smooth, r->epoch, r->paused);
     for (int i = 0; i < r->count; i++) {
         const RecTrack *t = &r->t[i];
         if (i) sb_puts(b, ",");
@@ -896,6 +898,7 @@ static BOOL rec_from(const JVal *j, Rec *out)
     out->speed = SP_CLAMP(json_num(json_get(j, "speed"), 1.0), 0.25, 4.0);
     out->smooth = SP_CLAMP((int)json_num(json_get(j, "smooth"), 0), 0, 100);
     out->epoch = json_num(json_get(j, "epoch"), 0);
+    out->paused = SP_MAX(json_num(json_get(j, "paused"), 0), 0);
     for (int i = 0; i < tr->n; i++) {
         const JVal *x = &tr->kids[i], *v = json_get(x, "v");
         if (!v || v->t != J_ARR || v->n != n) continue;

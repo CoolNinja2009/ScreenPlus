@@ -211,6 +211,16 @@ WallpaperEntry *config_add(Config *c, WallpaperType type, const wchar_t *path, c
     return e;
 }
 
+BOOL config_move(Config *c, int from, int to)
+{
+    if (from < 0 || from >= c->count || to < 0 || to >= c->count || from == to) return FALSE;
+    WallpaperEntry e = c->items[from];
+    if (from < to) memmove(&c->items[from], &c->items[from + 1], sizeof e * (size_t)(to - from));
+    else memmove(&c->items[to + 1], &c->items[to], sizeof e * (size_t)(from - to));
+    c->items[to] = e;
+    return TRUE;
+}
+
 BOOL config_remove(Config *c, const wchar_t *id)
 {
     int i = config_index_of(c, id);

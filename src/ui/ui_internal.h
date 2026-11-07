@@ -39,6 +39,7 @@ enum HitKind {
     HK_DEPTH_PICK, HK_DEPTH_MODEL,    /* depth model list: open/close; pick (data: depth_model index) */
     HK_RULE_ADD, HK_RULE_DEL,         /* app rules; data: list (0 pause, 1 mute), DEL adds index << 8 */
     HK_REC, HK_REC_EDIT, HK_REC_DEL,  /* Customise recordings; data: section (REC_LOOK, REC_PROPS) */
+    HK_REC_PAUSE,                     /* pause / play a recording; data: section */
     HK_REC_SPEED, HK_REC_SMOOTH,      /* the graph view's sliders; data: section */
     HK_REC_GRAPH                      /* a track's graph (draw over it); data: section | track << 1 */
 };
@@ -111,6 +112,9 @@ typedef struct Ui {
     int                   *view;
     int                    viewCount, viewCap, cols;
     float                  gridY, rowH;    /* grid origin (content coordinates) and row pitch */
+    float                  gridX, colW;    /* grid left edge and column pitch */
+    float                  pressX, pressY; /* where the button went down */
+    int                    cardDrag;       /* a library card is being dragged to a new place */
     float                  tog[TOG_COUNT], togTarget[TOG_COUNT];
     double                 showRequestedAt;
 
@@ -176,6 +180,8 @@ void pages_rebuild_view(void);
 void pages_scroll_into_view(int id);
 void pages_drag(int id, float x, float y, int commit);      /* sliders + colour wheel tracking */
 int  pages_is_drag(int kind);                               /* a control pages_drag tracks while pressed */
+int  pages_card_drag(float x, float y);                     /* moves the pressed library card under (x, y) */
+void pages_card_drop(void);                                 /* saves the order a card drag left */
 void pages_customise_reload(void);                         /* Customise values changed elsewhere */
 void pages_search_open(void);                              /* focus + caret in the search box */
 void pages_store_search_open(void);                        /* the same for the Store's search box */

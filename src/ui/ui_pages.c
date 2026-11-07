@@ -383,6 +383,8 @@ static float draw_grid(Ui *u, float x, float y, float w)
     float cw = (w - gap * (cols - 1)) / cols, thumbH = (cw - 12) * 9.0f / 16.0f, ch = thumbH + 12 + 48;
     u->gridY = y + u->scroll[PAGE_LIBRARY];
     u->rowH = ch + gap;
+    u->gridX = x;
+    u->colW = cw + gap;
     const wchar_t *cur = app_wallpaper_for(target_id());
     for (int i = 0; i < u->viewCount; i++) {
         int c = i % cols, row = i / cols;
@@ -1423,6 +1425,25 @@ static void rec_save_edit(int sec)
     app_apply_customise();
 }
 
+/* Pause holds the playhead where it is; play carries on from there (the epoch moves by the time it was held). */
+static void rec_pause(int sec)
+{
+    Rec *r = &cus.rec[sec];
+    if (!r->n) return;
+    double now = wprec_now();
+    if (r->paused > 0) {
+        r->epoch += now - r->paused;
+        r->paused = 0;
+    } else {
+        r->paused = now;
+    }
+    rec_save_edit(sec);
+    ui_invalidate();
+}
+
+/* While a section's recording plays, its controls show the played values (not while recording a new take). */
+static int rec_shown(int sec) { return cus.rec[sec].n && !(cus.take && cus.takeSec == sec); }
+
 /* Saves and pushes the look; `live` commits (mid-drag) are throttled, the release always sends. */
 static void look_commit(int live)
 {
@@ -1684,6 +1705,33 @@ static void rec_drag(int kind, int data, D2D1_RECT_F r, float x, float y, int co
     }
     if (commit) rec_save_edit(sec);
     ui_invalidate();
+}
+
+/* Drag a library card to a new place: the entry moves live as the pointer crosses other cards (not in the
+ * Recent filter, which has its own order), and the order is saved on release. */
+int pages_card_drag(float x, float y)
+{
+    Ui *u = g_ui;
+    int from = HIT_DATA(u->pressed);
+    if (u->page != PAGE_LIBRARY || u->filter == 4 || from < 0 || from >= u->viewCount || u->cols < 1 ||
+        u->rowH <= 0 || u->colW <= 0)
+        return 0;
+    if (y < u->viewTop) y = u->viewTop;
+    int col = SP_CLAMP((int)((x - u->gridX) / u->colW), 0, u->cols - 1);
+    int row = SP_MAX(0, (int)floorf((y + u->scroll[PAGE_LIBRARY] - u->gridY) / u->rowH));
+    int to = SP_MIN(row * u->cols + col, u->viewCount - 1);
+    if (to != from && config_move(&g_app.cfg, u->view[from], u->view[to])) {
+        pages_rebuild_view();
+        u->pressed = u->hot = u->focus = HIT_ID(HK_CARD, to);
+        ui_invalidate();
+    }
+    return 1;
+}
+
+void pages_card_drop(void)
+{
+    app_save_config();
+    ui_on_config_changed();
 }
 
 void pages_drag(int id, float x, float y, int commit)
@@ -2148,6 +2196,10 @@ static void rec_header(Ui *u, float x, float y, float w, int sec)
         bx -= s + 2;
         icon_button(u, HIT_ID(HK_REC_EDIT, sec), rectf(bx, by, s, s), GL_SETTINGS, cus.graphs[sec] ? t->accent : t->text2);
         bx -= s + 2;
+        int paused = cus.rec[sec].paused > 0;
+        icon_button(u, HIT_ID(HK_REC_PAUSE, sec), rectf(bx, by, s, s), paused ? GL_PLAY : GL_PAUSE, paused ? t->accent : t->text2);
+        bx -= s + 2;
+        if (!paused) ui_animate();                   /* the controls follow the playback */
     }
     int id = HIT_ID(HK_REC, sec);
     icon_button(u, id, rectf(bx, by, s, s), 0, t->danger);
@@ -2412,7 +2464,17 @@ static float draw_props_section(Ui *u, float x, float y, float w)
     float ry = y;
     for (int i = 0; i < cus.propCount; i++) {
         if (i) row_separator(u, x, ry, w);
-        draw_prop_row(u, x, ry, w, &cus.props[i], i);
+        CustomProp *cp = &cus.props[i];
+        JVal *own = cp->value, *played = NULL;
+        if (rec_shown(REC_PROPS)) {
+            const Rec *r = &cus.rec[REC_PROPS];
+            for (int k = 0; k < r->count && !played; k++)
+                if (!strcmp(r->t[k].key, cp->name)) played = wprec_value(&r->t[k], r->n, wprec_pos(r, wprec_now()));
+        }
+        if (played) cp->value = played;
+        draw_prop_row(u, x, ry, w, cp, i);
+        cp->value = own;
+        json_free(played);
         ry += PROP_ROW;
     }
     if (anyOverride) {
@@ -2587,7 +2649,10 @@ static void draw_customise(Ui *u, float cx, float cw)
         y += 190;
     } else {
         if (depth_can_cool(e) || (e->flags & WPFLAG_DEPTH)) y = draw_cooler_section(u, x, y, w, e);
+        WallpaperAdjust own = cus.adj;
+        if (rec_shown(REC_LOOK)) wprec_look(&cus.rec[REC_LOOK], wprec_pos(&cus.rec[REC_LOOK], wprec_now()), &cus.adj);
         y = draw_look_section(u, x, y, w, e);
+        cus.adj = own;
         y = draw_props_section(u, x, y, w);
     }
     ui_pop_clip();
@@ -2785,6 +2850,7 @@ void pages_activate(int id, int dbl)
     case HK_REC:           if (cus.take && cus.takeSec == (data & 1)) rec_stop(); else rec_start(data & 1); break;
     case HK_REC_EDIT:      cus.graphs[data & 1] = !cus.graphs[data & 1]; ui_invalidate(); break;
     case HK_REC_DEL:       rec_delete(data & 1); break;
+    case HK_REC_PAUSE:     rec_pause(data & 1); break;
     case HK_RULE_ADD:      pick_rule_app(data & 1); break;
     case HK_RULE_DEL: {
         wchar_t *list = (data & 1) ? g_app.cfg.s.muteApps : g_app.cfg.s.pauseApps, app[MAX_PATH];
@@ -3061,6 +3127,7 @@ const wchar_t *pages_tooltip(int id)
     case HK_REC:           return cus.take && cus.takeSec == (HIT_DATA(id) & 1) ? L"Stop recording"
                                 : L"Record your changes; they play on a loop";
     case HK_REC_EDIT:      return L"Edit the recording";
+    case HK_REC_PAUSE:     return cus.rec[HIT_DATA(id) & 1].paused > 0 ? L"Play the recording" : L"Pause the recording";
     case HK_REC_DEL:       return L"Delete the recording";
     case HK_REC_GRAPH:     return L"Draw over the line to change it";
     default:               return NULL;

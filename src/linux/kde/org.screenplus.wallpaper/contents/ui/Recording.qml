@@ -19,7 +19,7 @@ Item {
     signal propsScript(string js)
 
     function pos(r) {
-        const p = ((Date.now() - r.epoch) / 1000 * r.speed * rate) % r.n
+        const p = (((r.paused > 0 ? r.paused : Date.now()) - r.epoch) / 1000 * r.speed * rate) % r.n
         return p < 0 ? p + r.n : p
     }
 
