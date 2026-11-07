@@ -20,8 +20,8 @@ the report.
 - There is no unit-test suite. `tests/desktop_probe.c` and `tests/sysinfo_test.c` are validation helpers.
 - CI (`.github/workflows/release.yml`) releases every push to main as the next patch version, or as
   `SCREENPLUS_VERSION` in CMakeLists.txt when that is higher; a `vX.Y.Z` tag releases that exact version.
-  The portable zip carries every `samples\` wallpaper and the URL tools. The installer ships only Singularity and Aurora
-  and downloads the tools. The other samples are `ScreenPlus.com samples install`; `samples\samples.id` holds their
+  The portable zip carries every `samples\` wallpaper and the URL tools. The installer ships only Singularity, Koi Pond and Aurora
+  (Screen+'s own pages) and downloads the tools. The other samples are `ScreenPlus.com samples install`; `samples\samples.id` holds their
   content hash (`SAMPLES_ID`, CMakeLists.txt), and an interactive update offers "Update the sample wallpapers" (ticked)
   when it differs; auto update's silent `/UPDATE` never touches samples. In the app, Settings' "Sample wallpaper
   updates" (`samples_update.c`, `auto_update_samples`, off by default; Check now → Update) compares the downloaded
@@ -110,6 +110,15 @@ Renderer details:
   400 ms (`k_fadeJs`, injected into every page: AudioContext output through a Screen+ gain, media elements by volume;
   `apply_state` + `TIMER_FADE`). Video: `source_update_flags` sets `fadeOut` instead of pausing, and `audio_main` ramps
   the samples (`copy_gain`) and then clears `playing`; every start fades in.
+- **Customise recordings** (`wprec_*` in wallpaper_api.c): each section's record button notes every change
+  (`rec_note_look`/`rec_note_prop`, before the live throttle; colours as `RT_COLOR`, per-channel), stop resamples to
+  30 Hz and eases the last half second into the start; saved as `props\<id>.json` `_screenplus_rec` {look, props}.
+  Playback position is wall clock (`epoch`), so engine, graphs and Plasma agree. The engine plays from memory: `T_REC`
+  (33 ms, only while a slot with one is ACTIVE) sets `wpapi_live_set`, which `wpapi_load_adjust` and
+  `wpapi_properties_js` prefer, then calls `vt->apply`; properties every third tick. Hyprland: `rec_tick` in
+  engine_gtk.c. Plasma: the service writes the smoothed recording as `Recording`, `Recording.qml` plays it (the
+  plugin grades brightness/contrast/saturation only). Graph view: speed (epoch kept so the playhead stays), smooth
+  (circular box filter), draw over a track (not colours).
 
 ## UI model (immediate mode)
 - `ui_invalidate` redraws on demand; there are no retained widgets. Drawing registers hit rects with

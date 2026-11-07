@@ -8,10 +8,12 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/ipc.h"
+#include "../common/json.h"
 #include "../settings/config.h"
 #include "../monitor/monitor.h"
 #include "../desktop/desktop_host.h"
 #include "../renderer/renderer.h"
+#include "../renderer/html/wallpaper_api.h"
 #include "../diagnostics/diag.h"
 #include <wtsapi32.h>
 #include <stdio.h>
@@ -21,7 +23,8 @@
 #define WM_SP_SHELL_GONE (WM_APP + 42)
 #define WM_SP_MIC        (WM_APP + 43)
 
-enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS, T_RESTACK, T_HELLO };
+enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS, T_RESTACK, T_HELLO, T_REC };
+#define REC_TICK_MS 33               /* recordings play at ~30 Hz; properties every third tick (web pages may rebuild) */
 
 #define MAX_RETRIES 3
 #define SAFETY_MS   2000
@@ -44,6 +47,9 @@ typedef struct Slot {
     double         startedAt;
     wchar_t        error[SP_ERR_LEN];
     unsigned       trackSerial;   /* now-playing state last delivered to this renderer (0: none) */
+    Rec            rec[REC_SECTIONS];   /* Customise recordings playing on this wallpaper */
+    WallpaperAdjust recBase;            /* the stored look the look recording overrides */
+    JVal          *recProps;            /* the property values last played */
 } Slot;
 
 static struct {
@@ -126,8 +132,69 @@ static BOOL slot_wants_audio(const Slot *s)
     return E.cfg.s.audio && !E.micMuted && audio_slot() == s;
 }
 
+/* ---- recordings: played from memory (wpapi_live_set), so nothing is written while they run */
+
+static void slot_unload_rec(Slot *s)
+{
+    for (int k = 0; k < REC_SECTIONS; k++) wprec_free(&s->rec[k]);
+    json_free(s->recProps);
+    s->recProps = NULL;
+    if (s->wp.id[0]) wpapi_live_set(s->wp.id, NULL, NULL);
+}
+
+static void slot_load_rec(Slot *s)
+{
+    slot_unload_rec(s);
+    if (!s->wp.id[0]) return;
+    wpapi_load_adjust(s->wp.id, &s->recBase);
+    int any = 0;
+    for (int k = 0; k < REC_SECTIONS; k++) any |= wprec_load(s->wp.id, k, &s->rec[k]);
+    if (any) LOGI(L"display %d: playing a Customise recording", s->mon.index);
+}
+
+static int slot_playing(const Slot *s) { return s->used && s->r && s->state == RS_ACTIVE && (s->rec[0].n || s->rec[1].n); }
+
+static void rec_tick(void)
+{
+    static unsigned ticks;
+    double now = wprec_now();
+    int any = 0, props = ++ticks % 3 == 0;
+    for (int i = 0; i < SP_MAX_MONITORS; i++) {
+        Slot *s = &E.slots[i];
+        if (!slot_playing(s)) continue;
+        any = 1;
+        WallpaperAdjust a = s->recBase;
+        Rec *look = &s->rec[REC_LOOK], *pr = &s->rec[REC_PROPS];
+        if (look->n) wprec_look(look, wprec_pos(look, now), &a);
+        if (pr->n && (props || !s->recProps)) {
+            StrBuf b = { 0 };
+            double pos = wprec_pos(pr, now);
+            sb_puts(&b, "{");
+            for (int k = 0; k < pr->count; k++) {
+                JVal *v = wprec_value(&pr->t[k], pr->n, pos);
+                if (!v) continue;
+                if (b.len > 1) sb_puts(&b, ",");
+                json_write_string(&b, pr->t[k].key);
+                sb_puts(&b, ":");
+                json_write(&b, v);
+                json_free(v);
+            }
+            sb_puts(&b, "}");
+            json_free(s->recProps);
+            s->recProps = b.failed ? NULL : json_parse(b.p, b.len);
+            sb_free(&b);
+        } else if (!look->n) {
+            continue;                               /* only properties, and not their tick */
+        }
+        wpapi_live_set(s->wp.id, look->n ? &a : NULL, s->recProps);
+        if (s->r->vt->apply) s->r->vt->apply(s->r);
+    }
+    if (!any) KillTimer(E.ctl, T_REC);
+}
+
 static void slot_stop_renderer(Slot *s)
 {
+    slot_unload_rec(s);
     if (s->r) {
         s->r->vt->destroy(s->r);
         s->r = NULL;
@@ -245,6 +312,7 @@ static void slot_start_renderer(Slot *s)
         slot_fail(s, err[0] ? err : L"Renderer could not be created", !permanent);
         return;
     }
+    slot_load_rec(s);
     s->startedAt = time_ms();
     s->state = RS_RECOVERING;   /* until the first frame is ready */
     s->keepFrame = -1;
@@ -547,6 +615,10 @@ static void apply_states(void)
         }
         if (st == RS_ACTIVE || st == RS_OCCLUDED) anyRunning = 1;
     }
+    int playing = 0;                     /* recordings run only on shown, active displays */
+    for (int i = 0; i < SP_MAX_MONITORS; i++) playing |= slot_playing(&E.slots[i]);
+    if (playing) SetTimer(E.ctl, T_REC, REC_TICK_MS, NULL);
+    else KillTimer(E.ctl, T_REC);
     /* The low-rate safety re-check only runs while something can render. */
     if (anyRunning) SetTimer(E.ctl, T_SAFETY, SAFETY_MS, NULL);
     else KillTimer(E.ctl, T_SAFETY);
@@ -922,9 +994,11 @@ static void handle_command(const IpcCommand *c)
         LOGD(L"command: apply customise changes");
         for (int i = 0; i < SP_MAX_MONITORS; i++) {
             Slot *s = &E.slots[i];
+            if (s->used && s->r) slot_load_rec(s);       /* a recording made, edited or deleted */
             if (s->used && s->r && s->r->vt && s->r->vt->apply) s->r->vt->apply(s->r);
             if (s->used && E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, 4000, NULL);   /* the look changed */
         }
+        apply_states();                                  /* starts or stops the recording tick */
         break;
     case CMD_SHUTDOWN:
         LOGI(L"command: shutdown");
@@ -1144,6 +1218,9 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case T_HELLO:
             send_hello();
+            break;
+        case T_REC:
+            rec_tick();
             break;
         case T_WALLPAPER_DATA:
             wallpaper_data_tick();

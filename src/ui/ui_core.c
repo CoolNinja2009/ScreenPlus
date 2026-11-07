@@ -1105,14 +1105,14 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         }
         int hot = hit_at(u, u->mx, u->my);
         if (hot != u->hot) {                            /* keep the drag target while the button is down */
-            u->hot = HIT_KIND(u->pressed) == HK_SLIDER || HIT_KIND(u->pressed) == HK_DISC ||
-                     HIT_KIND(u->pressed) == HK_PSLIDER ? u->pressed : hot;
+            u->hot = pages_is_drag(HIT_KIND(u->pressed))
+                     ? u->pressed : hot;
             ui_invalidate();
             tip_update(u);
         }
         if (u->pressed) {                               /* continuous controls: slider + colour wheel */
             int k = HIT_KIND(u->pressed);
-            if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(u->pressed, u->mx, u->my, 0);
+            if (pages_is_drag(k)) pages_drag(u->pressed, u->mx, u->my, 0);
         }
         u->hot = is_text_kind(HIT_KIND(u->pressed)) && u->textFocus == u->pressed ? u->hot : hot;
         if (u->pressed == u->textFocus && te_active()) te_drag(u->mx);   /* drag selection in a text field */
@@ -1149,7 +1149,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             pages_text_end(1);   /* commit when the click lands elsewhere */
         {
             int k = HIT_KIND(u->pressed);   /* continuous controls jump to the click right away */
-            if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(u->pressed, u->mx, u->my, 0);
+            if (pages_is_drag(k)) pages_drag(u->pressed, u->mx, u->my, 0);
         }
         set_search_focus(u, HIT_KIND(u->hot) == HK_SEARCH);
         if (is_text_kind(HIT_KIND(u->hot))) text_press(u, u->hot, u->mx, u->my);   /* caret to the click */
@@ -1161,7 +1161,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         ReleaseCapture();
         if (id) {
             int k = HIT_KIND(id);
-            if (k == HK_SLIDER || k == HK_DISC || k == HK_PSLIDER) pages_drag(id, u->mx, u->my, 1);
+            if (pages_is_drag(k)) pages_drag(id, u->mx, u->my, 1);
             if (id == u->hot && k != HK_SEARCH && !is_text_kind(k)) pages_activate(id, 0);
         }
         ui_invalidate();
