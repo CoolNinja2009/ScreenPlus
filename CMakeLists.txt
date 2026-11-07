@@ -132,13 +132,13 @@ target_link_libraries(ScreenPlus PRIVATE
     d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp mfplat mfreadwrite mfuuid
     taskschd)
 
-# Sample wallpapers besides Singularity and Aurora: setup bundles only those two and, when "Sample wallpapers" is ticked, runs
+# Sample wallpapers besides Singularity, Koi Pond and Aurora: setup bundles only those three and, when "Sample wallpapers" is ticked, runs
 # `screenplus samples install`, which downloads this release's ScreenPlus-<version>-samples.zip (CI uploads it),
 # pinned by the size and SHA-256 below. Packed at configure time, which reruns when a sample file changes.
 file(GLOB_RECURSE SAMPLE_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/samples/*")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SAMPLE_FILES})
 file(GLOB SAMPLE_DIRS RELATIVE "${CMAKE_SOURCE_DIR}/samples" "${CMAKE_SOURCE_DIR}/samples/*")
-list(REMOVE_ITEM SAMPLE_DIRS Aurora Singularity)
+list(REMOVE_ITEM SAMPLE_DIRS Aurora Singularity KoiPond)
 list(SORT SAMPLE_DIRS)
 set(SAMPLES_ZIP "${CMAKE_BINARY_DIR}/ScreenPlus-${PROJECT_VERSION}-samples.zip")
 string(SHA256 SAMPLES_LIST "${SAMPLE_FILES}")
@@ -169,7 +169,7 @@ set(SAMPLES_UNPACKED 0)
 set(_ids "")
 set(_manifest "")
 foreach(f IN LISTS SAMPLE_FILES)
-    if(NOT f MATCHES "/samples/(Aurora|Singularity)/")
+    if(NOT f MATCHES "/samples/(Aurora|Singularity|KoiPond)/")
         file(SIZE "${f}" _s)
         math(EXPR SAMPLES_UNPACKED "${SAMPLES_UNPACKED} + ${_s}")
         file(SHA256 "${f}" _h)

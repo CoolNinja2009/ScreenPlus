@@ -315,7 +315,7 @@ static const wchar_t k_help[] =
     L"  paths                                  where Screen+ keeps its data, config and logs\n"
     L"  path [add | remove]                    put screenplus on your PATH (current user)\n"
     L"  tools [install | remove]               yt-dlp + QuickJS-NG for importing videos from web links\n"
-    L"  samples install                        the sample wallpapers besides Singularity and Aurora (setup's optional download)\n"
+    L"  samples install                        the sample wallpapers besides Singularity, Koi Pond and Aurora (setup's optional download)\n"
     L"  samples [check | update | status]      which downloaded samples changed in the latest release; update: replace them\n"
     L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
     L"  startup [on | off]                     start Screen+ when you sign in (a logon task)\n"
@@ -474,7 +474,7 @@ static int cmd_tools(const wchar_t *sub)
     return EXIT_USAGE;
 }
 
-/* ---- samples: the sample wallpapers besides Singularity and Aurora, setup's optional download (ticked by default on a
+/* ---- samples: the sample wallpapers besides Singularity, Koi Pond and Aurora, setup's optional download (ticked by default on a
  * default installation, and on an update when they changed). This release's ScreenPlus-<version>-samples.zip, pinned
  * by size and SHA-256 when it was built (CMakeLists.txt), is unpacked over <program>\samples with Windows' tar.exe;
  * samples.id there (their content, SP_SAMPLES_ID) makes a second run skip it until a sample changes. The app adds

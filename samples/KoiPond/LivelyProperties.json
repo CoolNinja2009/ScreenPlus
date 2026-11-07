@@ -1,0 +1,150 @@
+{
+  "hint": {
+    "type": "label",
+    "value": "Click the water to feed the koi. Move the cursor to make ripples."
+  },
+  "quality": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Quality",
+    "items": ["Low", "Balanced", "High", "Ultra"]
+  },
+  "fps": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Frame rate",
+    "items": ["30 fps", "60 fps", "Display refresh rate"]
+  },
+  "time": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Time of day",
+    "items": ["Follow the clock", "Day", "Golden hour", "Dusk", "Night"]
+  },
+  "rain": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Weather",
+    "items": ["Clear", "Drizzle", "Rain", "Storm"]
+  },
+  "koi": {
+    "type": "slider",
+    "value": 9,
+    "min": 0,
+    "max": 30,
+    "step": 1,
+    "text": "Koi"
+  },
+  "variety": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Koi variety",
+    "items": ["Mixed", "Kohaku", "Taisho Sanke", "Showa", "Ogon (gold)", "Platinum", "Asagi", "Chagoi"]
+  },
+  "koiSize": {
+    "type": "slider",
+    "value": 100,
+    "min": 50,
+    "max": 200,
+    "step": 5,
+    "text": "Koi size"
+  },
+  "koiSpeed": {
+    "type": "slider",
+    "value": 100,
+    "min": 25,
+    "max": 250,
+    "step": 5,
+    "text": "Swimming speed"
+  },
+  "follow": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Koi follow the cursor"
+  },
+  "lilies": {
+    "type": "slider",
+    "value": 9,
+    "min": 0,
+    "max": 30,
+    "step": 1,
+    "text": "Lily pads"
+  },
+  "flowers": {
+    "type": "slider",
+    "value": 35,
+    "min": 0,
+    "max": 100,
+    "step": 5,
+    "text": "Lotus flowers"
+  },
+  "drift": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Drifting on the water",
+    "items": ["Cherry blossoms", "Autumn leaves"]
+  },
+  "petals": {
+    "type": "slider",
+    "value": 30,
+    "min": 0,
+    "max": 100,
+    "step": 5,
+    "text": "Amount drifting"
+  },
+  "tint": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Water",
+    "items": ["Jade", "Teal", "Deep blue", "Murky"]
+  },
+  "clarity": {
+    "type": "slider",
+    "value": 60,
+    "min": 0,
+    "max": 100,
+    "step": 5,
+    "text": "Water clarity"
+  },
+  "ripples": {
+    "type": "slider",
+    "value": 100,
+    "min": 0,
+    "max": 200,
+    "step": 10,
+    "text": "Ripple strength"
+  },
+  "cursorRipples": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Cursor makes ripples"
+  },
+  "trees": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Reflected trees"
+  },
+  "fireflies": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Fireflies at night"
+  },
+  "glow": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Glowing ripples at night"
+  },
+  "audio": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Ripples dance to music"
+  },
+  "brightness": {
+    "type": "slider",
+    "value": 100,
+    "min": 30,
+    "max": 200,
+    "step": 5,
+    "text": "Brightness"
+  }
+}

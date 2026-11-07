@@ -1,0 +1,14 @@
+{
+  "AppVersion": "2.0.6.1",
+  "Title": "Koi Pond",
+  "Thumbnail": "preview.jpg",
+  "Preview": null,
+  "Desc": "A living garden pond: real-time water ripples, koi that school, wander and come up to look at the cursor, lily pads, lotus flowers and drifting blossoms. Click the water to scatter food and watch the koi race for it. Follows the clock from day to golden hour to a night of fireflies and glowing ripples; add rain or a storm.",
+  "Author": "Screen+",
+  "License": null,
+  "Contact": null,
+  "Type": 1,
+  "FileName": "index.html",
+  "Arguments": "--audio",
+  "IsAbsolutePath": false
+}

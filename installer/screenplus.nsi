@@ -8,14 +8,14 @@
 ; /UPDATE is how Screen+'s auto update runs it: Screen+ is started again (in the notification area) afterwards.
 ; An existing installation is found automatically and updated in place, keeping the library.
 ; Installation types (applied by Screen+ on its next launch via HKCU\Software\ScreenPlus\SetupMode):
-;   default - Singularity and Aurora samples (+ the other samples: optional feature below) + automatic import of Lively Wallpaper's library
+;   default - Singularity, Koi Pond and Aurora samples (+ the other samples: optional feature below) + automatic import of Lively Wallpaper's library
 ;   clean   - empty library, no sample, no automatic Lively import
 ;   keep    - update of an existing installation: nothing is changed (SetupMode is not written)
 ; Optional feature "Video import from web links" (on unless /NOURL or turned off before): setup runs
 ; `ScreenPlus.com tools install`, which downloads the pinned yt-dlp + QuickJS-NG releases (~20 MB, SHA-256
 ; verified) into %LOCALAPPDATA%\ScreenPlus\tools, so this installer stays small. Off: the app hides its
 ; link button (HKCU\Software\ScreenPlus\UrlImport = 0) and downloaded tools are removed.
-; Optional feature "Sample wallpapers" (default installation; on unless /NOSAMPLES): setup bundles only Singularity and Aurora and
+; Optional feature "Sample wallpapers" (default installation; on unless /NOSAMPLES): setup bundles only Singularity, Koi Pond and Aurora and
 ; runs `ScreenPlus.com samples install`, which downloads this release's ScreenPlus-<version>-samples.zip from GitHub
 ; (~35 MB, size and SHA-256 pinned at build time) into $INSTDIR\samples, so this installer stays small; the app adds
 ; them to the library on its next start. An update ("keep") offers it (ticked) only when the samples it downloaded
@@ -489,7 +489,7 @@ Function OptionsLeave
   Call SetDownloadSizes
 FunctionEnd
 
-; samples\ (Singularity, Aurora and the downloaded Lively packages, with subfolders) goes as a whole; the Aurora check keeps
+; samples\ (Singularity, Koi Pond, Aurora and the downloaded Lively packages, with subfolders) goes as a whole; the Aurora check keeps
 ; RMDir /r away from an unrelated "samples" folder in a hand-picked install folder.
 !macro RemoveSamples
   ${If} ${FileExists} "$INSTDIR\samples\Aurora\index.html"
@@ -526,6 +526,11 @@ Section "Install"
     ${OrIf} ${FileExists} "$INSTDIR\samples\Singularity\*.*"
       SetOutPath "$INSTDIR\samples\Singularity"
       File /r "${STAGE}\samples\Singularity\*.*"
+    ${EndIf}
+    ${If} $InstMode != "keep"           ; Koi Pond: the same
+    ${OrIf} ${FileExists} "$INSTDIR\samples\KoiPond\*.*"
+      SetOutPath "$INSTDIR\samples\KoiPond"
+      File /r "${STAGE}\samples\KoiPond\*.*"
     ${EndIf}
   ${EndIf}
 
@@ -590,7 +595,7 @@ Section "-UrlImport" SecUrl
   WriteRegDWORD HKCU "${APP_KEY}" "UrlImport" $OptUrl   ; read once by the app: shows or hides its link button
 SectionEnd
 
-; Optional: the sample wallpapers besides Singularity and Aurora, downloaded from this release on GitHub (not embedded).
+; Optional: the sample wallpapers besides Singularity, Koi Pond and Aurora, downloaded from this release on GitHub (not embedded).
 ; An update downloads them only over older downloaded ones, when ticked; auto update (/UPDATE) leaves them to the app.
 Section "-Samples" SecSamples
   StrCpy $SamplesStale 0
