@@ -45,6 +45,8 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -247,3 +249,23 @@ jobs:
           else
             gh release create "$tag" release/* --target "$GITHUB_SHA" --title "Screen+ ${tag#v}" --generate-notes
           fi
+
+  linux:
+    needs: build
+    uses: ./.github/workflows/linux.yml
+    with:
+      version: ${{ needs.build.outputs.version }}
+
+  publish-linux:
+    needs: [build, linux]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ScreenPlus-linux
+          path: release
+      - name: Add to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "v${{ needs.build.outputs.version }}" release/* --clobber --repo "$GITHUB_REPOSITORY"

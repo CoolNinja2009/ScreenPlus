@@ -16,7 +16,7 @@ Live wallpapers for Windows.
 Screen+ sets videos, GIFs, pictures and web pages as your desktop wallpaper. It is a native Win32 app written in C
 and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpapers work without changes.
 
-**[Download](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)** for Windows 10 or 11 (64-bit).
+**[Download](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)** for Windows 10 or 11 (64-bit) and Linux (KDE Plasma 6 or Hyprland).
 
 ## Features
 
@@ -98,6 +98,19 @@ Add `--json` for machine-readable output.
 Settings, logs and downloads are stored in `%LOCALAPPDATA%\ScreenPlus`. Set `SCREENPLUS_DATA_DIR` to use a
 different folder.
 
+## Linux
+
+KDE Plasma 6 and Hyprland. GNOME isn't supported yet. The window is `screenplus show`; there's no tray, Store or depth wallpapers yet.
+Unpack `ScreenPlus-<version>-linux-x86_64.tar.gz`, run `./install.sh`, then:
+
+```bash
+screenplus start
+screenplus import ~/Videos/rain.mp4 --apply
+```
+
+`screenplus help` lists the commands. KDE needs Qt Multimedia, plus Qt WebEngine for web wallpapers. Hyprland needs
+GTK 4, gtk4-layer-shell, libmpv and WebKitGTK. The window needs SDL3, Cairo, Pango and ffmpeg. Video links need yt-dlp.
+
 ## Building
 
 Requirements: Visual Studio 2022 Build Tools (C++ and Windows SDK), [MSYS2](https://www.msys2.org) UCRT64 with
@@ -111,7 +124,7 @@ scripts/build-ffmpeg.sh    # once, from an MSYS2 UCRT64 shell
 build.cmd Release
 ```
 
-The app and installer are written to `build\`. GitLab CI builds and releases every push to `main`.
+The app and installer are written to `build\`. GitLab CI builds Windows and Linux and releases every push to `main`.
 
 ## License
 

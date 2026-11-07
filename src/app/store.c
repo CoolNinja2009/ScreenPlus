@@ -22,7 +22,12 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/webfetch.h"
+#ifdef _WIN32
 #include <wincodec.h>
+#else
+#include "../linux/desktop.h"
+typedef void IWICImagingFactory;
+#endif
 #include <wctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -153,6 +158,26 @@ static int fetch_file(const wchar_t *url, const wchar_t *dest, wchar_t *err, siz
 
 /* Difference hash of the picture's centre 16:9 (so one picture cropped differently by two sites lines up):
  * shrunk to 9 x 8 grey, one bit per pair of neighbours, set where the left one is brighter. */
+#ifndef _WIN32
+/* ffmpeg in place of WIC: the same centre 16:9, 9x8 grey. */
+static uint64_t dhash(IWICImagingFactory *f, const wchar_t *path, int *ok)
+{
+    (void)f;
+    uint8_t px[9 * 8 + 1];
+    uint64_t h = 0;
+    char *p = sp_path_utf8(path);
+    size_t got = 0;
+    const char *argv[] = { "ffmpeg", "-v", "quiet", "-nostdin", "-i", p, "-frames:v", "1", "-vf",
+                           "crop='min(iw,ih*16/9)':'min(ih,iw*9/16)',scale=9:8:flags=area,format=gray", "-f", "rawvideo", "pipe:1", NULL };
+    *ok = p && !sp_run_read(argv, (char *)px, sizeof px, &got) && got == 72;
+    free(p);
+    if (!*ok) return 0;
+    for (int y = 0; y < 8; y++)
+        for (int x = 0; x < 8; x++)
+            h = h << 1 | (px[y * 9 + x] > px[y * 9 + x + 1]);
+    return h;
+}
+#else
 static uint64_t dhash(IWICImagingFactory *f, const wchar_t *path, int *ok)
 {
     IWICBitmapDecoder *d = NULL;
@@ -194,6 +219,7 @@ static uint64_t dhash(IWICImagingFactory *f, const wchar_t *path, int *ok)
     SP_RELEASE(d);
     return hash;
 }
+#endif
 
 static void run(const Task *t, IWICImagingFactory *wic)
 {
@@ -243,9 +269,11 @@ static Task *pop_locked(void)
 static DWORD WINAPI worker(LPVOID arg)
 {
     IWICImagingFactory *wic = NULL;
-    HRESULT co = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     (void)arg;
+#ifdef _WIN32
+    HRESULT co = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&wic);
+#endif
     for (;;) {
         Task *t = NULL;
         AcquireSRWLockExclusive(&Q.lock);
@@ -259,8 +287,10 @@ static DWORD WINAPI worker(LPVOID arg)
         run(t, wic);
         free(t);
     }
+#ifdef _WIN32
     SP_RELEASE(wic);
     if (SUCCEEDED(co)) CoUninitialize();
+#endif
     return 0;
 }
 
@@ -308,6 +338,9 @@ static void sweep_cache(void)
 /* Windows decodes WebP with its WebP Image Extension (there on most PCs); the thumbnail worker goes through WIC. */
 static int webp_decodes(void)
 {
+#ifndef _WIN32
+    return 1;                           /* ffmpeg reads it */
+#else
     int ok = 0;
     HRESULT co = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     IWICImagingFactory *f = NULL;
@@ -319,6 +352,7 @@ static int webp_decodes(void)
     }
     if (SUCCEEDED(co)) CoUninitialize();
     return ok;
+#endif
 }
 
 static BOOL start(void)

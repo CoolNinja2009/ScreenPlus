@@ -29,17 +29,33 @@
 #include "../common/json.h"
 #include "../renderer/renderer.h"
 #include "../../resources/resource.h"
+#ifdef _WIN32
 #include <dxgi.h>
+#endif
+#ifdef _WIN32
 #include <shobjidl.h>
+#else
+#include <unistd.h>
+#endif
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef _WIN32
+#define ORT_FILE     L"libonnxruntime.so.1.24.4"
+#define ORT_URL      L"https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz"
+#define ORT_PKG_SIZE ((int64_t)8155822)
+#define ORT_PKG_SHA  "3a211fbea252c1e66290658f1b735b772056149f28321e71c308942cdb54b747"
+#define ORT_DLL_SIZE ((int64_t)22159232)
+#define ORT_DLL_SHA  "d132535d051344ff5c64c9c200004150559049a81ed330eb4422c1962fb6b7e4"
+#else
+#define ORT_FILE     L"onnxruntime.dll"
 #define ORT_URL      L"https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime.directml/1.24.4/microsoft.ml.onnxruntime.directml.1.24.4.nupkg"
 #define ORT_PKG_SIZE ((int64_t)12458649)
 #define ORT_PKG_SHA  "57e9f11b73437bef7a309496135d4c1f96b1a8e9ddba60013fa27bfc1d788681"
 #define ORT_DLL_SIZE ((int64_t)17328152)
 #define ORT_DLL_SHA  "e7eedec6a6f26dc39dc948276a75ef6d2bee3fff944d874ceed0bbd3b97bff40"
+#endif
 #define HF           L"https://huggingface.co/onnx-community/"
 /* Motion regions (depth_infer.c's segment_picture): UperNet + ConvNeXt-Tiny for ADE20K (openmmlab, MIT), an
  * unmodified FP32 ONNX export. Not SegFormer: NVIDIA's weights are non-commercial (see SHARP). Pictures only;
@@ -395,6 +411,7 @@ BOOL depth_set_model_file(int i, const wchar_t *path)
     return ok;
 }
 
+#ifdef _WIN32
 BOOL depth_choose_model(int i, HWND owner)
 {
     IFileOpenDialog *dlg = NULL;
@@ -415,6 +432,7 @@ BOOL depth_choose_model(int i, HWND owner)
     IFileOpenDialog_Release(dlg);
     return ok;
 }
+#endif
 
 /* Links, else (copy) copies, the files into the model's folder after clearing it. FALSE: the folder has no whole model. */
 static BOOL keep_files(int i, const wchar_t *srcDir, const wchar_t *dir, const wchar_t *src, wchar_t (*files)[MAX_PATH], int n, BOOL copy)
@@ -480,7 +498,7 @@ static BOOL ensure_assets(DepthJob *j)
     wchar_t ortDir[SP_MAX_PATH], dll[SP_MAX_PATH], dir[SP_MAX_PATH], file[SP_MAX_PATH], what[160];
     const DepthModel *m = depth_model(j->model);
     in_depth(ortDir, SP_COUNTOF(ortDir), L"ort");
-    path_join(dll, SP_COUNTOF(dll), ortDir, L"onnxruntime.dll");
+    path_join(dll, SP_COUNTOF(dll), ortDir, ORT_FILE);
     if (!file_is(dll, ORT_DLL_SIZE, ORT_DLL_SHA)) {              /* the DLL is code we load: always verified */
         wchar_t pkg[SP_MAX_PATH], tar[SP_MAX_PATH], cmd[2200];
         DWORD code = 1;
@@ -488,21 +506,26 @@ static BOOL ensure_assets(DepthJob *j)
             fail(j, L"Could not create the depth folder in the data folder.");
             return FALSE;
         }
-        path_join(pkg, SP_COUNTOF(pkg), ortDir, L"runtime.nupkg");
+        path_join(pkg, SP_COUNTOF(pkg), ortDir, L"runtime.pkg");
         if (!download(j, L"Downloading ONNX Runtime", ORT_URL, ORT_PKG_SIZE, ORT_PKG_SHA, pkg)) return FALSE;
         set_status(-1, L"Unpacking ONNX Runtime…");
         GetSystemDirectoryW(tar, SP_COUNTOF(tar));
         path_join(tar, SP_COUNTOF(tar), tar, L"tar.exe");
+#ifdef _WIN32
         str_printf(cmd, SP_COUNTOF(cmd),
                    L"\"%ls\" -xf \"%ls\" -C \"%ls\" --strip-components 3 runtimes/win-x64/native/onnxruntime.dll "
                    L"runtimes/win-x64/native/onnxruntime_providers_shared.dll", tar, pkg, ortDir);
+#else
+        str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" -xzf \"%ls\" -C \"%ls\" --strip-components 2 onnxruntime-linux-x64-1.24.4/lib/libonnxruntime.so.1.24.4",
+                   tar, pkg, ortDir);
+#endif
         BOOL ok = run_hidden(j, cmd, 120000, &code) && code == 0 && file_is(dll, ORT_DLL_SIZE, ORT_DLL_SHA);
         DeleteFileW(pkg);
         if (!ok) {
-            fail(j, L"ONNX Runtime could not be unpacked (Windows' tar.exe is needed).");
+            fail(j, L"ONNX Runtime could not be unpacked.");
             return FALSE;
         }
-        LOGI(L"depth: installed ONNX Runtime 1.24.4 (DirectML)");
+        LOGI(L"depth: installed ONNX Runtime 1.24.4");
     }
     if (depth_model_ready(j->model)) {
         if (m->user) {
@@ -571,7 +594,7 @@ BOOL depth_can_cool(const WallpaperEntry *e)
 BOOL depth_ready(void)
 {
     wchar_t dll[SP_MAX_PATH];
-    in_depth(dll, SP_COUNTOF(dll), L"ort\\onnxruntime.dll");
+    in_depth(dll, SP_COUNTOF(dll), L"ort\\" ORT_FILE);
     return file_exists(dll) && depth_model_ready(chosen_model());
 }
 
@@ -611,6 +634,12 @@ static const Pc *pc(void)
     static int done;
     if (done) return &p;
     done = 1;
+#ifndef _WIN32
+    p.threads = SP_MAX(1, (int)sysconf(_SC_NPROCESSORS_ONLN));
+    p.ramGb = (double)sysconf(_SC_PHYS_PAGES) * (double)sysconf(_SC_PAGE_SIZE) / 1073741824.0;
+    p.vramGb = p.ramGb * 0.5;           /* no GPU path here: models run on the CPU, from the RAM */
+    p.discrete = 0;
+#else
     MEMORYSTATUSEX ms = { sizeof ms };
     SYSTEM_INFO si;
     GetSystemInfo(&si);
@@ -634,6 +663,7 @@ static const Pc *pc(void)
         }
         SP_RELEASE(fac);
     }
+#endif
     LOGI(L"depth: this PC: %.1f GB %ls GPU memory, %.1f GB RAM, %d threads", p.vramGb, p.discrete ? L"dedicated" : L"shared",
          p.ramGb, p.threads);
     return &p;
@@ -741,17 +771,31 @@ static BOOL splat_old(const wchar_t *path)
 static int render_page(const wchar_t *dir, const wchar_t *media, int model, int video, BOOL onlyIfChanged)
 {
     int splat = depth_model(model)->splat;
+#ifdef _WIN32
     HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(splat ? IDR_SPLAT_HTML : IDR_DEPTH_HTML), RT_RCDATA);
     HGLOBAL g = r ? LoadResource(NULL, r) : NULL;
     const char *tpl = g ? (const char *)LockResource(g) : NULL;
     if (!tpl) return -2;
+    size_t tplSize = SizeofResource(NULL, r);
+#else
+    wchar_t tplPath[SP_MAX_PATH];                   /* beside the program */
+    path_join(tplPath, SP_COUNTOF(tplPath), paths_exe_dir(), splat ? L"splat.html" : L"depth.html");
+    char *tplFile = sp_path_utf8(tplPath);
+    FILE *tf = tplFile ? fopen(tplFile, "rb") : NULL;
+    free(tplFile);
+    if (!tf) return -2;
+    static char tplMem[1 << 20];
+    size_t tplSize = fread(tplMem, 1, sizeof tplMem, tf);
+    fclose(tf);
+    const char *tpl = tplMem;
+#endif
     wchar_t depthName[64], pageName[64];
     model_name(model, L"depth", video || splat ? L".bin" : L".png", depthName, SP_COUNTOF(depthName));
     model_name(model, L"index", L".html", pageName, SP_COUNTOF(pageName));
     char *img = utf8_from_wide(media, NULL), *dep = utf8_from_wide(depthName, NULL);
     const char *vars[][2] = { { "__IMG__", img }, { "__DEPTH__", dep }, { "__VIDEO__", video ? "1" : "0" } };
     StrBuf b = { 0 };
-    const char *p = tpl, *end = tpl + SizeofResource(NULL, r), *hit;
+    const char *p = tpl, *end = tpl + tplSize, *hit;
     while (img && dep && p < end && (hit = (const char *)memchr(p, '_', (size_t)(end - p))) != NULL) {   /* every __NAME__ */
         size_t v = 0;
         while (v < SP_COUNTOF(vars) && !((size_t)(end - hit) >= strlen(vars[v][0]) && memcmp(hit, vars[v][0], strlen(vars[v][0])) == 0)) v++;
@@ -872,7 +916,11 @@ void depth_refresh_pages(void)
 static BOOL infer(DepthJob *j, int mode, int png, DWORD *code)
 {
     wchar_t cmd[2400];
-    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --depth \"%ls\" \"%ls\" --model %ls --notify %llx%ls%ls%ls", paths_exe(), j->source, j->dir,
+    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --depth \"%ls\" \"%ls\" --model %ls --notify %llx%ls%ls%ls"
+#ifndef _WIN32
+                                  L" --cpu"
+#endif
+                                  , paths_exe(), j->source, j->dir,
                depth_model(j->model)->key, (unsigned long long)(uintptr_t)g_app.shellWnd, j->video ? L" --video" : L"",
                mode == DEPTH_CRASHED ? L" --crashed" : L"", png ? L" --png" : L"");
     BOOL ok = run_hidden(j, cmd, j->video ? VIDEO_MS : INFER_MS, code) && *code == 0;

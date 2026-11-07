@@ -35,8 +35,13 @@
 #include "../common/json.h"
 #include "../common/webfetch.h"
 #include <onnxruntime_c_api.h>
+#ifdef _WIN32
 #include <wincodec.h>
 #include <dxgi.h>
+#else
+#include "../linux/wic_linux.h"
+#include <dlfcn.h>
+#endif
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
@@ -76,7 +81,7 @@ static IWICBitmapSource *open_upright(IWICImagingFactory *f, const wchar_t *path
         SUCCEEDED(IWICBitmapDecoder_GetFrame(dec, 0, &frame)) && SUCCEEDED(IWICBitmapFrameDecode_GetSize(frame, w, h)) && *w && *h) {
         src = (IWICBitmapSource *)frame;
         IWICBitmapSource_AddRef(src);
-        UINT o = image_exif_orientation(frame);
+        UINT o = image_exif_orientation((void *)frame);
         /* a JPEG can only be read top to bottom: rotating straight from the decoder decodes it again and again
          * (seconds), so a rotated picture is decoded into memory once first */
         if (o != 1 && SUCCEEDED(IWICImagingFactory_CreateBitmapFromSource(f, src, WICBitmapCacheOnLoad, &mem)) &&
@@ -248,6 +253,9 @@ typedef OrtStatus *(ORT_API_CALL *DmlAppendLegacy)(OrtSessionOptions *, int devi
 /* DirectML on the highest-performance GPU (not the first adapter, which may be the integrated one). */
 static BOOL append_dml(OrtSessionOptions *so, HMODULE dll)
 {
+#ifndef _WIN32
+    return FALSE;                       /* the CPU on Linux */
+#else
     const void *api = NULL;
     OrtStatus *st = g_o->GetExecutionProviderApi("DML", ORT_API_VERSION, &api);
     if (!st && api) {
@@ -266,6 +274,7 @@ static BOOL append_dml(OrtSessionOptions *so, HMODULE dll)
     LOGW(L"depth: DirectML is unavailable: %hs", g_o->GetErrorMessage(st));
     g_o->ReleaseStatus(st);
     return FALSE;
+#endif
 }
 
 /* A loaded model: created once, run once for a picture or for every frame of a video. */
@@ -308,7 +317,14 @@ static BOOL sess_open(Sess *x, HMODULE dll, int gpu, const wchar_t *model, int v
         ORT(g_o->SetSessionExecutionMode(x->so, ORT_SEQUENTIAL));
         if (!append_dml(x->so, dll)) goto done;
     }
+#ifdef _WIN32
     ORT(g_o->CreateSession(x->env, model, x->so, &x->s));
+#else
+    char *modelPath = sp_path_utf8(model);
+    OrtStatus *made = g_o->CreateSession(x->env, modelPath, x->so, &x->s);
+    free(modelPath);
+    ORT(made);
+#endif
     ORT(g_o->CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &x->mi));
     ok = TRUE;
 done:
@@ -372,6 +388,7 @@ static BOOL run_model(HMODULE dll, int gpu, const wchar_t *model, int v3, float 
 static HMODULE load_runtime(void)
 {
     wchar_t p[SP_MAX_PATH];
+#ifdef _WIN32
     path_join(p, SP_COUNTOF(p), paths_root(), L"depth\\ort\\onnxruntime.dll");
     HMODULE m = LoadLibraryExW(p, NULL, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!m) {
@@ -381,13 +398,31 @@ static HMODULE load_runtime(void)
              vcOk ? L"" : L" (14.44 or newer is needed: screenplus vcredist install)");
         return NULL;
     }
+#else
+    path_join(p, SP_COUNTOF(p), paths_root(), L"depth/ort/libonnxruntime.so.1.24.4");
+    char *lib = sp_path_utf8(p);
+    HMODULE m = lib ? dlopen(lib, RTLD_NOW | RTLD_LOCAL) : NULL;
+    free(lib);
+    if (!m) {
+        LOGE(L"depth: could not load %ls: %hs", p, dlerror());
+        return NULL;
+    }
+#endif
     typedef const OrtApiBase *(ORT_API_CALL *GetBase)(void);
+    #ifdef _WIN32
     GetBase base = (GetBase)GetProcAddress(m, "OrtGetApiBase");
+#else
+    GetBase base = (GetBase)dlsym(m, "OrtGetApiBase");
+#endif
     g_o = base ? base()->GetApi(ORT_API_VERSION) : NULL;
     if (g_o) g_ortVersion = base()->GetVersionString();
     if (!g_o) {
         LOGE(L"depth: %ls does not provide ONNX Runtime API %d", p, ORT_API_VERSION);
+#ifdef _WIN32
         FreeLibrary(m);
+#else
+        dlclose(m);
+#endif
         return NULL;
     }
     return m;
@@ -408,10 +443,13 @@ typedef struct Backend {
 static void adapter_fingerprint(char out[17])
 {
     uint64_t sum = 0;
+#ifdef _WIN32
     IDXGIFactory1 *fac = NULL;
+#endif
 #define MIX(h, p, n) do { for (size_t i_ = 0; i_ < (n); i_++) (h) = ((h) ^ ((const uint8_t *)(p))[i_]) * 1099511628211ULL; } while (0)
     uint64_t base = 1469598103934665603ULL;
     MIX(base, g_ortVersion, strlen(g_ortVersion));
+#ifdef _WIN32
     if (SUCCEEDED(CreateDXGIFactory1(&IID_IDXGIFactory1, (void **)&fac))) {
         IDXGIAdapter1 *ad = NULL;
         for (UINT i = 0; SUCCEEDED(IDXGIFactory1_EnumAdapters1(fac, i, &ad)); i++) {
@@ -429,6 +467,7 @@ static void adapter_fingerprint(char out[17])
         }
         SP_RELEASE(fac);
     }
+#endif
 #undef MIX
     snprintf(out, 17, "%016llx", (unsigned long long)(base ^ sum));
 }

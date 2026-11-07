@@ -5,17 +5,21 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/json.h"
+#include "../common/scrnsave.h"
+#ifdef _WIN32
 #include "../renderer/renderer.h"
 #include "../desktop/desktop_host.h"
-#include "../common/scrnsave.h"
 #include <shellapi.h>
 #include <shobjidl.h>
+#endif
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
+#ifdef _WIN32
 #include <windowsx.h>
 #include <commdlg.h>
 #include <colordlg.h>
+#endif
 
 #define SIDEBAR_W 232.0f
 #define PAD       32.0f
@@ -932,6 +936,18 @@ static float rule_row(Ui *u, float x, float y, float w, int which, const wchar_t
     return y + 62 + rows * 38;
 }
 
+#ifndef _WIN32
+/* Any program file: its name is what /proc/<pid>/exe ends in (Hyprland) or the app's id (Plasma). */
+static void pick_rule_app(int which)
+{
+    wchar_t **paths = NULL;
+    Settings *s = &g_app.cfg.s;
+    int n = sp_pick_paths(0, &paths);
+    if (n && config_rule_add(which ? s->muteApps : s->pauseApps, SP_RULES_LEN, paths[0])) app_save_config();
+    for (int i = 0; i < n; i++) free(paths[i]);
+    free(paths);
+}
+#else
 static void pick_rule_app(int which)
 {
     IFileOpenDialog *dlg = NULL;
@@ -956,6 +972,7 @@ static void pick_rule_app(int which)
     SP_RELEASE(it);
     IFileOpenDialog_Release(dlg);
 }
+#endif
 
 static void draw_settings(Ui *u, float cx, float cw)
 {
@@ -972,10 +989,17 @@ static void draw_settings(Ui *u, float cx, float cw)
 
     y = section(u, x, y, L"GENERAL");
     {
+#ifndef _WIN32
+        int idxL[] = { TOG_STARTUP, TOG_TRAY };
+        const wchar_t *lL[] = { L"Start with Linux", L"Keep the window closed at sign-in" };
+        int vL[] = { s->startWithWindows, s->launchToTray };
+        y = toggle_group(u, x, y, w, idxL, lL, NULL, vL, 2);
+#else
         int idx[] = { TOG_STARTUP, TOG_TRAY, TOG_STILL };
         const wchar_t *l[] = { L"Start with Windows", L"Start minimised to the tray", L"Show a still while Screen+ starts" };
         int v[] = { s->startWithWindows, s->launchToTray, s->stillWallpaper };
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 3);
+#endif
     }
     y += 10;
     {
@@ -1008,6 +1032,7 @@ static void draw_settings(Ui *u, float cx, float cw)
     }
     y += 62 + 26;
 
+#ifdef _WIN32
     y = section(u, x, y, L"SCREENSAVER");
     {
         ScrState st;
@@ -1056,6 +1081,7 @@ static void draw_settings(Ui *u, float cx, float cw)
     }
     y += 62 + 26;
 
+#endif
     y = section(u, x, y, L"PERFORMANCE");
     {
         int idx[] = { TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY };
@@ -1084,6 +1110,14 @@ static void draw_settings(Ui *u, float cx, float cw)
     {
         DepthState ds;
         depth_get(&ds);
+#ifndef _WIN32                          /* Lively is Windows-only */
+        int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_URL, TOG_DEPTH_ALL };
+        const wchar_t *l[] = { L"Allow desktop mouse interaction", L"Enable audio-reactive spectrum",
+                               L"Import wallpapers from web links", L"Make image wallpapers interactive" };
+        const wchar_t *d[] = { NULL, NULL, NULL, ds.busy && !ds.id[0] ? ds.text : NULL };
+        int v[] = { s->htmlMouse, s->htmlAudio, s->urlImport, s->depthAll };
+        y = toggle_group(u, x, y, w, idx, l, d, v, 4);
+#else
         int idx[] = { TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_DEPTH_ALL };
         const wchar_t *l[] = { L"Allow desktop mouse interaction", L"Enable audio-reactive spectrum",
                                L"Import Lively wallpapers automatically", L"Import wallpapers from web links",
@@ -1091,6 +1125,7 @@ static void draw_settings(Ui *u, float cx, float cw)
         const wchar_t *d[] = { NULL, NULL, NULL, NULL, ds.busy && !ds.id[0] ? ds.text : NULL };
         int v[] = { s->htmlMouse, s->htmlAudio, s->livelyImport, s->urlImport, s->depthAll };
         y = toggle_group(u, x, y, w, idx, l, d, v, 5);
+#endif
     }
     y += 10;
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
@@ -1449,6 +1484,21 @@ static BOOL is_picture_ext(const wchar_t *ext)
     return FALSE;
 }
 
+#ifndef _WIN32
+static void prop_choose_file(CustomProp *cp)
+{
+    WallpaperEntry *e = customise_entry();
+    wchar_t **paths = NULL, added[SP_MAX_PATH], err[200];
+    if (!e) return;
+    int n = sp_pick_paths(0, &paths);
+    if (n && wpapi_add_folder_file(e, cp->name, paths[0], added, SP_COUNTOF(added), err, SP_COUNTOF(err))) {
+        JVal *v = wpapi_str_value(path_filename(added));
+        prop_commit(cp, v, 0);
+    }
+    for (int i = 0; i < n; i++) free(paths[i]);
+    free(paths);
+}
+#else
 static void prop_choose_file(CustomProp *cp)
 {
     IFileOpenDialog *dlg = NULL;
@@ -1495,6 +1545,7 @@ static void prop_choose_file(CustomProp *cp)
     SP_RELEASE(it);
     IFileOpenDialog_Release(dlg);
 }
+#endif
 
 static void prop_menu(int idx, int id)
 {
@@ -1527,6 +1578,7 @@ static void prop_menu(int idx, int id)
 
 /* The system dialog keeps the luminance when a colour is picked from its spectrum, so from black (or
  * white) every pick stays black: lift it to the middle just before such a click lands. */
+#ifdef _WIN32
 static UINT_PTR CALLBACK colour_dialog_hook(HWND dlg, UINT msg, WPARAM wp, LPARAM lp)
 {
     (void)wp;
@@ -1544,8 +1596,16 @@ static UINT_PTR CALLBACK colour_dialog_hook(HWND dlg, UINT msg, WPARAM wp, LPARA
     return 0;
 }
 
+#endif
+
 static void prop_pick_colour(int idx)
 {
+#ifndef _WIN32
+    CustomProp *cp = &cus.props[idx];
+    int style;
+    uint32_t rgb = wpapi_color_get(cp, &style);
+    if (sp_pick_colour(&rgb)) prop_commit(cp, wpapi_color_value(rgb, style), 0);
+#else
     CustomProp *cp = &cus.props[idx];
     int style;
     uint32_t rgb = wpapi_color_get(cp, &style);
@@ -1559,6 +1619,7 @@ static void prop_pick_colour(int idx)
     if (!ChooseColorW(&cc)) return;
     COLORREF r = cc.rgbResult;
     prop_commit(cp, wpapi_color_value(((uint32_t)GetRValue(r) << 16) | ((uint32_t)GetGValue(r) << 8) | GetBValue(r), style), 0);
+#endif
 }
 
 /* A slider property's value clamped to its range and snapped to its step. */
@@ -1891,6 +1952,19 @@ static void url_focus(void)
 {
     Ui *u = g_ui;
     int id = HIT_ID(HK_URL_TEXT, 0);
+#ifndef _WIN32
+    if (!urlp.url[0]) {
+        wchar_t *p = sp_clipboard_get();
+        if (p) {
+            wchar_t clip[SP_MAX_PATH];
+            str_copy(clip, SP_COUNTOF(clip), p);
+            str_trim(clip);
+            if (wcslen(p) < SP_COUNTOF(clip) && wallpaper_is_url(clip) && !wcspbrk(clip, L" \t\r\n"))
+                str_copy(urlp.url, SP_COUNTOF(urlp.url), clip);
+            free(p);
+        }
+    }
+#else
     if (!urlp.url[0] && OpenClipboard(u->hwnd)) {   /* a link on the clipboard is offered right away */
         HANDLE h = GetClipboardData(CF_UNICODETEXT);
         const wchar_t *p = h ? (const wchar_t *)GlobalLock(h) : NULL;
@@ -1904,6 +1978,7 @@ static void url_focus(void)
         }
         CloseClipboard();
     }
+#endif
     str_copy(cus.edit, SP_COUNTOF(cus.edit), urlp.url);
     u->focus = id;
     edit_begin(id, urlp.url[0] != 0);
@@ -2570,7 +2645,7 @@ static void toggle_setting(int idx)
     switch (idx) {
     case TOG_STARTUP:
         if (startup_set_enabled(!s->startWithWindows)) s->startWithWindows = !s->startWithWindows;
-        else app_notice(NOTICE_ERROR, L"Could not update the Windows startup entry.");
+        else app_notice(NOTICE_ERROR, L"Could not update the startup entry.");
         break;
     case TOG_TRAY:       s->launchToTray = !s->launchToTray; break;
     case TOG_STILL:      s->stillWallpaper = !s->stillWallpaper; break;
@@ -2716,7 +2791,9 @@ void pages_activate(int id, int dbl)
         if (config_rule_at(list, (data >> 8) & 0x7f, app, SP_COUNTOF(app)) && config_rule_remove(list, app)) app_save_config();
         break;
     }
+#ifdef _WIN32
     case HK_SCR_WINDOWS:   ShellExecuteW(NULL, NULL, L"control.exe", L"desk.cpl,,@screensaver", NULL, SW_SHOWNORMAL); break;
+#endif
     case HK_UPDATE_CHECK:  update_check(TRUE); ui_invalidate(); break;
     case HK_SAMPLES_CHECK: samples_check(data != 0); ui_invalidate(); break;   /* data: it says Update */
     case HK_PLAYPAUSE:     app_set_paused(!g_app.cfg.s.paused); break;

@@ -1,6 +1,8 @@
 #include "paths.h"
 #include "util.h"
+#ifdef _WIN32
 #include <shlobj.h>
+#endif
 
 static wchar_t g_root[SP_MAX_PATH], g_config[SP_MAX_PATH], g_backup[SP_MAX_PATH], g_logs[SP_MAX_PATH],
                g_crash[SP_MAX_PATH], g_cache[SP_MAX_PATH], g_webview[SP_MAX_PATH], g_exe[SP_MAX_PATH],
@@ -9,6 +11,7 @@ static wchar_t g_root[SP_MAX_PATH], g_config[SP_MAX_PATH], g_backup[SP_MAX_PATH]
 void paths_init(void)
 {
     if (g_root[0]) return;
+#ifdef _WIN32
     PWSTR local = NULL;
     wchar_t over[SP_MAX_PATH], env[SP_MAX_PATH];
     DWORD on = GetEnvironmentVariableW(L"SCREENPLUS_DATA_DIR", over, SP_COUNTOF(over));   /* portable / test override */
@@ -24,6 +27,21 @@ void paths_init(void)
         str_cat(g_root, SP_COUNTOF(g_root), SP_APP_ID);
     }
     CoTaskMemFree(local);
+#else
+    wchar_t over[SP_MAX_PATH], env[SP_MAX_PATH];
+    DWORD on = GetEnvironmentVariableW(L"SCREENPLUS_DATA_DIR", over, SP_COUNTOF(over));
+    if (on > 0 && on < SP_COUNTOF(over)) {
+        str_copy(g_root, SP_COUNTOF(g_root), over);
+    } else {
+        DWORD xd = GetEnvironmentVariableW(L"XDG_DATA_HOME", env, SP_COUNTOF(env));
+        if (xd > 0 && xd < SP_COUNTOF(env)) {
+            path_join(g_root, SP_COUNTOF(g_root), env, L"screenplus");
+        } else {
+            GetEnvironmentVariableW(L"HOME", env, SP_COUNTOF(env));
+            path_join(g_root, SP_COUNTOF(g_root), env, L".local/share/screenplus");
+        }
+    }
+#endif
     path_join(g_config, SP_COUNTOF(g_config), g_root, L"config.ini");
     path_join(g_backup, SP_COUNTOF(g_backup), g_root, L"config.bak");
     path_join(g_logs, SP_COUNTOF(g_logs), g_root, L"logs");

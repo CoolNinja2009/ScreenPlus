@@ -5,6 +5,7 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../app/preview.h"
+#ifdef _WIN32
 #include "../../resources/resource.h"
 #include <dwmapi.h>
 #include <windowsx.h>
@@ -12,6 +13,7 @@
 #include <shellscalingapi.h>
 #include <commctrl.h>
 #include <uxtheme.h>
+#endif
 #include <stdlib.h>
 #include <math.h>
 
@@ -58,6 +60,10 @@ int in_rect(D2D1_RECT_F r, float x, float y)
 
 /* ================================================================ theme */
 
+#ifndef _WIN32
+int ui_plat_dark(void);
+static int system_dark(void) { return ui_plat_dark(); }
+#else
 static int system_dark(void)
 {
     DWORD v = 1, sz = sizeof v;
@@ -66,6 +72,7 @@ static int system_dark(void)
         return 0;
     return v == 0;
 }
+#endif
 
 static void theme_build(Ui *u)
 {
@@ -118,10 +125,13 @@ static void theme_build(Ui *u)
         t->shadow = col(0x000000, 0.10f);
     }
     t->onAccent = col(0xFFFFFF, 1.0f);
+#ifdef _WIN32
     BOOL d = dark;
     if (u->hwnd) DwmSetWindowAttribute(u->hwnd, SP_DWMWA_DARK, &d, sizeof d);
+#endif
 }
 
+#ifdef _WIN32
 static void setup_backdrop(Ui *u)
 {
     DWORD corner = 2;   /* DWMWCP_ROUND */
@@ -135,6 +145,7 @@ static void setup_backdrop(Ui *u)
             u->backdrop = 1;
     }
 }
+#endif
 
 /* ================================================================ device resources */
 
@@ -1016,6 +1027,9 @@ static void on_char(Ui *u, wchar_t ch)
 /* One tooltip, moved onto whichever icon-only button is hovered (texts: pages_tooltip). */
 static void tip_update(Ui *u)
 {
+#ifndef _WIN32
+    (void)u;                               /* no tooltips on Linux yet */
+#else
     const wchar_t *text = u->hot && !u->pressed ? pages_tooltip(u->hot) : NULL;
     const Hit *h = text ? hit_find(u, u->hot) : NULL;
     int id = h ? u->hot : 0;
@@ -1046,6 +1060,7 @@ static void tip_update(Ui *u)
     SendMessageW(u->tip, TTM_POP, 0, 0);
     SendMessageW(u->tip, TTM_NEWTOOLRECTW, 0, (LPARAM)&ti);
     SendMessageW(u->tip, TTM_UPDATETIPTEXTW, 0, (LPARAM)&ti);
+#endif
 }
 
 static void on_wheel(Ui *u, int delta)
@@ -1259,6 +1274,10 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 
 /* ================================================================ public */
 
+#ifndef _WIN32
+LRESULT ui_dispatch(HWND h, UINT msg, WPARAM wp, LPARAM lp) { return ui_proc(h, msg, wp, lp); }   /* ui_sdl.c */
+#endif
+
 BOOL ui_show_screensaver(void)
 {
     if (!ui_show() || !g_ui) return FALSE;
@@ -1293,6 +1312,17 @@ BOOL ui_show(void)
         return FALSE;
     }
 
+#ifndef _WIN32
+    u->hwnd = sp_window_open(1180, 760, &u->scale);
+    if (!u->hwnd) {
+        ui_destroy();
+        return FALSE;
+    }
+    RECT rc;
+    GetClientRect(u->hwnd, &rc);
+    u->w = rc.right / u->scale;
+    u->h = rc.bottom / u->scale;
+#else
     static int registered;
     if (!registered) {
         WNDCLASSEXW wc = { sizeof wc };
@@ -1333,6 +1363,7 @@ BOOL ui_show(void)
     u->w = rc.right / u->scale;
     u->h = rc.bottom / u->scale;
     setup_backdrop(u);
+#endif
     theme_build(u);
     for (int i = 0; i < TOG_COUNT; i++) u->tog[i] = u->togTarget[i] = -1.0f;   /* snap on first frame */
     DragAcceptFiles(u->hwnd, TRUE);

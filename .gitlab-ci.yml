@@ -1,8 +1,9 @@
-# Builds Screen+ and publishes a GitLab release with the installer and a portable zip.
-# Like .github/workflows/release.yml, but every push to main gets the next
-# version, a vX.Y.Z tag releases that exact version, and merge requests are built but not released.
-# The work is in scripts/gitlab-release.ps1. Builds run on the runner on the developer's PC, so that has
-# to be running. They are not signed (SignPath runs on GitHub only).
+# Builds Screen+ for Windows and Linux and publishes them as one GitLab release: the Windows installer, a
+# portable zip and the samples (on the runner on the developer's PC, unsigned: SignPath runs on GitHub only),
+# and a tar.gz from Arch, a .deb each for Debian and Ubuntu and an .rpm from Fedora (on GitLab's machines).
+# Every push to main gets the next version, a vX.Y.Z tag releases that exact version, merge requests are built
+# but not released. Nothing is released unless every build passes. Like .github/workflows/release.yml
+# (Windows only).
 workflow:
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
@@ -21,29 +22,114 @@ workflow:
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
 
-# The runner on the developer's PC. For GitLab's own Windows machines instead, start a pipeline by hand
-# with BUILD_RUNNER set to saas-windows-medium-amd64.
+stages: [version, build, release]
+
+# The Windows build runs on the runner on the developer's PC. For GitLab's own Windows machines instead,
+# start a pipeline by hand with BUILD_RUNNER set to saas-windows-medium-amd64.
 variables:
   BUILD_RUNNER: screenplus-pc
 
-build:
+default:
+  tags: [saas-linux-small-amd64]
+
+# VERSION for every job: the tag's in a tag pipeline, else the next patch after the newest vX.Y.Z tag, or the
+# CMakeLists.txt version when that is higher. SKIP=1 when the tag is already released (publishing a release
+# creates its tag, which starts a tag pipeline with nothing left to do).
+version:
+  stage: version
+  image: alpine:latest
+  variables:
+    GIT_DEPTH: "0"              # tags are needed to pick the next version
+  script:
+    - apk add --no-cache git curl coreutils
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+    - sh scripts/gitlab-version.sh > version.env
+    - cat version.env
+  artifacts:
+    reports:
+      dotenv: version.env
+
+windows:
+  stage: build
+  needs: [version]
   tags: [$BUILD_RUNNER]
   timeout: 2h
   variables:
     GIT_STRATEGY: clone
-    GIT_DEPTH: "0"              # tags are needed to pick the next version
+    GIT_DEPTH: "1"
     GIT_CONFIG_COUNT: "1"       # keep LF: build-ffmpeg.sh must run in bash, and samples are hashed
     GIT_CONFIG_KEY_0: core.autocrlf
     GIT_CONFIG_VALUE_0: "false"
   script:
+    - if ($env:SKIP -eq '1') { exit 0 }
     - powershell -NoProfile -ExecutionPolicy Bypass -File scripts\gitlab-release.ps1
     - if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   artifacts:
     paths: [release/]
     expire_in: 3 days
 
-# Leaves nothing on the developer's PC: runs after the artifacts are uploaded, whether or not the build
-# passed. GitLab's own machines are thrown away after each job, so they don't need it.
+.linux:
+  stage: build
+  needs: [version]
+  timeout: 1h
+  variables:
+    GIT_DEPTH: "1"
+  artifacts:
+    paths: [release/]
+    expire_in: 3 days
+
+.apt: &apt
+  - export DEBIAN_FRONTEND=noninteractive
+  - apt-get update
+  - apt-get install -y --no-install-recommends ca-certificates build-essential cmake ninja-build pkg-config dpkg-dev libsdl3-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libgtk-4-dev libgtk4-layer-shell-dev libmpv-dev libwebkitgtk-6.0-dev libepoxy-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+
+arch:
+  extends: .linux
+  image: archlinux:latest
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - pacman -Syu --noconfirm --needed base-devel cmake ninja pkgconf sdl3 cairo pango fontconfig gtk4 gtk4-layer-shell mpv webkitgtk-6.0 libepoxy wayland wayland-protocols ffmpeg
+    - bash scripts/gitlab-linux.sh tar
+
+debian:
+  extends: .linux
+  image: debian:13
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - *apt
+    - bash scripts/gitlab-linux.sh deb debian
+
+ubuntu:
+  extends: .linux
+  image: ubuntu:26.04
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - *apt
+    - bash scripts/gitlab-linux.sh deb ubuntu
+
+fedora:
+  extends: .linux
+  image: fedora:latest
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - dnf install -y gcc cmake ninja-build pkgconf-pkg-config rpm-build 'pkgconfig(sdl3)' 'pkgconfig(cairo)' 'pkgconfig(pangocairo)' 'pkgconfig(fontconfig)' 'pkgconfig(gtk4)' 'pkgconfig(gtk4-layer-shell-0)' 'pkgconfig(webkitgtk-6.0)' 'pkgconfig(mpv)' 'pkgconfig(epoxy)' 'pkgconfig(libavformat)' 'pkgconfig(libavcodec)' 'pkgconfig(libavutil)' 'pkgconfig(libswscale)'
+    - bash scripts/gitlab-linux.sh rpm
+
+release:
+  stage: release
+  image: alpine:latest
+  needs: [version, windows, arch, debian, ubuntu, fedora]
+  rules:
+    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
+  variables:
+    GIT_DEPTH: "1"
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - apk add --no-cache curl coreutils
+    - sh scripts/gitlab-publish.sh
+
+# Leaves nothing on the developer's PC: runs after everything, whether or not the build passed. GitLab's own
+# machines are thrown away after each job, so they don't need it.
 clean:
   stage: .post
   tags: [$BUILD_RUNNER]

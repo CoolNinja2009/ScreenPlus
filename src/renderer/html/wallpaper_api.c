@@ -3,8 +3,10 @@
 #include "../../common/json.h"
 #include "../../common/paths.h"
 #include "../../common/log.h"
+#ifdef _WIN32
 #include <shlwapi.h>
 #include <wincodec.h>
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -310,6 +312,9 @@ static JVal *folder_items(const wchar_t *wpFolder, const JVal *prop)
     return items;
 }
 
+#ifndef _WIN32
+static BOOL convert_to_png(const wchar_t *src, const wchar_t *dst) { (void)src; (void)dst; return FALSE; }
+#else
 /* A picture WIC can read, saved as a PNG (formats a web page can't show: HEIC, TIFF, JPEG XR...). */
 static BOOL convert_to_png(const wchar_t *src, const wchar_t *dst)
 {
@@ -352,6 +357,7 @@ static BOOL convert_to_png(const wchar_t *src, const wchar_t *dst)
     if (FAILED(hr)) DeleteFileW(dst);
     return SUCCEEDED(hr);
 }
+#endif
 
 int wpapi_add_folder_file(const WallpaperEntry *wp, const char *name, const wchar_t *src, wchar_t *outPath, size_t cap,
                           wchar_t *err, size_t ecap)

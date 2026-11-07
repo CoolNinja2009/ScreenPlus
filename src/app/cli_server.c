@@ -218,6 +218,8 @@ static void cmd_status(Reply *r)
         say(r, L"Renderer   pid %lu, %ls host, WebView2 %ls, %d of %d display(s) rendering%ls\n", g_app.enginePid,
             have ? host_mode_name(st->hostMode) : L"(starting)", have && st->webviewVersion[0] ? st->webviewVersion : L"n/a",
             have ? st->activeRenderers : 0, g_app.monCount, g_app.safeMode ? L", SAFE MODE" : L"");
+    else if (have && st->hostMode == HOSTMODE_PLASMA)
+        say(r, L"Renderer   inside Plasma, %d of %d display(s) rendering\n", st->activeRenderers, g_app.monCount);
     else
         say(r, L"Renderer   not running%ls\n", g_app.engineGaveUp ? L" (gave up after repeated failures: screenplus restart)" : L"");
     wchar_t cond[256] = L"";
@@ -432,7 +434,8 @@ static void cmd_import(Reply *r, const Req *q)
         paths[n++] = q->argv[i];
     }
     int before = c->count;
-    int added = library_import(paths, n, has_flag(q, L"--apply"));
+    int added = library_import(paths, n, FALSE);
+    if (added && has_flag(q, L"--apply")) app_apply_wallpaper(c->items[before].id, NULL);   /* even over one already showing */
     say(r, L"Added %d wallpaper(s) to the library.\n", added);
     sb_puts(&r->data, "{\"added\":[");
     for (int i = before; i < c->count; i++) {
@@ -530,6 +533,40 @@ static void look_print(Reply *r, const WallpaperEntry *e, const WallpaperAdjust 
                         "\"tint\":\"#%06X\",\"tintStrength\":%d,\"tintBrightness\":%d}",
               adjust_active(a) ? "true" : "false", a->brightness, a->contrast, a->saturation, a->hue, a->gamma,
               a->tint & 0xFFFFFF, a->tintLift, a->tintBrightness);
+}
+
+/* The Store from the terminal: it reads in the background, so listing again shows what has come in. */
+static void cmd_store(Reply *r, const Req *q)
+{
+    const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
+    store_open();
+    if (str_ieq(sub, L"search")) {
+        store_search(q->argc > 2 ? q->argv[2] : L"");
+        say(r, L"Searching. See: screenplus store\n");
+        return;
+    }
+    if (str_ieq(sub, L"more")) {
+        store_more();
+        say(r, L"Reading the next pages. See: screenplus store\n");
+        return;
+    }
+    const StoreState *s = store_get();
+    if (str_ieq(sub, L"get")) {
+        int n = q->argc > 2 ? _wtoi(q->argv[2]) : 0;
+        if (n < 1 || n > s->viewCount) {
+            fail(r, L"Usage: screenplus store get <number from the list>");
+            return;
+        }
+        store_download(s->view[n - 1]);
+        say(r, L"\"%ls\": downloading into the library, or opening its page if the site has no direct file.\n", s->items[s->view[n - 1]].title);
+        return;
+    }
+    if (s->failed) say(r, L"The Store could not be read: %ls\n", s->error);
+    for (int i = 0; i < s->viewCount && i < 60; i++) {
+        const StoreItem *it = &s->items[s->view[i]];
+        say(r, L"%4d  %-12ls %-5ls %ls\n", i + 1, store_source_name(it->source), it->kind == SKIND_LIVE ? L"live" : L"still", it->title);
+    }
+    say(r, L"%d shown%ls\n", s->viewCount, s->loading ? L", still loading" : L"");
 }
 
 /* SHARP isn't downloaded: this names the user's own .onnx and makes it the chosen model. */
@@ -925,9 +962,18 @@ static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary",
 static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
 enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS };
 static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames };
+#ifdef _WIN32
+#define SP_LAUNCH_DESC L"Keep the window closed when it starts with Windows"
+#else
+#define SP_LAUNCH_DESC L"Keep the window closed when it starts at sign-in"
+#endif
 static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *desc; } k_settings[] = {
+#ifdef _WIN32
     { L"start_with_windows",  offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
-    { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  L"Keep the window closed when it starts with Windows" },
+#else
+    { L"start_with_linux",    offsetof(Settings, startWithWindows),  SK_BOOL,  L"Start Screen+ when you sign in" },
+#endif
+    { L"launch_to_tray",      offsetof(Settings, launchToTray),      SK_BOOL,  SP_LAUNCH_DESC },
     { L"still_wallpaper",     offsetof(Settings, stillWallpaper),    SK_BOOL,  L"Show a still of the wallpaper while Screen+ starts" },
     { L"pause_on_fullscreen", offsetof(Settings, pauseOnFullscreen), SK_BOOL,  L"Pause the display a fullscreen app or game is on" },
     { L"pause_when_covered",  offsetof(Settings, pauseWhenCovered),  SK_BOOL,  L"Stop rendering while windows cover the desktop" },
@@ -960,15 +1006,32 @@ static const wchar_t *setting_text(int kind, int v)
     return names[0];
 }
 
+#ifdef _WIN32
+static int setting_listed(const wchar_t *key) { (void)key; return 1; }
+#else
+/* These mean nothing on Linux: Plasma starts the wallpaper by itself, Lively is Windows-only, there's no screensaver. */
+static int setting_listed(const wchar_t *key)
+{
+    static const wchar_t *const hidden[] = {
+        L"still_wallpaper", L"lively_auto_import", L"screensaver_audio", L"screensaver_displays", L"screensaver_exit_on_mouse",
+    };
+    for (size_t i = 0; i < SP_COUNTOF(hidden); i++) if (str_ieq(key, hidden[i])) return 0;
+    return 1;
+}
+#endif
+
 static void settings_print(Reply *r)
 {
     Settings *s = &g_app.cfg.s;
+    int first = 1;
     sb_puts(&r->data, "{");
     for (size_t i = 0; i < SP_COUNTOF(k_settings); i++) {
+        if (!setting_listed(k_settings[i].key)) continue;
         int v = *(int *)((char *)s + k_settings[i].off);
         const wchar_t *shown = setting_text(k_settings[i].kind, v);
         say(r, L"  %-26ls %-11ls %ls\n", k_settings[i].key, shown, k_settings[i].desc);
-        if (i) sb_puts(&r->data, ",");
+        if (!first) sb_puts(&r->data, ",");
+        first = 0;
         jstr(&r->data, k_settings[i].key);
         sb_puts(&r->data, ":");
         if (k_settings[i].kind != SK_BOOL) jstr(&r->data, shown);
@@ -1017,21 +1080,61 @@ static void cmd_samples(Reply *r, const Req *q)
     sb_puts(&r->data, "}");
 }
 
+static void setting_reply(Reply *r, size_t i, int v)
+{
+    say(r, L"%ls = %ls\n", k_settings[i].key, setting_text(k_settings[i].kind, v));
+    sb_puts(&r->data, "{");
+    jstr(&r->data, k_settings[i].key);
+    sb_puts(&r->data, ":");
+    if (k_settings[i].kind != SK_BOOL) jstr(&r->data, setting_text(k_settings[i].kind, v));
+    else sb_puts(&r->data, v ? "true" : "false");
+    sb_puts(&r->data, "}");
+}
+
+static void cmd_mode(Reply *r, const Req *q)
+{
+    if (q->argc > 1) {
+        int mode = -1;
+        for (int i = 0; k_modeNames[i]; i++) if (str_ieq(q->argv[1], k_modeNames[i])) mode = i;
+        if (mode < 0) {
+            fail(r, L"Usage: screenplus mode [independent|duplicate|span]");
+            return;
+        }
+        app_set_display_mode(mode);
+        ui_on_config_changed();
+    }
+    const wchar_t *now = setting_text(SK_MODE, g_app.cfg.s.displayMode);
+    say(r, L"Displays: %ls\n", now);
+    sb_puts(&r->data, "{\"mode\":");
+    jstr(&r->data, now);
+    sb_puts(&r->data, "}");
+}
+
 static void cmd_settings(Reply *r, const Req *q)
 {
     const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
-    if (!sub[0] || str_ieq(sub, L"show") || str_ieq(sub, L"get")) {
+    if (!sub[0] || str_ieq(sub, L"show") || (str_ieq(sub, L"get") && q->argc < 3)) {
         settings_print(r);
         return;
     }
-    if (!str_ieq(sub, L"set") || q->argc < 4) {
-        fail(r, L"Usage: screenplus settings [set <key> <value>]   (see: screenplus settings)");
+    int get = str_ieq(sub, L"get");
+    if (!get && (!str_ieq(sub, L"set") || q->argc < 4)) {
+        fail(r, L"Usage: screenplus settings [get <key> | set <key> <value>]   (see: screenplus settings)");
         return;
     }
     wchar_t key[48];
     str_copy(key, SP_COUNTOF(key), q->argv[2]);
     for (wchar_t *c = key; *c; c++) if (*c == L'-') *c = L'_';
     Settings *s = &g_app.cfg.s;
+    if (get) {
+        for (size_t i = 0; i < SP_COUNTOF(k_settings); i++) {
+            if (!str_ieq(key, k_settings[i].key)) continue;
+            setting_reply(r, i, *(int *)((char *)s + k_settings[i].off));
+            return;
+        }
+        fail(r, L"Unknown setting \"%ls\". See: screenplus settings", q->argv[2]);
+        return;
+    }
     for (size_t i = 0; i < SP_COUNTOF(k_settings); i++) {
         if (!str_ieq(key, k_settings[i].key)) continue;
         int *field = (int *)((char *)s + k_settings[i].off);
@@ -1075,13 +1178,7 @@ static void cmd_settings(Reply *r, const Req *q)
             }
         }
         ui_on_config_changed();
-        say(r, L"%ls = %ls\n", k_settings[i].key, setting_text(k_settings[i].kind, *field));
-        sb_puts(&r->data, "{");
-        jstr(&r->data, k_settings[i].key);
-        sb_puts(&r->data, ":");
-        if (k_settings[i].kind != SK_BOOL) jstr(&r->data, setting_text(k_settings[i].kind, *field));
-        else sb_puts(&r->data, *field ? "true" : "false");
-        sb_puts(&r->data, "}");
+        setting_reply(r, i, *field);
         return;
     }
     fail(r, L"Unknown setting \"%ls\". See: screenplus settings", q->argv[2]);
@@ -1183,12 +1280,20 @@ static void run(Reply *r, const Req *q)
         say(r, L"Screensaver wallpaper: %ls\n", e ? e->name : L"the desktop's");
     } else if (str_ieq(c, L"hide")) {
         ui_destroy();
+#ifdef _WIN32
         say(r, L"Window closed (Screen+ keeps running in the notification area).\n");
+#else
+        say(r, L"Window closed (Screen+ keeps running in the background).\n");
+#endif
     } else if (str_ieq(c, L"stop") || str_ieq(c, L"quit-app")) {
         say(r, L"Screen+ is closing.\n");
         r->exitAfter = 1;
+    } else if (str_ieq(c, L"mode")) {
+        cmd_mode(r, q);
     } else if (str_ieq(c, L"sharp")) {
         cmd_sharp(r, q);
+    } else if (str_ieq(c, L"store")) {
+        cmd_store(r, q);
     } else if (str_ieq(c, L"look") || str_ieq(c, L"grade")) {
         cmd_look(r, q);
     } else if (str_ieq(c, L"props") || str_ieq(c, L"prop") || str_ieq(c, L"properties")) {
@@ -1204,10 +1309,9 @@ static void run(Reply *r, const Req *q)
     }
 }
 
-void cli_server_handle(HWND replyTo, const void *request, DWORD size)
+/* One request in, its reply JSON in *out (sb_free it). Returns 1 when the app should quit afterwards. */
+int cli_server_run(const void *request, DWORD size, StrBuf *out)
 {
-    wchar_t cls[32] = L"";
-    if (!replyTo || !GetClassNameW(replyTo, cls, SP_COUNTOF(cls)) || !str_ieq(cls, SP_CLI_CLASS)) return;
     Req q;
     ZeroMemory(&q, sizeof q);
     Reply r = { 1 };
@@ -1247,17 +1351,27 @@ void cli_server_handle(HWND replyTo, const void *request, DWORD size)
 
     run(&r, &q);
 
-    StrBuf out = { 0 };
-    sb_printf(&out, "{\"ok\":%s,\"text\":", r.ok ? "true" : "false");
-    json_write_string(&out, r.text.p ? r.text.p : "");
-    sb_puts(&out, ",\"data\":");
-    sb_puts(&out, r.ok && r.data.len && !r.data.failed ? r.data.p : "null");
-    sb_puts(&out, "}");
-    if (!out.failed) ipc_send(g_app.shellWnd, replyTo, IPC_CLI_REPLY, out.p, (DWORD)out.len, 5000);
-    sb_free(&out);
+    sb_printf(out, "{\"ok\":%s,\"text\":", r.ok ? "true" : "false");
+    json_write_string(out, r.text.p ? r.text.p : "");
+    sb_puts(out, ",\"data\":");
+    sb_puts(out, r.ok && r.data.len && !r.data.failed ? r.data.p : "null");
+    sb_puts(out, "}");
     sb_free(&r.text);
     sb_free(&r.data);
     for (int i = 0; i < q.argc; i++) free(q.argv[i]);
     for (int i = 0; i < q.flagCount; i++) free(q.flags[i]);
-    if (r.exitAfter) PostMessageW(g_app.shellWnd, WM_SP_SHELLCMD, CMD_EXIT, 0);
+    return r.exitAfter;
 }
+
+#ifdef _WIN32
+void cli_server_handle(HWND replyTo, const void *request, DWORD size)
+{
+    wchar_t cls[32] = L"";
+    if (!replyTo || !GetClassNameW(replyTo, cls, SP_COUNTOF(cls)) || !str_ieq(cls, SP_CLI_CLASS)) return;
+    StrBuf out = { 0 };
+    int exitAfter = cli_server_run(request, size, &out);
+    if (!out.failed) ipc_send(g_app.shellWnd, replyTo, IPC_CLI_REPLY, out.p, (DWORD)out.len, 5000);
+    sb_free(&out);
+    if (exitAfter) PostMessageW(g_app.shellWnd, WM_SP_SHELLCMD, CMD_EXIT, 0);
+}
+#endif

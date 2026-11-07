@@ -1,0 +1,9 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Id": "org.screenplus.capture",
+        "Name": "Screen+ preview recorder",
+        "Description": "Records previews for the Screen+ library. Not a desktop widget."
+    },
+    "X-Plasma-API-Minimum-Version": "6.0"
+}

@@ -18,6 +18,11 @@
 #include <string.h>
 #include <wctype.h>
 
+#ifdef _WIN32
+#define SETUP_NAME   L"ScreenPlus-Setup-%ls.exe"
+#else
+#define SETUP_NAME   L"ScreenPlus-%ls-linux-x86_64.tar.gz"
+#endif
 #define RELEASE_API  L"https://api.github.com/repos/CoolNinja2009/ScreenPlus/releases/latest"
 #define RELEASE_DL   L"https://github.com/CoolNinja2009/ScreenPlus/releases/download/v"
 #define FIRST_MS     (3 * 60 * 1000)
@@ -184,7 +189,7 @@ static BOOL read_release(UpdateJob *j, wchar_t *url, size_t urlCap, int64_t *siz
     BOOL ok = TRUE;
     if (j->newer) {
         wchar_t name[64];
-        str_printf(name, SP_COUNTOF(name), L"ScreenPlus-Setup-%ls.exe", j->version);
+        str_printf(name, SP_COUNTOF(name), SETUP_NAME, j->version);
         ok = release_asset(root, j->version, name, SETUP_MAX, url, urlCap, size, sha);
         if (!ok) str_printf(j->error, SP_COUNTOF(j->error), L"Screen+ %ls on GitHub has no installer this copy can verify", j->version);
     }
@@ -199,7 +204,7 @@ static void run(UpdateJob *j)
     int64_t size = 0;
     if (!read_release(j, url, SP_COUNTOF(url), &size, sha)) return;
     updates_dir(dir, SP_COUNTOF(dir));
-    str_printf(name, SP_COUNTOF(name), L"ScreenPlus-Setup-%ls.exe", j->version);
+    str_printf(name, SP_COUNTOF(name), SETUP_NAME, j->version);
     path_join(dest, SP_COUNTOF(dest), dir, name);
     sweep(dir, j->newer ? name : NULL);
     j->ok = 1;
@@ -250,8 +255,12 @@ static void run_setup(void)
     wchar_t cmd[SP_MAX_PATH + 32], text[SP_COUNTOF(g_state.text)];
     STARTUPINFOW si = { sizeof si };
     PROCESS_INFORMATION pi;
+#ifdef _WIN32
     str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" /S /UPDATE", g_ready);
-    if (!CreateProcessW(g_ready, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+#else
+    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls/update.sh\" \"%ls\"", paths_exe_dir(), g_ready);
+#endif
+    if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         LOGW(L"update: could not start the installer (err %lu)", GetLastError());
         set_status(0, -1, L"The update could not start");
     } else {
@@ -302,7 +311,11 @@ void update_init(void)
 {
     wchar_t dir[SP_MAX_PATH], un[SP_MAX_PATH];
     path_dirname(dir, SP_COUNTOF(dir), paths_exe());
+#ifdef _WIN32
     path_join(un, SP_COUNTOF(un), dir, L"uninstall.exe");
+#else
+    path_join(un, SP_COUNTOF(un), dir, L"update.sh");     /* install.sh's copy, not a build folder */
+#endif
     g_state.supported = file_exists(un);
     update_schedule(FALSE);
 }

@@ -82,6 +82,11 @@ folder keeps its own license file and its source link (`LivelyInfo.json`).
 Direct3D 11, DXGI, Direct2D, DirectWrite, WIC, WASAPI, DWM and the Segoe fonts are part of
 Windows and are not redistributed.
 
+## Fluent System Icons
+
+`resources/fonts/FluentSystemIcons-Regular.ttf`, the Linux window's icons. MIT License, Copyright (c) 2020 Microsoft Corporation.
+https://github.com/microsoft/fluentui-system-icons
+
 ## SHARP — not included
 
 Screen+ contains no part of Apple's SHARP model and does not download it. The SHARP option loads an ONNX file the user

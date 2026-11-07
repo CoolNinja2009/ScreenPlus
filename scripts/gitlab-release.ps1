@@ -1,4 +1,6 @@
-# Runs inside the GitLab CI job (see .gitlab-ci.yml): tools, FFmpeg, build, package, release.
+# Runs inside the GitLab CI windows job (see .gitlab-ci.yml): tools, FFmpeg, build, package. With VERSION from
+# the version job, the release job publishes release\ with the Linux builds; without it (a run by hand) this
+# publishes the Windows files itself.
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -45,7 +47,7 @@ if ($env:CI_COMMIT_TAG -and (Test-Url "$api/releases/$env:CI_COMMIT_TAG")) {
     exit 0
 }
 
-$ver = Get-Version $env:CI_COMMIT_TAG @(git tag -l) (Get-Content CMakeLists.txt -Raw)
+$ver = if ($env:VERSION) { $env:VERSION } else { Get-Version $env:CI_COMMIT_TAG @(git tag -l) (Get-Content CMakeLists.txt -Raw) }
 Write-Host "Building Screen+ $ver"
 
 # ---- tools
@@ -116,6 +118,7 @@ Copy-Item "$env:SCREENPLUS_DATA_DIR\tools" $stage -Recurse
 New-Item -ItemType Directory -Force release | Out-Null
 Copy-Item $setup, "build\ScreenPlus-$ver-samples.zip", "build\ScreenPlus-$ver-samples.json" release\
 Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$ver-win-x64-portable.zip"
+if ($env:VERSION) { Get-ChildItem release; exit 0 }   # the release job adds the sums and publishes
 Get-ChildItem release -File | ForEach-Object {
     "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
 } | Set-Content -Encoding ascii release\SHA256SUMS.txt

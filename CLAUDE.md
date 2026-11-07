@@ -9,14 +9,50 @@ reach the CLI where it applies, in the same change: a command in `src/app/cli_se
 for local ones), a settings key in `k_settings`, and the CLI help text. If it doesn't apply to the CLI, say so in
 the report.
 
+## Linux (`src/linux/`; merged into main for 2.0, both platforms release together)
+KDE Plasma 6 and Hyprland: no tray, GNOME or screensaver. `compat.h`/`compat.c` stand in for the Win32 the
+shared code uses, so `config.c`, `json.c`, `log.c`, `util.c`, `paths.c`, `library.c`, `cli_server.c` and `wallpaper_api.c` build
+unchanged (guards are `#ifdef _WIN32`; `SP_SEP_W` is the path separator; every compat file call turns `\` into `/`).
+Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on Windows.
+- `screenplus` = `cli.c` (client, entry point) + `service.c` (`--daemon`: owns config.ini, Unix socket
+  `$XDG_RUNTIME_DIR/screenplus.sock`, the `app_*` API, stubs for what isn't ported). Plain libc.
+- KDE: `desktop_kde.c` copies `kde/org.screenplus.wallpaper` into Plasma and writes its config through `evaluateScript`
+  (dbus-send). Playback is QML inside plasmashell (Qt Multimedia, Qt WebEngine); no engine process.
+  Plasma's icon layer sits over the wallpaper and takes the pointer, so `PointerWatch.qml` watches it from above without claiming it and `pointer.js` raises
+  the matching events in the page (`html_mouse`). Each switch makes a new view (`main.qml`). A changed plugin needs plasmashell restarted to load.
+- Hyprland: `screenplus-engine` = `engine_gtk.c`, a layer-shell window per display, libmpv (video, images) or WebKitGTK (pages).
+  Reads config.ini itself; SIGUSR1 reloads. `desktop_hypr.c` reads Hyprland's socket. Load files only after mpv's render context exists.
+- Window: `screenplus-ui.so` (`screenplus show`), dlopened by the service so the service stays plain libc, running on its thread (`ui_pump`).
+  `ui_core.c`, `ui_pages.c`, `textedit.c` are shared with Windows: `d2d_cairo.c` is the Direct2D/DirectWrite subset they use on Cairo and Pango,
+  `win_ui.h` the window messages and USER32 calls, `ui_sdl.c` feeds SDL3 events to `ui_proc`, draws menus and dialogs. Thumbnails: `ui_thumbs.c`, system ffmpeg (stills first, then animations, as `src/ui/thumbs.c`; pages with no preview of their own are recorded, see `preview.c`).
+  Icons: `resources/fonts` (Fluent System Icons, MIT); a new `GL_*` needs a line in `ui_icons.h`. `ui_stubs.c`: the screensaver stubs and small dialogs.
+- Build: `cmake -S . -B build-linux -G Ninja`. CI: `.github/workflows/linux.yml` (pushes to cross-platform; `release.yml` calls it). GitLab: `.gitlab-ci.yml` builds Linux on its own machines (tar.gz, .deb for Debian and Ubuntu, .rpm; `scripts/gitlab-linux.sh`) beside the Windows build, and one release carries both.
+- KWin has layer-shell, so the engine can be tried on KDE with plasmashell stopped. In a VM, idle dimming and screen-off make screenshots dark or black, and with 3D on `VBoxManage screenshotpng` is stale: look at the VM window. Web wallpapers need 3D on; without a GPU Chromium stalls. A service started over SSH gets no keyboard in the window.
+- Shared Windows code runs on Linux through small stand-ins, not rewrites. `winobj.c`: threads, events, processes, SRW locks, condition variables. `service.c`: `PostMessageW`/`SetTimer` (a queue and timer table its loop drains; `g_app.shellWnd` is the write end of a pipe, so a child's `PostMessageW` reaches the same queue). `http_linux.c`: `webfetch.h` over a `curl` child per request, plus SHA-256. `wic_linux.[ch]`: the WIC calls depth_infer.c uses, on libav.
+- Store, updates, samples, depth.c: in the service, unchanged apart from `#ifdef`s. Update's asset is the tarball, run through `update.sh` (written by install.sh; its presence means "installed").
+- Depth child: `screenplus --depth` loads `screenplus-depth.so` (libav; ONNX Runtime 1.24.4 CPU is downloaded and pinned in depth.c, dlopened). Always `--cpu`: no GPU path yet. Templates `depth.html`, `splat.html` ship beside the program. SHARP: nothing ships, as on Windows.
+- `preview.c`: page recordings through `plasmawindowed` + `kde/org.screenplus.capture` on the offscreen platform (KDE only); the recorder doesn't quit, so `done.png` ends it.
+- `webhost.c`: local web wallpapers load from `http://<token>-<id>.localhost:<port>/`, the Linux counterpart of WebView2's virtual host: `/x.js`, ES modules and fetch need it, and file names match whatever their case. `cache/webhost.txt` hands port and token to the engine.
+- `feed.c`: audio (pw-record, parec), system data and MPRIS track for pages, over a token-guarded WebSocket on 127.0.0.1; `cache/feed.js` goes into the shim on both desktops. Sampled only for what a connected page wants, never while paused.
+- Streams: `import` in automatic mode saves up to 10 minutes / 300 MB, else adds a `WPFLAG_YTDLP` entry; `stream_address` in desktop_kde.c resolves it (2 h cache). Sites with no combined stream play picture only.
+- `screenplus store` lists, searches and downloads (added so the Store could be driven from the CLI).
+- Pausing a page: Qt only freezes an invisible page, so `WebView.qml` grabs the last frame, shows it as a picture, hides the page and freezes it. Measure pause by frames the page draws, not CPU.
+- Sign-in: `startup on` writes an XDG autostart entry and, on Plasma, `screenplus.service` under `plasma-core.target.wants`, both running `--daemon --startup` (a second copy exits at once). Web host and feed come up before anything else, on the port and token kept in `cache/webhost.txt` and `feed.txt`; `WebView.qml` retries a failed load every 250 ms, so a page Plasma started first needs no reload. Monitors are polled every 200 ms until Plasma answers. `kde_install_plugin` copies only when `diff` finds a change.
+- Settings on Linux: `start_with_linux` is `startWithWindows`, read back from the entry at start; `launch_to_tray` means the window stays closed at sign-in; `web_fps` is a requestAnimationFrame limit in the shim (`sp_fps_js`, file `wallpaper-api-<fps>.js` so a change reloads the page); `pause_when_covered`: any maximised window on that screen (`FullscreenWatch.qml`); span: `SpanX/Y/W/H` per display in `main.qml`. Hidden (`setting_listed`, Settings page): still_wallpaper, lively_auto_import, screensaver_*. `SCREENPLUS_POWER_DIR` stands in for /sys/class/power_supply in tests.
+- Lock: `session_locked` polls org.freedesktop.ScreenSaver every 5 s (KDE). Identify: notifications. Colour dialog: kdialog or zenity.
+- Not ported: screensaver, tray, GNOME, GPU depth. Doesn't apply: Lively discovery (Lively is Windows-only); stills (Plasma's plugin stays set across sign-in, so the wallpaper starts by itself).
+- Release tarball caveat: `screenplus-depth.so` links the build machine's libav sonames, so a tarball built on Ubuntu may not load on a distro with newer FFmpeg: `--depth` then exits 3. Building from source works.
+
 ## Build
 - `cmd.exe /c "<repo>\build.cmd" Release <x.y.z>`. Call it by full path; PowerShell can't resolve it relatively.
   It needs VS 2022 Build Tools + the Windows SDK. FFmpeg is prebuilt in `third_party/ffmpeg`; only
   `scripts/build-ffmpeg.sh` (MSYS2 UCRT64) rebuilds it. NSIS produces `build\ScreenPlus-Setup-<ver>.exe`.
 - `build\` gets `ScreenPlus.exe` (GUI), `ScreenPlus.com` (terminal CLI), FFmpeg DLLs, `samples\` and `licenses\`.
   Keep the build at 0 warnings (/W4).
-- GitLab mirror: `.gitlab-ci.yml` runs `scripts/gitlab-release.ps1` (runner on the user's PC, `C:\GitLab-Runner`, unsigned builds, FFmpeg kept
-  in the package registry). The app and updater still point at GitHub.
+- GitLab: `.gitlab-ci.yml` picks one VERSION (`scripts/gitlab-version.sh`: tag, else next patch after the newest vX.Y.Z tag, or
+  CMakeLists.txt's when higher; SKIP for a tag already released), builds Windows with `scripts/gitlab-release.ps1` (runner on
+  the user's PC, `C:\GitLab-Runner`, unsigned, FFmpeg kept in the package registry) and Linux on GitLab's machines, and
+  `scripts/gitlab-publish.sh` makes one release with every file and SHA256SUMS.txt. The app and updater still point at GitHub.
 - There is no unit-test suite. `tests/desktop_probe.c` and `tests/sysinfo_test.c` are validation helpers.
 - CI (`.github/workflows/release.yml`) releases every push to main as the next patch version, or as
   `SCREENPLUS_VERSION` in CMakeLists.txt when that is higher; a `vX.Y.Z` tag releases that exact version.

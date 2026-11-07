@@ -1,0 +1,62 @@
+#!/bin/sh
+# Installs this Screen+ folder for the current user: ~/.local/share/screenplus-app, and `screenplus` on PATH.
+set -eu
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+app="${XDG_DATA_HOME:-$HOME/.local/share}/screenplus-app"
+bin="$HOME/.local/bin"
+
+[ "$here" = "$app" ] && { echo "Already installed here."; exit 0; }
+rm -rf "$app"
+mkdir -p "$app" "$bin"
+cp -r "$here"/. "$app"/
+ln -sf "$app/screenplus" "$bin/screenplus"
+
+cat > "$app/update.sh" <<'EOF'
+#!/bin/sh
+# Auto update: called with the verified release tarball. Waits for Screen+ to close, installs it, starts it again.
+set -u
+exec >/dev/null 2>&1
+tmp=$(mktemp -d)
+tar -xzf "$1" -C "$tmp" --strip-components 1 || exit 1
+"$HOME/.local/bin/screenplus" stop
+sleep 2
+"$tmp/install.sh"
+rm -rf "$tmp"
+"$HOME/.local/bin/screenplus" start
+EOF
+chmod +x "$app/update.sh"
+
+echo "Installed. Start it with: screenplus start"
+case ":$PATH:" in
+    *":$bin:"*) ;;
+    *)
+        for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+            [ -f "$rc" ] || continue
+            grep -q '.local/bin' "$rc" || printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$rc"
+        done
+        echo "Open a new terminal to use the screenplus command." ;;
+esac
+
+apps="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+mkdir -p "$apps"
+rm -f "$apps/screenplus.desktop"     # the name before it matched the window's app id
+icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
+mkdir -p "$icons"
+cp "$here/screenplus.png" "$icons/org.screenplus.ScreenPlus.png"
+cat > "$apps/org.screenplus.ScreenPlus.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Screen+
+Comment=Live wallpapers
+Exec="$app/screenplus" show
+Icon=org.screenplus.ScreenPlus
+Categories=Utility;
+EOF
+case "${XDG_CURRENT_DESKTOP:-}" in
+    *Hyprland*|*hyprland*)
+        echo "Hyprland needs: gtk4 gtk4-layer-shell mpv (libmpv) webkitgtk-6.0" ;;
+    *KDE*)
+        echo "KDE needs Qt Multimedia, and Qt WebEngine for web wallpapers (Fedora: qt6-qtmultimedia qt6-qtwebengine)" ;;
+esac
+echo "The window needs SDL3, Cairo, Pango and ffmpeg. Open it with: screenplus show"
+echo "Also used when present: curl (Store), yt-dlp (links), bsdtar (sample updates), pw-record (audio for pages), notify-send, kdialog or zenity."
