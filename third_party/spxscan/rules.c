@@ -273,7 +273,7 @@ static void urls(Ctx *c)
             for (size_t h = 0; h < sizeof(harmless) / sizeof(*harmless); h++) if (!strcmp(host, harmless[h])) skip = 1;
             for (int h = 0; h < nseen; h++) if (!strcmp(seen[h], host)) skip = 1;
             if (skip || manifest_host_ok(c->m, host)) continue;
-            if (nseen < 16) strcpy(seen[nseen++], host);
+            if (nseen < 16) snprintf(seen[nseen++], sizeof(seen[0]), "%s", host);
             spx_add(c->r, SPX_WARN, "net.undeclared", c->file, line_of(c, pos), "network address %s isn't declared in net.client", host);
         }
     }
