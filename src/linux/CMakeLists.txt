@@ -27,7 +27,8 @@ if(SCREENPLUS_UI)
     pkg_check_modules(UI REQUIRED IMPORTED_TARGET sdl3 cairo pangocairo fontconfig)
     add_library(screenplus-ui MODULE ui_sdl.c ui_thumbs.c ui_stubs.c d2d_cairo.c
         ${ROOT}/ui/ui_core.c ${ROOT}/ui/ui_pages.c ${ROOT}/ui/textedit.c)
-    set_target_properties(screenplus-ui PROPERTIES PREFIX "")
+    # The Ubuntu .deb carries SDL3 and gtk4-layer-shell beside the program (scripts/build-libs-linux.sh)
+    set_target_properties(screenplus-ui PROPERTIES PREFIX "" INSTALL_RPATH "\$ORIGIN")
     target_link_libraries(screenplus-ui PRIVATE PkgConfig::UI m pthread)
     target_link_options(screenplus-ui PRIVATE -Wl,-Bsymbolic)   # its ui_* must not resolve to the service's forwarders
     target_compile_options(screenplus-ui PRIVATE -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas)
@@ -67,7 +68,7 @@ if(SCREENPLUS_DEPTH)
     endif()
     pkg_check_modules(DEPTH REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswscale)
     add_library(screenplus-depth MODULE depth_module.c wic_linux.c ${ROOT}/app/depth_infer.c)
-    # The .rpm carries its own FFmpeg in ffmpeg/ (scripts/build-ffmpeg-linux.sh); elsewhere the system's is used
+    # The .rpm and the Ubuntu .deb carry their own FFmpeg in ffmpeg/ (scripts/build-ffmpeg-linux.sh); elsewhere the system's is used
     set_target_properties(screenplus-depth PROPERTIES PREFIX "" INSTALL_RPATH "\$ORIGIN/ffmpeg")
     target_include_directories(screenplus-depth PRIVATE ${ORT_INC})
     target_link_libraries(screenplus-depth PRIVATE PkgConfig::DEPTH m pthread ${CMAKE_DL_LIBS})
@@ -80,6 +81,7 @@ if(SCREENPLUS_ENGINE)
     # gtk4-layer-shell has to come before libwayland-client on the link line
     pkg_check_modules(ENGINE REQUIRED IMPORTED_TARGET gtk4-layer-shell-0 gtk4 webkitgtk-6.0 mpv epoxy)
     add_executable(screenplus-engine engine_gtk.c ${SHARED})
+    set_target_properties(screenplus-engine PROPERTIES INSTALL_RPATH "\$ORIGIN")
     target_link_libraries(screenplus-engine PRIVATE PkgConfig::ENGINE m pthread ${CMAKE_DL_LIBS})
     target_compile_options(screenplus-engine PRIVATE -Wall -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas -Wno-deprecated-declarations)
 endif()

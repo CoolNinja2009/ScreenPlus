@@ -15,12 +15,19 @@ Screen+ uses the FFmpeg libraries `avformat-62.dll`, `avcodec-62.dll`, `avutil-6
   tarball above.
 - The libraries are dynamically linked (delay-loaded) and may be replaced: drop in any
   ABI-compatible FFmpeg 8.x build of the same major versions next to `ScreenPlus.exe`.
-- Linux: the Fedora `.rpm` ships the same release as `libavformat.so.62`, `libavcodec.so.62`,
+- Linux: the Fedora `.rpm` and the Ubuntu `.deb` ship the same release as `libavformat.so.62`, `libavcodec.so.62`,
   `libavutil.so.60`, `libswscale.so.9` and `libswresample.so.6` in `/usr/lib/screenplus/ffmpeg/`
   (with `COPYING.LGPLv2.1`), built by `scripts/build-ffmpeg-linux.sh` (also LGPL only), dynamically
   linked and replaceable in the same way. The other Linux packages use the system's FFmpeg.
 - Codec patents: some formats (e.g. H.264/HEVC) may be covered by patents in some
   jurisdictions. Distributors are responsible for any required licenses.
+
+## SDL 3.4.18 — zlib; gtk4-layer-shell 1.0.4 — MIT (Ubuntu `.deb` only)
+
+Ubuntu 24.04 has neither, so the Ubuntu `.deb` ships `libSDL3.so.0` and `libgtk4-layer-shell.so.0` in
+`/usr/lib/screenplus/`, built unmodified from <https://github.com/libsdl-org/SDL/releases/tag/release-3.4.18> and
+<https://github.com/wmww/gtk4-layer-shell/releases/tag/v1.0.4> by `scripts/build-libs-linux.sh`, with their licences
+(`LICENSE.SDL3.txt`, `LICENSE.gtk4-layer-shell.txt`) in `/usr/share/doc/screenplus/`. The other packages use the system's.
 
 ## Microsoft Edge WebView2 SDK 1.0.4258.31 — BSD-3-Clause
 

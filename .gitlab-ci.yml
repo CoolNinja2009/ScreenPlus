@@ -1,6 +1,7 @@
 # Builds Screen+ for Windows and Linux and publishes them as one GitLab release: the Windows installer, a
 # portable zip and the samples (on the runner on the developer's PC, unsigned: SignPath runs on GitHub only),
-# and a tar.gz from Arch, a .deb each for Debian and Ubuntu and an .rpm from Fedora (on GitLab's machines).
+# and a tar.gz for any distribution with an install.sh that installs what is missing (built with the Ubuntu .deb), a
+# .deb each for Debian and Ubuntu (24.04 and newer) and an .rpm from Fedora (on GitLab's machines).
 # Every push to main gets the next version, a vX.Y.Z tag releases that exact version, merge requests are built
 # but not released. Nothing is released unless every build passes. Like .github/workflows/release.yml
 # (Windows only).
@@ -81,7 +82,7 @@ windows:
 .apt: &apt
   - export DEBIAN_FRONTEND=noninteractive
   - apt-get update
-  - apt-get install -y --no-install-recommends ca-certificates build-essential cmake ninja-build pkg-config dpkg-dev libsdl3-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libgtk-4-dev libgtk4-layer-shell-dev libmpv-dev libwebkitgtk-6.0-dev libepoxy-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+  - apt-get install -y --no-install-recommends ca-certificates build-essential cmake ninja-build pkg-config dpkg-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libgtk-4-dev libmpv-dev libwebkitgtk-6.0-dev libepoxy-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
 
 arch:
   extends: .linux
@@ -89,7 +90,7 @@ arch:
   script:
     - if [ "$SKIP" = 1 ]; then exit 0; fi
     - pacman -Syu --noconfirm --needed base-devel cmake ninja pkgconf sdl3 cairo pango fontconfig gtk4 gtk4-layer-shell mpv webkitgtk-6.0 libepoxy wayland wayland-protocols ffmpeg
-    - bash scripts/gitlab-linux.sh tar
+    - bash scripts/gitlab-linux.sh build          # newest compiler and libraries; the tarball comes from the ubuntu job
 
 debian:
   extends: .linux
@@ -97,15 +98,55 @@ debian:
   script:
     - if [ "$SKIP" = 1 ]; then exit 0; fi
     - *apt
+    - apt-get install -y --no-install-recommends libsdl3-dev libgtk4-layer-shell-dev
     - bash scripts/gitlab-linux.sh deb debian
 
+# Built on 24.04, the oldest Ubuntu still supported and KDE neon's base, so it installs on every newer one too. 24.04
+# has no SDL3, gtk4-layer-shell or FFmpeg 8: the package carries its own (scripts/build-libs-linux.sh, build-ffmpeg-linux.sh).
+# The tarball is packed from the same tree, so it runs on any glibc 2.39+ distribution.
 ubuntu:
   extends: .linux
-  image: ubuntu:26.04
+  image: ubuntu:24.04
   script:
     - if [ "$SKIP" = 1 ]; then exit 0; fi
     - *apt
+    - apt-get install -y --no-install-recommends meson patchelf curl xz-utils nasm libdav1d-dev zlib1g-dev libwayland-dev wayland-protocols libxkbcommon-dev libegl-dev libgl-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libdecor-0-dev libdbus-1-dev
     - bash scripts/gitlab-linux.sh deb ubuntu
+
+# The same .deb on the newest Ubuntu
+ubuntu-newest:
+  stage: build
+  needs: [version, ubuntu]
+  image: ubuntu:26.04
+  variables:
+    GIT_STRATEGY: none
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - export DEBIAN_FRONTEND=noninteractive
+    - apt-get update
+    - apt-get install -y --no-install-recommends ./release/ScreenPlus-$VERSION-ubuntu-amd64.deb
+    - screenplus version | grep -F "$VERSION"
+    - screenplus help > /dev/null
+    - if ldd /usr/lib/screenplus/screenplus-ui.so /usr/lib/screenplus/screenplus-engine /usr/lib/screenplus/screenplus-depth.so | grep 'not found'; then exit 1; fi
+
+# The tarball's install.sh on bare images: it must install what each distribution lacks (scripts/gitlab-install-test.sh)
+install-test:
+  stage: build
+  needs: [version, ubuntu]
+  image: $IMAGE
+  variables:
+    GIT_DEPTH: "1"
+  parallel:
+    matrix:
+      - { DISTRO: arch, IMAGE: "archlinux:latest" }
+      - { DISTRO: fedora, IMAGE: "fedora:latest" }
+      - { DISTRO: opensuse, IMAGE: "opensuse/tumbleweed:latest" }
+      - { DISTRO: debian, IMAGE: "debian:13" }
+      - { DISTRO: ubuntu, IMAGE: "ubuntu:26.04" }
+      - { DISTRO: neon, IMAGE: "ubuntu:24.04" }
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - sh scripts/gitlab-install-test.sh $DISTRO
 
 # Built on the oldest Fedora still supported, so glibc's symbols suit the newer ones; it carries its own FFmpeg.
 fedora:
@@ -119,7 +160,7 @@ fedora:
 release:
   stage: release
   image: alpine:latest
-  needs: [version, windows, arch, debian, ubuntu, fedora]
+  needs: [version, windows, arch, debian, ubuntu, ubuntu-newest, install-test, fedora]
   rules:
     - if: $CI_PIPELINE_SOURCE != "merge_request_event"
   variables:

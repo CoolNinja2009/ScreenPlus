@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs inside the GitLab CI build jobs (see .gitlab-ci.yml). `tar` packs the folder for install.sh;
-# `deb <distro>` and `rpm` make a system package, install it and run it. VERSION comes from the version job.
+# Runs inside the GitLab CI build jobs (see .gitlab-ci.yml). `deb <distro>` and `rpm` make a system package, install it
+# and run it; `deb ubuntu` also packs the tarball (the folder for install.sh) from the same tree, so it carries the same
+# libraries and runs on any glibc 2.39+ distro. `build` only builds. VERSION comes from the version job.
 set -euo pipefail
 
 kind=$1
@@ -8,10 +9,18 @@ distro=${2:-}
 ver=$VERSION
 echo "Building Screen+ $ver ($kind)"
 
-if [ "$kind" = rpm ]; then
-    # One .rpm for every Fedora: the depth module carries its own FFmpeg (the system's sonames differ per release)
+# One .rpm for every Fedora and one Ubuntu .deb for 24.04 (KDE neon's base) and newer: the depth module carries its own
+# FFmpeg (the system's sonames differ per release). Ubuntu 24.04 has no SDL3 or gtk4-layer-shell, so that .deb carries
+# them too (beside the program, the RUNPATH of screenplus-ui.so and screenplus-engine).
+own=
+if [ "$kind" = rpm ] || [ "$distro" = ubuntu ]; then
+    own=1
     bash scripts/build-ffmpeg-linux.sh "$PWD/ffmpeg-own"
     export PKG_CONFIG_PATH=$PWD/ffmpeg-own/lib/pkgconfig
+fi
+if [ "$distro" = ubuntu ]; then
+    bash scripts/build-libs-linux.sh "$PWD/libs-own"
+    export PKG_CONFIG_PATH=$PWD/libs-own/lib/pkgconfig:$PKG_CONFIG_PATH
 fi
 cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSCREENPLUS_VERSION="$VERSION"
 cmake --build build-linux
@@ -19,13 +28,12 @@ build-linux/src/linux/screenplus version
 build-linux/src/linux/screenplus help > /dev/null
 mkdir -p release
 
-pack_tar() {
+pack_tar() {        # after stage: the installed tree, whose RUNPATHs are $ORIGIN
     local name="ScreenPlus-$ver-linux-x86_64"
-    mkdir -p "dist/$name/fonts"
-    cp build-linux/src/linux/screenplus build-linux/src/linux/screenplus-engine build-linux/src/linux/screenplus-ui.so build-linux/src/linux/screenplus-depth.so "dist/$name/"
-    cp resources/depth.html resources/splat.html src/linux/install.sh src/linux/screenplus.png LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
-    cp resources/fonts/*.ttf "dist/$name/fonts/"
-    cp -r src/linux/kde samples "dist/$name/"
+    mkdir -p dist
+    cp -a "$pkg/usr/lib/screenplus" "dist/$name"
+    cp src/linux/install.sh src/linux/screenplus.png LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+    if [ -d libs-own ]; then cp libs-own/LICENSE.*.txt "dist/$name/"; fi
     chmod +x "dist/$name/install.sh"
     tar -C dist -czf "release/$name.tar.gz" "$name"
     (cd release && sha256sum "$name.tar.gz" > "$name.tar.gz.sha256")
@@ -49,6 +57,19 @@ Exec=/usr/bin/screenplus show
 Icon=org.screenplus.ScreenPlus
 Categories=Utility;
 DESKTOP
+    [ -z "$own" ] && return
+    # scripts/build-ffmpeg-linux.sh's FFmpeg beside the depth module (its RUNPATH is $ORIGIN/ffmpeg), each finding
+    # the others next to itself; the package then requires no particular FFmpeg
+    local ff=$pkg/usr/lib/screenplus/ffmpeg lib
+    mkdir -p "$ff"
+    cp -a ffmpeg-own/lib/*.so.* ffmpeg-own/COPYING.LGPLv2.1 "$ff/"
+    for lib in "$ff"/*.so.*; do
+        [ -L "$lib" ] || patchelf --set-rpath '$ORIGIN' "$lib"
+    done
+    if [ -d libs-own ]; then
+        cp -a libs-own/lib/lib*.so.* "$pkg/usr/lib/screenplus/"
+        cp libs-own/LICENSE.*.txt "$pkg/usr/share/doc/screenplus/"
+    fi
 }
 
 pack_deb() {
@@ -57,7 +78,13 @@ pack_deb() {
     local app="$pkg/usr/lib/screenplus"
     mkdir -p debian "$pkg/DEBIAN"
     touch debian/control          # dpkg-shlibdeps wants to be in a source package
-    libs=$(dpkg-shlibdeps -O --warnings=0 -e"$app/screenplus" -e"$app/screenplus-engine" -e"$app/screenplus-ui.so" -e"$app/screenplus-depth.so")
+    local opt=(-O --warnings=0) bin=("$app/screenplus" "$app/screenplus-engine" "$app/screenplus-ui.so" "$app/screenplus-depth.so")
+    if [ -n "$own" ]; then
+        # Libraries the package carries itself have no package to depend on; what they need is counted
+        opt+=(--ignore-missing-info -l"$app" -l"$app/ffmpeg")
+        bin+=($(find "$app" -name 'lib*.so.*' -type f))
+    fi
+    libs=$(dpkg-shlibdeps "${opt[@]}" "${bin[@]/#/-e}")
     libs=${libs#shlibs:Depends=}
     cat > "$pkg/DEBIAN/control" <<CONTROL
 Package: screenplus
@@ -65,7 +92,7 @@ Version: $VERSION
 Architecture: amd64
 Maintainer: Screen+ <noreply@screenplus.invalid>
 Depends: $libs, ffmpeg, curl
-Recommends: libarchive-tools, yt-dlp, qml6-module-qtmultimedia, qml6-module-qtwebengine
+Recommends: libarchive-tools, yt-dlp, qt6-multimedia | qml6-module-qtmultimedia, qt6-webengine | qml6-module-qtwebengine
 Section: x11
 Priority: optional
 Homepage: https://gitlab.com/screenplus-group/screenplus
@@ -106,28 +133,21 @@ cp -a $pkg/. %{buildroot}/
 /usr/share/icons/hicolor/256x256/apps/org.screenplus.ScreenPlus.png
 /usr/share/doc/screenplus
 SPEC
-    # scripts/build-ffmpeg-linux.sh's FFmpeg beside the depth module (its RUNPATH is $ORIGIN/ffmpeg), each finding
-    # the others next to itself; the package then requires no particular FFmpeg
-    local ff=$pkg/usr/lib/screenplus/ffmpeg lib
-    mkdir -p "$ff"
-    cp -a ffmpeg-own/lib/*.so.* ffmpeg-own/COPYING.LGPLv2.1 "$ff/"
-    for lib in "$ff"/*.so.*; do
-        [ -L "$lib" ] || patchelf --set-rpath '$ORIGIN' "$lib"
-    done
     rpmbuild -bb --define "_rpmdir $PWD/rpms" screenplus.spec
     cp rpms/x86_64/*.rpm "release/ScreenPlus-$ver-fedora-x86_64.rpm"
     dnf install -y "./release/ScreenPlus-$ver-fedora-x86_64.rpm"
 }
 
 case $kind in
-    tar) pack_tar ;;
-    deb) pack_deb ;;
+    build) ;;
+    deb) pack_deb; if [ "$distro" = ubuntu ]; then pack_tar; fi ;;
     rpm) pack_rpm ;;
     *) echo "Unknown kind: $kind"; exit 1 ;;
 esac
 
-if [ "$kind" != tar ]; then
+if [ "$kind" != build ]; then
     /usr/bin/screenplus version | grep -F "$ver"
     /usr/bin/screenplus help > /dev/null
+    if ldd /usr/lib/screenplus/screenplus-ui.so /usr/lib/screenplus/screenplus-engine /usr/lib/screenplus/screenplus-depth.so | grep 'not found'; then exit 1; fi
 fi
 ls -la release

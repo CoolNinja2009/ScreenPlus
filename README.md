@@ -106,15 +106,17 @@ different folder.
 ## Linux
 
 KDE Plasma 6 and Hyprland. GNOME isn't supported yet. The window is `screenplus show`; there's no tray or screensaver yet.
-Unpack `ScreenPlus-<version>-linux-x86_64.tar.gz`, run `./install.sh`, then:
+Any distribution with glibc 2.39 or newer (Ubuntu 24.04, KDE neon, Debian 13, Fedora, openSUSE, Arch and later). Unpack
+`ScreenPlus-<version>-linux-x86_64.tar.gz` and run `./install.sh`: it finds what your system is missing and offers to
+install it with your package manager (apt, dnf, zypper or pacman). `./install.sh --check` only reports. There are also
+a `.deb` (Ubuntu 24.04+ and KDE neon, or Debian 13+) and an `.rpm` (Fedora). Then:
 
 ```bash
 screenplus start
 screenplus import ~/Videos/rain.mp4 --apply
 ```
 
-`screenplus help` lists the commands. KDE needs Qt Multimedia, plus Qt WebEngine for web wallpapers. Hyprland needs
-GTK 4, gtk4-layer-shell, libmpv and WebKitGTK. The window needs SDL3, Cairo, Pango and ffmpeg. Video links need yt-dlp.
+`screenplus help` lists the commands. Video links need yt-dlp.
 
 ## Building
 
