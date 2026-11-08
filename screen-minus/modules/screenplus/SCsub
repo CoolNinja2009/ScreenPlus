@@ -1,0 +1,9 @@
+#!/usr/bin/env python
+Import("env")
+Import("env_modules")
+
+env_sp = env_modules.Clone()
+env_sp.add_source_files(env.modules_sources, "*.cpp")
+
+if env["platform"] == "windows":
+    env.Append(LIBS=["kernel32"])

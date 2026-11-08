@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://screenplus.example/spx/manifest-1.json",
+  "title": "Screen+ project manifest (.spx)",
+  "type": "object",
+  "required": ["spx", "id", "title", "author", "version", "runtime", "entry"],
+  "additionalProperties": false,
+  "properties": {
+    "spx": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+){1,5}$", "maxLength": 128 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "author": { "type": "string", "minLength": 1, "maxLength": 80 },
+    "description": { "type": "string", "maxLength": 2000 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "runtime": { "type": "string", "pattern": "^(web|screen-[0-9]+\\.[0-9]+(\\.[0-9]+)?-[0-9]+)$" },
+    "entry": { "type": "string", "enum": ["project.pck", "web/index.html"] },
+    "web": { "const": "web/index.html", "description": "HTML build shipped beside the native one" },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "audio": { "type": "boolean" },
+        "mic": { "type": "boolean" },
+        "camera": { "type": "boolean" },
+        "ai": { "type": "boolean" },
+        "system": { "type": "boolean" },
+        "net.client": { "$ref": "#/$defs/hosts" },
+        "net.server": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ports": { "type": "array", "items": { "type": "integer", "minimum": 1024, "maximum": 65535 } },
+            "lan": { "type": "boolean" }
+          }
+        },
+        "osc": { "type": "boolean" },
+        "midi": { "type": "boolean" },
+        "serial": { "type": "boolean" },
+        "hid": { "type": "boolean" },
+        "gamepad": { "type": "boolean" },
+        "bluetooth.le": { "type": "boolean" },
+        "fs.read": { "$ref": "#/$defs/folders" },
+        "fs.write": { "$ref": "#/$defs/folders" },
+        "desktop": { "type": "boolean" },
+        "screen": { "type": "boolean" },
+        "clipboard": { "type": "boolean" },
+        "location": { "type": "boolean" },
+        "bus": { "type": "boolean" },
+        "web.eval": { "type": "boolean" },
+        "process": { "type": "boolean" },
+        "native": { "type": "boolean" }
+      }
+    },
+    "properties": {
+      "type": "object",
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "label"],
+        "properties": {
+          "type": { "enum": ["slider", "color", "checkbox", "dropdown", "textbox", "file"] },
+          "label": { "type": "string", "maxLength": 80 },
+          "value": {},
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "step": { "type": "number" },
+          "items": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "hosts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^(\\*|(\\*\\.)?[a-z0-9-]+(\\.[a-z0-9-]+)*(:[0-9]{1,5})?)$" }
+    },
+    "folders": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["pictures", "music", "videos", "documents", "downloads", "picked"] }
+    }
+  }
+}
