@@ -296,6 +296,16 @@ Renderer details:
   GPU: a frame is ~4 ms on an RTX 5070 at 2560x1440, two thirds of it pixels, so Frame rate (default 60) sets the cost;
   none at rest. Don't prune "hidden" Gaussians: neighbours on a surface overlap, so it punches holes, and doing it safely
   saved 0-2%.
+  SHARP for videos (`splatvideo.html`, `IDR_SPLATVIDEO_HTML`): SHARP per frame is far too slow and big, so `depth.c`'s
+  `sharp_video_job` runs fresh processes in turn (DirectML keeps GPU memory until a process ends; SHARP after another
+  model in one process fell back to the CPU): `--keys` = DA2 Small per frame into `depth-sharp-da.bin` (SPDV) while
+  `key_take` picks keyframes by the *depth* thumbnail's change (KEY_DIFF 22, KEY_GAP 3 s, KEY_MAX 8: flicker and glow
+  don't count, a cut or a moved camera does), each saved as `key<i>.raw` (SPKF) + `keys.txt`; then `--keyframe` per key
+  (SHARP capped at SHARP_VIDEO_CAP = 500k Gaussians, ~16 MB) into `depth-sharp-k<i>.bin`; then `depth-sharp.bin` is the
+  JSON list {da, keys:[{t,f}]}. The page draws the keyframe for the playhead; each Gaussian takes the playing video's
+  colour at its picture spot by its visibility weight (hidden ones keep their own) plus the frame's detail, and moves
+  along its line of sight where this frame's depth differs from the keyframe's. 15 s aura clip on the RTX 5070: 13 s
+  of depth + 4 keyframes at ~35 s each (SHARP on DirectML varies 3-33 s per run even for pictures).
   A shader local named like a varying breaks it quietly: check the program links. Settings follow ml-sharp: almost no 2D
   low-pass (0.3 cost more sharpness than anything else), EXIF lens, focus at the 10% depth, motion from the 0.1% depth. Colours
   blend in sRGB, not ml-sharp's linear: opacity is ~1 almost everywhere, so a float target isn't worth its cost.

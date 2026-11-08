@@ -23,7 +23,7 @@ pack_tar() {
     local name="ScreenPlus-$ver-linux-x86_64"
     mkdir -p "dist/$name/fonts"
     cp build-linux/src/linux/screenplus build-linux/src/linux/screenplus-engine build-linux/src/linux/screenplus-ui.so build-linux/src/linux/screenplus-depth.so "dist/$name/"
-    cp resources/depth.html resources/splat.html src/linux/install.sh src/linux/screenplus.png LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+    cp resources/depth.html resources/splat.html resources/splatvideo.html src/linux/install.sh src/linux/screenplus.png LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
     cp resources/fonts/*.ttf "dist/$name/fonts/"
     cp -r src/linux/kde samples "dist/$name/"
     chmod +x "dist/$name/install.sh"

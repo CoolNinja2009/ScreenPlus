@@ -2,7 +2,7 @@
  *   ScreenPlus.exe [--tray|--startup|--show|--pause|--resume|--toggle-pause|--next|--exit]   shell (UI, tray, supervisor)
  *   ScreenPlus.exe --engine --shell=<hwnd> [--safe-mode]                          wallpaper engine (spawned by shell)
  *   ScreenPlus.exe --capture-preview <wallpaper id>                               records an HTML preview (spawned by shell)
- *   ScreenPlus.exe --depth <image|video> <dir> [--model <key>] [--video] [--notify <hwnd>] [--cpu | --bench | --crashed] [--png]
+ *   ScreenPlus.exe --depth <image|video> <dir> [--model <key>] [--video | --keys | --keyframe] [--notify <hwnd>] [--cpu | --bench | --crashed] [--png]
  *                                                                                 depth of one image or video (spawned by shell)
  *   ScreenPlus.scr /s | /p <hwnd> | /c,  ScreenPlus.exe --screensaver /s           screensaver (started by Windows / Preview) */
 #include "common/common.h"
@@ -46,6 +46,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdLine, int show)
         else if (str_ieq(argv[i], L"--png")) wantPng = 1;
         else if (str_ieq(argv[i], L"--model") && i + 1 < argc) depthModel = argv[++i];
         else if (str_ieq(argv[i], L"--video")) depthVideo = 1;
+        else if (str_ieq(argv[i], L"--keys")) depthVideo = DEPTH_VIDEO_KEYS;
+        else if (str_ieq(argv[i], L"--keyframe")) depthVideo = DEPTH_VIDEO_KEYFRAME;
         else if (str_ieq(argv[i], L"--notify") && i + 1 < argc) depthNotify = (HWND)(uintptr_t)wcstoull(argv[++i], NULL, 16);
         else if (str_ieq(argv[i], L"--screensaver") && !scr) scr = 2;
     }

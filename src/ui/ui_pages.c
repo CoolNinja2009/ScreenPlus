@@ -2596,7 +2596,6 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     int n = depth_model_count(), chosen = SP_MAX(0, depth_model_find(g_app.cfg.s.depthModel)), used = depth_entry_model(e);
     double secs = depth_entry_seconds(e);
     wchar_t noteBuf[200], size[24], line[200];
-    if (secs > 0 && depth_model(chosen)->splat) chosen = 0;   /* what a video really gets (depth.c's start) */
     const wchar_t *note = NULL;
     if (failed) note = st.text;
     else if (st.busy && !mine) note = L"Busy with another wallpaper.";
@@ -2632,28 +2631,26 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
         for (int i = 0; i < n; i++) {
             const DepthModel *m = depth_model(i);
             D2D1_RECT_F r = rectf(x + 18, cy, w - 36, rowH - 4);
-            int id = HIT_ID(HK_DEPTH_MODEL, i), ready = depth_model_ready(i), off = m->splat && secs > 0;   /* no use for a video */
+            int id = HIT_ID(HK_DEPTH_MODEL, i), ready = depth_model_ready(i);
             depth_estimate(i, secs, &est);
             if (i == chosen) ui_rrect(r, 8, t->highlight);
-            else if (!off && ui_is_hot(id)) ui_rrect(r, 8, t->panelHover);
+            else if (ui_is_hot(id)) ui_rrect(r, 8, t->panelHover);
             if (i == chosen) ui_icon(GL_CHECK, u->fIconS, rectf(r.left + 6, r.top, 22, rowH - 4), t->accent);
             str_copy(line, SP_COUNTOF(line), m->name);
             if (i == used) str_cat(line, SP_COUNTOF(line), L"  (in use)");
-            ui_text(line, u->fBodyB, rectf(r.left + 32, r.top + 7, r.right - r.left - colW - 44, 20), off ? t->text3 : t->text);
-            ui_text(m->desc, u->fSmall, rectf(r.left + 32, r.top + 29, r.right - r.left - colW - 44, 18), off ? t->text3 : t->text2);
+            ui_text(line, u->fBodyB, rectf(r.left + 32, r.top + 7, r.right - r.left - colW - 44, 20), t->text);
+            ui_text(m->desc, u->fSmall, rectf(r.left + 32, r.top + 29, r.right - r.left - colW - 44, 18), t->text2);
             /* right column: meter and verdict, then the time and the download */
             float cx = right - colW;
-            if (!off) depth_meter(u, cx, r.top + 17, est.level);
-            if (off) {
-                str_copy(line, SP_COUNTOF(line), L"Pictures only");
-            } else if (est.level > 0) {
+            depth_meter(u, cx, r.top + 17, est.level);
+            if (est.level > 0) {
                 wchar_t tm[32];
                 depth_time_text(est.seconds, tm, SP_COUNTOF(tm));
                 str_printf(line, SP_COUNTOF(line), L"%ls  ·  %ls%ls", k_levelNames[est.level], tm, secs > 0 ? L" for this video" : L"");
             } else {
                 str_copy(line, SP_COUNTOF(line), L"Can't run: not enough memory");
             }
-            ui_text(line, u->fSmall, rectf(cx + 52, r.top + 8, colW - 52, 18), off ? t->text3 : est.level > 1 ? t->text : col(k_levelColours[est.level], 1.0f));
+            ui_text(line, u->fSmall, rectf(cx + 52, r.top + 8, colW - 52, 18), est.level > 1 ? t->text : col(k_levelColours[est.level], 1.0f));
             if (m->user) {
                 str_copy(line, SP_COUNTOF(line), ready ? L"Your file" : L"Choose your .onnx");
             } else if (ready) {
@@ -2663,10 +2660,8 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
                 str_printf(line, SP_COUNTOF(line), L"Download %ls", size);
             }
             ui_text(line, u->fSmall, rectf(cx + 52, r.top + 29, colW - 52, 18), t->text3);
-            if (!off) {
-                ui_hit(id, r, 1, 1);
-                ui_focus_ring(r, 8, id);
-            }
+            ui_hit(id, r, 1, 1);
+            ui_focus_ring(r, 8, id);
             cy += rowH;
         }
         cy += 8;

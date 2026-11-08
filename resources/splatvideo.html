@@ -1,0 +1,290 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>SHARP video wallpaper</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000}
+#v,#c{position:fixed;left:0;top:0;width:100%;height:100%}
+#v{object-fit:cover;transform:scale(1.0638)}
+#c{opacity:0;transition:opacity .4s}
+</style>
+<video id="v"></video><canvas id="c"></canvas>
+<script>
+/* True 3D video wallpaper made by Screen+ with SHARP (depth_infer.c's sharp_video). SHARP is far too slow and its files
+ * far too big for every frame, so __DEPTH__ lists a few keyframes, each SHARP's 3D Gaussians of one frame (the format
+ * of splat.html: sorted far to near, laid out as a texture), taken where the picture changes a lot, plus a quick depth
+ * (Depth Anything) of every frame ("SPDV", as depth.html reads it). Between keyframes:
+ *  - colour: each Gaussian's pixels take the playing video at full resolution where they sat in the keyframe, by how
+ *    visible the Gaussian was there (the file's per-Gaussian weight); hidden ones keep their own, so what parallax
+ *    uncovers isn't painted with whatever is in front of it;
+ *  - shape: where this frame's depth differs from the keyframe's (something came nearer or went), the Gaussians there
+ *    move along their line of sight by the ratio of the two, so the picture stays put and only parallax changes.
+ * What keeps it light: one keyframe in memory, a frame drawn per video frame at most and
+ * at most Frame rate a second, nothing while Screen+ has the page suspended. If WebGL2 or the files fail, the video
+ * plays as it is. */
+(function () {
+  var cv = document.getElementById('c'), vid = document.getElementById('v');
+  vid.loop = vid.autoplay = vid.playsInline = true;
+  vid.src = '__IMG__';
+  vid.play().catch(function () { vid.muted = true; vid.play(); });   /* autoplay refused with sound: at least the picture */
+  var gl = cv.getContext('webgl2', { antialias: false, alpha: true, premultipliedAlpha: true, depth: false, stencil: false, powerPreference: 'high-performance' });
+  if (!gl) return;
+  var P = { strength: 40, autoMove: false, autoSpeed: 100, quality: 100, fps: 60 };
+  window.livelyPropertyListener = function (n, v) {
+    if (!(n in P)) return;
+    P[n] = v;
+    if (n === 'autoMove' && !v) tx = ty = 0;
+    if (ready) { size(); draw(); }
+  };
+
+  var VS = '#version 300 es\nprecision highp float;precision highp int;precision highp usampler2D;\n' +
+    'uniform usampler2D T;uniform sampler2D A,B;uniform vec2 F,V,E,K,N;uniform float Z,Q;out vec2 u,w;flat out vec4 c;flat out float dw;\n' +
+    'void main(){\n' +
+    ' gl_Position=vec4(2.,2.,2.,1.);\n' +
+    ' int i=gl_InstanceID*2;ivec2 t=ivec2(i&2047,i>>11);\n' +
+    ' uvec4 a=texelFetch(T,t,0),b=texelFetch(T,t+ivec2(1,0),0);\n' +
+    ' vec3 p=uintBitsToFloat(a.xyz);\n' +
+    ' float al=float(a.w>>24u)/255.;\n' +
+    ' if(al<.0079)return;\n' +
+    ' vec2 w0=clamp(.5+.5*p.xy/p.z/N,0.,1.);\n' +               // where it sat in the picture
+    ' if(Q>0.){float k=textureLod(A,w0,0.).r,n=textureLod(B,w0,0.).r;\n' +   // keyframe's depth, this frame's (1 = nearest)
+    '  p*=mix(1.,clamp((k+.25)/(n+.25),.6,1.6),smoothstep(.05,.14,abs(n-k)));}\n' +
+    ' vec3 q=p-vec3(E,0.);float z=q.z;\n' +
+    ' vec2 r=q.xy/z,n=F*(r+E/Z);\n' +
+    ' if(abs(n.x)>1.3||abs(n.y)>1.3)return;\n' +
+    ' vec2 h0=unpackHalf2x16(b.x),h1=unpackHalf2x16(b.y),h2=unpackHalf2x16(b.z);\n' +
+    ' float k2=z*z*1e-4;\n' +
+    ' float xx=h0.x*k2,xy=h0.y*k2,xz=h1.x*k2,yy=h1.y*k2,yz=h2.x*k2,zz=h2.y*k2;\n' +
+    ' vec2 f=F*V*.5/z;\n' +
+    ' vec3 j0=vec3(f.x,0.,-f.x*r.x),j1=vec3(0.,f.y,-f.y*r.y);\n' +
+    ' vec3 s0=vec3(xx*j0.x+xy*j0.y+xz*j0.z,xy*j0.x+yy*j0.y+yz*j0.z,xz*j0.x+yz*j0.y+zz*j0.z);\n' +
+    ' vec3 s1=vec3(xx*j1.x+xy*j1.y+xz*j1.z,xy*j1.x+yy*j1.y+yz*j1.z,xz*j1.x+yz*j1.y+zz*j1.z);\n' +
+    ' float A2=dot(j0,s0)+.1,B2=dot(j0,s1),C=dot(j1,s1)+.1;\n' +
+    ' float m=.5*(A2+C),d=sqrt(max(m*m-(A2*C-B2*B2),1e-12));\n' +
+    ' float l1=m+d,l2=max(m-d,.05);\n' +
+    ' vec2 e=abs(B2)<1e-7?(A2>=C?vec2(1.,0.):vec2(0.,1.)):normalize(vec2(B2,l1-A2));\n' +
+    ' float R=sqrt(2.*log(al*255.));\n' +
+    ' float w1=R*sqrt(l1),w2=R*sqrt(l2);\n' +
+    ' if(w1>max(V.x,V.y)*.75)return;\n' +
+    ' vec2 g=vec2(float((gl_VertexID&1)*2-1),float((gl_VertexID>>1)*2-1));\n' +
+    ' vec2 o=(g.x*w1*e+g.y*w2*vec2(-e.y,e.x))*2./V;\n' +
+    ' u=g*R;\n' +
+    ' dw=float(b.w&255u)/255.;\n' +
+    ' w=w0+.5*o*K;\n' +
+    ' c=vec4(float(a.w&255u),float((a.w>>8u)&255u),float((a.w>>16u)&255u),255.*al)/255.;\n' +
+    ' gl_Position=vec4(n.x+o.x,-(n.y+o.y),0.,1.);}';
+  /* every pixel of a Gaussian takes the video at the very spot it covered in the keyframe: at rest the video comes out
+   * pixel for pixel, and as the view moves it is carried on the 3D shape */
+  var FS = '#version 300 es\nprecision highp float;uniform sampler2D I;in vec2 u,w;flat in vec4 c;flat in float dw;out vec4 o;\n' +
+    'void main(){float a=c.a*exp(-.5*dot(u,u));\n' +
+    ' o=vec4(mix(c.rgb,texture(I,w).rgb,dw)*a,a);}';
+  function shader(t, s) { var o = gl.createShader(t); gl.shaderSource(o, s); gl.compileShader(o); return o; }
+  var pr = gl.createProgram();
+  gl.attachShader(pr, shader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(pr, shader(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(pr);
+  if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) return;
+  gl.useProgram(pr);
+  var U = {};
+  ['T', 'A', 'B', 'F', 'V', 'E', 'Z', 'Q', 'K', 'N', 'I'].forEach(function (n) { U[n] = gl.getUniformLocation(pr, n); });
+  gl.uniform1i(U.T, 0);
+  gl.uniform1i(U.I, 1);
+  gl.uniform1i(U.A, 2);
+  gl.uniform1i(U.B, 3);
+  gl.uniform1f(U.Q, 0);
+  gl.bindVertexArray(gl.createVertexArray());
+  gl.disable(gl.DEPTH_TEST);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.clearColor(0, 0, 0, 0);
+  function tex(unit, mip, nearest) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST : mip ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  }
+  tex(0, 0, 1);
+  tex(1, 0, 0);
+  tex(2, 0, 0);
+  tex(3, 0, 0);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+  function grey(unit, bmp) {
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, gl.RED, gl.UNSIGNED_BYTE, bmp);
+  }
+
+  var ready = 0, count = 0, iw = 1, ih = 1, tanX = 1, tanY = 1, focus = 1, near = 0;
+  var last = 0, ph = 0, mx = 0, my = 0, tx = 0, ty = 0, drawn = 0;
+  function size() {
+    var d = (window.devicePixelRatio || 1) * P.quality / 100;
+    var w = Math.max(1, Math.round(innerWidth * d)), h = Math.max(1, Math.round(innerHeight * d));
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    var sa = innerWidth / innerHeight, ia = iw / ih;
+    var kx = Math.min(sa / ia, 1) * 0.94, ky = Math.min(ia / sa, 1) * 0.94;
+    gl.viewport(0, 0, w, h);
+    gl.uniform2f(U.V, w, h);
+    gl.uniform2f(U.F, 1 / (tanX * kx), 1 / (tanY * ky));
+    gl.uniform2f(U.K, kx, ky);
+  }
+  function draw() {
+    var s = near ? P.strength / 40 * 0.08 * 2 * Math.hypot(tanX, tanY) * near : P.strength / 100 * 0.12 * focus;
+    gl.uniform2f(U.E, mx * s, -my * s);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
+  }
+  function step(now) {                   /* the pointer's smoothing; true while it still moves */
+    var dt = last ? Math.min((now - last) / 1000, 0.1) : 0.016;
+    last = now;
+    if (P.autoMove) {
+      ph += dt * P.autoSpeed / 100;
+      tx = Math.sin(ph * 1.2) * 0.75;
+      ty = Math.cos(ph * 0.8) * 0.45;
+    }
+    var k = 1 - Math.exp(-dt * 5);
+    mx += (tx - mx) * k;
+    my += (ty - my) * k;
+    return P.autoMove || Math.abs(tx - mx) > 5e-4 || Math.abs(ty - my) > 5e-4;
+  }
+  function aim(x, y) { tx = x; ty = y; }
+  addEventListener('mousemove', function (e) {
+    if (P.autoMove) return;
+    var w = innerWidth, h = innerHeight;
+    if (e.clientX < 0 || e.clientY < 0 || e.clientX > w || e.clientY > h) aim(0, 0);   /* Screen+ sends -16,-16 on leave */
+    else aim((e.clientX / w - 0.5) * 2, -(e.clientY / h - 0.5) * 2);
+  }, { passive: true });
+  document.documentElement.addEventListener('mouseleave', function () { if (!P.autoMove) aim(0, 0); });
+  addEventListener('resize', function () { if (ready) { size(); draw(); } });
+  var lost = 0;
+  function rebuild() { if (lost && !document.hidden) setTimeout(function () { if (lost && !document.hidden) location.reload(); }, 3000); }
+  cv.addEventListener('webglcontextlost', function (e) {
+    e.preventDefault();
+    lost = 1;
+    cv.style.transition = 'none';
+    cv.style.opacity = 0;
+    vid.style.filter = 'none';
+    rebuild();
+  });
+  cv.addEventListener('webglcontextrestored', function () { location.reload(); });
+  document.addEventListener('visibilitychange', rebuild);
+
+  /* ---- per-frame depth (SPDV): JPEGs decoded a few frames ahead; not flipped, like the video and the Gaussians' w */
+  var buf = null, idx = null, dcount = 0, fps = 15, cache = {}, pending = {}, shownN = -1, keyDepth = -1;
+  function bitmap(i) {
+    i = Math.max(0, Math.min(dcount - 1, i));
+    if (cache[i]) return cache[i];
+    if (!pending[i]) {
+      pending[i] = 1;
+      var blob = new Blob([new Uint8Array(buf, idx[i * 2], idx[i * 2 + 1])], { type: 'image/jpeg' });
+      createImageBitmap(blob, { colorSpaceConversion: 'none' }).then(function (b) { delete pending[i]; cache[i] = b; trim(i); }, function () { delete pending[i]; });
+    }
+    return null;
+  }
+  function trim(keep) {
+    for (var k in cache) if (k != wantKey && Math.abs(k - keep) > 12 && Math.abs(k - keep) < dcount - 12) { cache[k].close(); delete cache[k]; }
+  }
+
+  /* ---- keyframes: the one for the playhead is loaded when it is needed; the previous stays until it is */
+  var keys = [], active = -1, loading = -1, wantKey = -1;
+  function keyAt(t) { var k = 0; for (var i = 1; i < keys.length; i++) if (keys[i].t <= t + 0.02) k = i; return k; }
+  function loadKey(k) {
+    loading = k;
+    fetch(keys[k].f).then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
+      if (loading !== k) return;
+      loading = -1;
+      var dv = new DataView(ab);
+      if (ab.byteLength < 32 || dv.getUint32(0, true) !== 0x53475053) return;      /* "SPGS" */
+      var n = dv.getUint32(4, true), rows = Math.ceil(n / 1024);
+      if (!n || rows > gl.getParameter(gl.MAX_TEXTURE_SIZE) || ab.byteLength < 32 + rows * 32768) return;
+      gl.activeTexture(gl.TEXTURE0);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, 2048, rows, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, new Uint32Array(ab, 32, rows * 8192));
+      if (gl.getError()) return;
+      count = n;
+      tanX = dv.getFloat32(8, true);
+      tanY = dv.getFloat32(12, true);
+      focus = dv.getFloat32(16, true);
+      iw = dv.getUint32(20, true);
+      ih = dv.getUint32(24, true);
+      near = dv.getFloat32(28, true);
+      gl.uniform1f(U.Z, focus);
+      gl.uniform2f(U.N, tanX, tanY);
+      active = k;
+      keyDepth = -1;
+      wantKey = Math.round(keys[k].t * fps);
+      if (!ready) {
+        ready = 1;
+        size();
+        vid.style.filter = 'blur(10px)';   /* only the gaps show it */
+        cv.style.opacity = 1;
+      }
+    }).catch(function () { if (loading === k) loading = -1; });
+  }
+
+  function videoFrame(now, meta) {
+    var t = meta && meta.mediaTime != null ? meta.mediaTime : vid.currentTime;
+    if (keys.length) {
+      var k = keyAt(t);
+      if (k !== active && k !== loading) loadKey(k);
+    }
+    if (ready && dcount) {
+      if (keyDepth < 0) { var KB = bitmap(wantKey); if (KB) { grey(2, KB); keyDepth = wantKey; } }
+      var a = Math.floor(t * fps) % dcount, Bm = bitmap(a);
+      for (var n = 1; n < 5; n++) bitmap((a + n) % dcount);
+      if (Bm && a !== shownN) { grey(3, Bm); shownN = a; }
+      gl.uniform1f(U.Q, keyDepth >= 0 && shownN >= 0 ? 1 : 0);
+    }
+    var every = 1000 / P.fps;
+    if (ready && now - drawn >= every - 1) {
+      drawn = now;
+      gl.activeTexture(gl.TEXTURE1);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, vid);
+      step(now);
+      draw();
+    }
+    later();
+  }
+  /* one chain of frame callbacks, renewed after a freeze (see depth.html) */
+  var gen = 0, seen = 0, raf = !vid.requestVideoFrameCallback;
+  function later() {
+    var g = gen;
+    function cb(now, meta) { if (g === gen) { seen = performance.now(); videoFrame(now, meta); } }
+    if (raf) requestAnimationFrame(function (now) { cb(now, null); });
+    else vid.requestVideoFrameCallback(cb);
+  }
+  setInterval(function () {
+    if (document.hidden || vid.paused || performance.now() - seen < 700) return;
+    if (!raf && vid.requestVideoFrameCallback) {
+      raf = 1;
+      vid.requestVideoFrameCallback(function () { raf = 0; gen++; later(); });
+    }
+    gen++;
+    later();
+  }, 1000);
+  function wake() {
+    if (document.hidden) return;
+    if (vid.paused) vid.play().catch(function () { vid.muted = true; vid.play(); });
+    gen++;
+    later();
+  }
+  document.addEventListener('visibilitychange', wake);
+  document.addEventListener('resume', wake);
+  vid.addEventListener('playing', wake);
+  vid.addEventListener('pause', function () { if (!document.hidden) wake(); });
+
+  fetch('__DEPTH__').then(function (r) { return r.json(); }).then(function (j) {
+    if (!j || !j.keys || !j.keys.length) return;
+    keys = j.keys;
+    loadKey(0);
+    later();
+    return fetch(j.da).then(function (r) { return r.arrayBuffer(); }).then(function (ab) {
+      var dv = new DataView(ab), e = ab.byteLength;
+      if (e < 32 || dv.getUint32(e - 4, true) !== 0x56445053) return;
+      var c = dv.getUint32(e - 24, true);
+      fps = dv.getFloat32(e - 12, true);
+      idx = new Uint32Array(ab.slice(dv.getUint32(e - 8, true), dv.getUint32(e - 8, true) + c * 8));
+      buf = ab;
+      if (c && fps > 0) { dcount = c; if (active >= 0) wantKey = Math.round(keys[active].t * fps); }
+    });
+  }).catch(function () {});
+})();
+</script>

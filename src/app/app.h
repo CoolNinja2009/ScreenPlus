@@ -301,4 +301,6 @@ void samples_on_timer(void);                           /* T_SHELL_SAMPLES */
 void samples_on_event(WPARAM wp, LPARAM lp);           /* WM_SP_SAMPLES */
 void samples_shutdown(void);
 enum { DEPTH_AUTO = 0, DEPTH_CPU = 1, DEPTH_BENCH = 2, DEPTH_CRASHED = 3 };   /* which processor: see depth_infer.c */
+/* depth_infer_main's video: 0 a picture, 1 a video, or SHARP for a video's two steps (--keyframe, --keys) */
+enum { DEPTH_VIDEO_KEYFRAME = 2, DEPTH_VIDEO_KEYS = 3 };
 int  depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wantPng, const wchar_t *model, int video, HWND notify);   /* ScreenPlus.exe --depth */

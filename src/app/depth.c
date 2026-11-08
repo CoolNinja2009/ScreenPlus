@@ -16,7 +16,7 @@
  * export they got themselves (depth_choose_model; the path waits in models\sharp\path.txt, and any .onnx put in that
  * folder works too). keep_user_model then brings it and the weights its graph names into that folder, so it stays when
  * the original moves or goes: hard links, which cost no space, else a copy. Over 2 GB an export is a graph plus a weights file (x.onnx + x.onnx.data):
- * they keep their names, because the graph names its weights file and ONNX Runtime looks beside it. The child writes 3D Gaussians and the page is resources/splat.html. Pictures only.
+ * they keep their names, because the graph names its weights file and ONNX Runtime looks beside it. The child writes 3D Gaussians and the page is resources/splat.html; a video gets SHARP on a few keyframes, coloured by the playing video (splatvideo.html).
  * The engine and the library never wait for any of it: the plain wallpaper keeps showing until the page is ready.
  * depth_estimate() rates each model for this PC (from what the child measured here, else from the GPU's memory
  * and the CPU's threads) for the model list on the Customise page. */
@@ -107,6 +107,12 @@ static const char k_splatProps[] =
     "\"autoSpeed\":{\"type\":\"slider\",\"text\":\"Auto move speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100},"
     "\"quality\":{\"type\":\"slider\",\"text\":\"Quality\",\"min\":50,\"max\":100,\"step\":5,\"value\":100},"
     "\"detail\":{\"type\":\"slider\",\"text\":\"Detail\",\"min\":0,\"max\":200,\"step\":10,\"value\":100},"
+    "\"fps\":{\"type\":\"slider\",\"text\":\"Frame rate\",\"min\":30,\"max\":120,\"step\":10,\"value\":60}}";
+static const char k_splatVideoProps[] =       /* SHARP for a video: the video gives the detail, so no Detail */
+    "{\"strength\":{\"type\":\"slider\",\"text\":\"Depth strength\",\"min\":0,\"max\":100,\"step\":1,\"value\":40},"
+    "\"autoMove\":{\"type\":\"checkbox\",\"text\":\"Auto move\",\"value\":false},"
+    "\"autoSpeed\":{\"type\":\"slider\",\"text\":\"Auto move speed\",\"min\":10,\"max\":300,\"step\":10,\"value\":100},"
+    "\"quality\":{\"type\":\"slider\",\"text\":\"Quality\",\"min\":50,\"max\":100,\"step\":5,\"value\":100},"
     "\"fps\":{\"type\":\"slider\",\"text\":\"Frame rate\",\"min\":30,\"max\":120,\"step\":10,\"value\":60}}";
 
 typedef struct DepthJob {
@@ -527,6 +533,13 @@ static BOOL ensure_assets(DepthJob *j)
         }
         LOGI(L"depth: installed ONNX Runtime 1.24.4");
     }
+    if (j->video && m->splat && !depth_model_ready(0)) {        /* SHARP for a video: per-frame depth from the default */
+        int keep = j->model;
+        j->model = 0;
+        BOOL ok = ensure_assets(j);
+        j->model = keep;
+        if (!ok) return FALSE;
+    }
     if (depth_model_ready(j->model)) {
         if (m->user) {
             set_status(-1, L"Keeping your model…");
@@ -694,6 +707,13 @@ void depth_estimate(int model, double videoSeconds, DepthEstimate *out)
     if (videoSeconds > 0) frames = SP_MIN(ceil(videoSeconds * DEPTH_VIDEO_FPS), (double)DEPTH_VIDEO_FRAMES);
     double gpu = canGpu ? gpuStart + frames * (gpuRun + extra) : 1e18;
     double cpu = canCpu ? cpuStart + frames * (cpuRun + extra) : 1e18;
+    if (videoSeconds > 0 && m->splat) {            /* every frame through DA2 Small, SHARP on a few keyframes (a guess: one per 10 s) */
+        DepthEstimate da;
+        depth_estimate(0, videoSeconds, &da);
+        double keys = SP_MIN(8.0, 1.0 + floor(videoSeconds / 10.0)), base = da.seconds * 1000.0;
+        gpu = canGpu ? base + keys * (gpuStart + gpuRun) : 1e18;
+        cpu = canCpu ? base + keys * (cpuStart + cpuRun) : 1e18;
+    }
     out->gpu = gpu <= cpu;
     out->seconds = SP_MIN(gpu, cpu) / 1000.0;
     /* pictures by their own time; videos by the time per second of video */
@@ -767,19 +787,33 @@ static BOOL splat_old(const wchar_t *path)
     return ok && head[7] == 0;
 }
 
+/* A SHARP video made by the first build of it (2.1.1 tests), whose keyframes kept only 500k Gaussians: made again. */
+static BOOL splat_video_old(const wchar_t *dir)
+{
+    wchar_t path[SP_MAX_PATH];
+    uint32_t head[2] = { 0 };
+    DWORD n = 0;
+    path_join(path, SP_COUNTOF(path), dir, L"depth-sharp-k0.bin");
+    HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return FALSE;
+    BOOL ok = ReadFile(f, head, sizeof head, &n, NULL) && n == sizeof head;
+    CloseHandle(f);
+    return ok && head[1] > 0 && head[1] <= 510000;
+}
+
 /* The page from the template (RCDATA): 1 written, 0 already the same (onlyIfChanged), -1 not written, -2 no template. */
 static int render_page(const wchar_t *dir, const wchar_t *media, int model, int video, BOOL onlyIfChanged)
 {
     int splat = depth_model(model)->splat;
 #ifdef _WIN32
-    HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(splat ? IDR_SPLAT_HTML : IDR_DEPTH_HTML), RT_RCDATA);
+    HRSRC r = FindResourceW(NULL, MAKEINTRESOURCEW(splat ? video ? IDR_SPLATVIDEO_HTML : IDR_SPLAT_HTML : IDR_DEPTH_HTML), RT_RCDATA);
     HGLOBAL g = r ? LoadResource(NULL, r) : NULL;
     const char *tpl = g ? (const char *)LockResource(g) : NULL;
     if (!tpl) return -2;
     size_t tplSize = SizeofResource(NULL, r);
 #else
     wchar_t tplPath[SP_MAX_PATH];                   /* beside the program */
-    path_join(tplPath, SP_COUNTOF(tplPath), paths_exe_dir(), splat ? L"splat.html" : L"depth.html");
+    path_join(tplPath, SP_COUNTOF(tplPath), paths_exe_dir(), splat ? video ? L"splatvideo.html" : L"splat.html" : L"depth.html");
     char *tplFile = sp_path_utf8(tplPath);
     FILE *tf = tplFile ? fopen(tplFile, "rb") : NULL;
     free(tplFile);
@@ -828,7 +862,8 @@ static int render_page(const wchar_t *dir, const wchar_t *media, int model, int 
         }
     }
     if (built && rc != 0) rc = write_file(page, b.p, b.len) &&
-                               write_file(props, splat ? k_splatProps : k_props, (splat ? sizeof k_splatProps : sizeof k_props) - 1) ? 1 : -1;
+                               write_file(props, splat ? video ? k_splatVideoProps : k_splatProps : k_props,
+                                          (splat ? video ? sizeof k_splatVideoProps : sizeof k_splatProps : sizeof k_props) - 1) ? 1 : -1;
     sb_free(&b);
     return rc;
 }
@@ -928,6 +963,67 @@ static BOOL infer(DepthJob *j, int mode, int png, DWORD *code)
     return ok;
 }
 
+/* SHARP for a video (depth_infer.c's keys_write): per-frame depth and the keyframes in one process, SHARP on each
+ * keyframe in one more each (DirectML keeps its GPU memory until a process ends), then depth-sharp.bin, last because
+ * its time says "done": {"da": file, "keys": [{"t": seconds, "f": file}]} for splatvideo.html. */
+static BOOL sharp_video_job(DepthJob *j, int mode, DWORD *code)
+{
+    wchar_t cmd[2400], path[SP_MAX_PATH], name[48];
+    const wchar_t *flags = mode == DEPTH_CRASHED ? L" --crashed" : L"";
+#ifndef _WIN32
+    flags = L" --cpu";
+#endif
+    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --depth \"%ls\" \"%ls\" --model %ls --keys --notify %llx%ls", paths_exe(), j->source,
+               j->dir, depth_model(0)->key, (unsigned long long)(uintptr_t)g_app.shellWnd, flags);
+    if (!run_hidden(j, cmd, VIDEO_MS, code) || *code) return FALSE;
+    char list[512] = "";
+    DWORD got = 0;
+    path_join(path, SP_COUNTOF(path), j->dir, L"keys.txt");
+    HANDLE h = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (h != INVALID_HANDLE_VALUE) {
+        ReadFile(h, list, sizeof list - 1, &got, NULL);
+        CloseHandle(h);
+    }
+    list[got] = 0;
+    double t[16];
+    int n = 0;
+    for (char *p = list, *e; n < 16 && *p; p = e) {
+        t[n] = strtod(p, &e);
+        if (e == p) break;
+        n++;
+    }
+    StrBuf js = { 0 };
+    sb_puts(&js, "{\"da\":\"depth-sharp-da.bin\",\"keys\":[");
+    BOOL ok = n > 0;
+    for (int i = 0; ok && i < n; i++) {
+        wchar_t raw[SP_MAX_PATH], text[80];
+        str_printf(text, SP_COUNTOF(text), L"Making keyframe %d of %d in 3D…", i + 1, n);
+        set_status(-1, text);
+        str_printf(name, SP_COUNTOF(name), L"key%d.raw", i);
+        path_join(raw, SP_COUNTOF(raw), j->dir, name);
+        str_printf(name, SP_COUNTOF(name), L"depth-sharp-k%d.bin", i);
+        path_join(path, SP_COUNTOF(path), j->dir, name);
+        str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --depth \"%ls\" \"%ls\" --model %ls --keyframe%ls", paths_exe(), raw, path,
+                   depth_model(j->model)->key, flags);
+        ok = run_hidden(j, cmd, INFER_MS, code) && *code == 0;
+        sb_printf(&js, "%s{\"t\":%.3f,\"f\":\"depth-sharp-k%d.bin\"}", i ? "," : "", t[i], i);
+    }
+    sb_puts(&js, "]}");
+    for (int i = 0; i < n; i++) {
+        str_printf(name, SP_COUNTOF(name), L"key%d.raw", i);
+        path_join(path, SP_COUNTOF(path), j->dir, name);
+        DeleteFileW(path);
+    }
+    path_join(path, SP_COUNTOF(path), j->dir, L"keys.txt");
+    DeleteFileW(path);
+    model_name(j->model, L"depth", L".bin", name, SP_COUNTOF(name));
+    path_join(path, SP_COUNTOF(path), j->dir, name);
+    ok = ok && !js.failed && write_file(path, js.p, js.len);
+    sb_free(&js);
+    if (!ok && !*code) *code = 4;
+    return ok;
+}
+
 /* Why it failed, in words: a Visual C++ runtime that is missing or too old is the usual reason ONNX Runtime
  * can't start or dies. */
 static const wchar_t *failure_text(DepthJob *j, DWORD code)
@@ -986,14 +1082,16 @@ static void run(DepthJob *j)
     model_name(j->model, L"depth", j->video || depth_model(j->model)->splat ? L".bin" : L".png", name, SP_COUNTOF(name));
     path_join(depthFile, SP_COUNTOF(depthFile), j->dir, name);
     if (!depth_current(j->source, depthFile) || (depth_model(j->model)->splat && splat_old(depthFile)) ||
+        (j->video && depth_model(j->model)->splat && splat_video_old(j->dir)) ||
         (still && motion_missing(j->dir))) {
         set_status(-1, j->video ? L"Finding the depth of every frame…" : L"Finding the depth of the picture…");
         double t0 = time_ms();
         int png = !j->video && web_ext(path_ext(j->source)) == NULL;
         DWORD code = 0;
-        BOOL ok = infer(j, DEPTH_AUTO, png, &code);
+        BOOL vsharp = j->video && depth_model(j->model)->splat;
+        BOOL ok = vsharp ? sharp_video_job(j, DEPTH_AUTO, &code) : infer(j, DEPTH_AUTO, png, &code);
         if (!ok && !cancelled(j) && code != 2 && code != 3 && code != 4 && code != 5)  /* the process died, the GPU path most likely: */
-            ok = infer(j, DEPTH_CRASHED, png, &code);                                   /* once more on the CPU, which then stays the choice */
+            ok = vsharp ? sharp_video_job(j, DEPTH_CRASHED, &code) : infer(j, DEPTH_CRASHED, png, &code);   /* once more on the CPU */
         if (!ok) {
             fail(j, failure_text(j, code));
             return;
@@ -1028,7 +1126,6 @@ static BOOL start(const wchar_t *id, int autoStart)
         str_copy(j->source, SP_COUNTOF(j->source), (e->flags & WPFLAG_DEPTH) ? e->thumb : e->path);
         j->video = (e->flags & WPFLAG_DEPTH) ? (e->flags & WPFLAG_DEPTHVIDEO) != 0 : e->type == WP_VIDEO;
         in_depth(j->dir, SP_COUNTOF(j->dir), e->id);
-        if (j->video && depth_model(j->model)->splat) j->model = 0;   /* SHARP is pictures only */
         if (!file_exists(j->source)) {
             free(j);
             app_notice(NOTICE_ERROR, L"The original file of '%ls' is gone.", e->name);

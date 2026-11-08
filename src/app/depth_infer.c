@@ -627,11 +627,28 @@ static void notify(Notify *nt, int done, int total)
     PostMessageW(nt->wnd, WM_SP_DEPTH, 2, (LPARAM)(SP_MIN(done, 0xffff) | (SP_MIN(total, 0xffff) << 16)));
 }
 
+/* SHARP for videos: the depth pass also picks the keyframes SHARP runs on (key_take, below SHARP's section). A frame
+ * becomes one when its depth's 48x27 thumbnail differs from the last keyframe's by KEY_DIFF on average (a new scene,
+ * a moved camera; flicker, glow and water hardly change the depth), KEY_GAP seconds after it at least, KEY_MAX in all.
+ * Between them the page moves the keyframe's Gaussians by the per-frame depth, and the video colours them. */
+#define KEY_MAX  8
+#define KEY_GAP  3.0
+#define KEY_DIFF 22.0
+#define KEY_TW   48
+#define KEY_TH   27
+typedef struct KeyPick {
+    int      count, over, w, h;        /* keyframes; frames that wanted one past KEY_MAX; the video's size */
+    double   t[KEY_MAX];
+    uint8_t *rgb[KEY_MAX];             /* the frame at SHARP's size, RGB */
+    uint8_t  thumb[KEY_TW * KEY_TH];   /* the last keyframe's */
+} KeyPick;
+static BOOL key_take(KeyPick *kp, const AVFrame *fr, const uint8_t *rgb, int mw, int mh, double t);
+
 /* Every frame the page needs: frame k is the depth at k / fps seconds. depth.bin is
  *   "SPDV" u32 1 | the JPEGs | index: u32 offset, u32 size per frame | u32 count, u32 w, u32 h, f32 fps, u32 index offset, "SPDV"
- * (little endian; a frame the video has no picture of repeats the one before). */
+ * (little endian; a frame the video has no picture of repeats the one before). kp: also pick SHARP's keyframes. */
 static int write_video(IWICImagingFactory *wic, HMODULE dll, const DepthModel *m, const wchar_t *model, const wchar_t *video,
-                       const wchar_t *out, int mode, Notify *nt)
+                       const wchar_t *out, int mode, Notify *nt, KeyPick *kp)
 {
     AVFormatContext *fmt = NULL;
     AVCodecContext *dec = NULL;
@@ -735,7 +752,7 @@ static int write_video(IWICImagingFactory *wic, HMODULE dll, const DepthModel *m
         sws = sws_getCachedContext(sws, fr->width, fr->height, (enum AVPixelFormat)fr->format, mw, mh, AV_PIX_FMT_RGB24, SWS_AREA, NULL, NULL, NULL);
         if (!sws) goto done;
         sws_scale(sws, (const uint8_t *const *)fr->data, fr->linesize, 0, fr->height, dst, ls);
-        av_frame_unref(fr);
+        if (!kp) av_frame_unref(fr);                         /* else kept for key_take, once the depth is known */
         free(chw);
         double r0 = time_ms();
         if (!(chw = to_tensor(rgb, mw, mh)) || !sess_run(&x, chw, depth)) goto done;
@@ -747,6 +764,13 @@ static int write_video(IWICImagingFactory *wic, HMODULE dll, const DepthModel *m
         else { slo += (lo - slo) * 0.15f; shi += (hi - shi) * 0.15f; }   /* the range follows the video, smoothly */
         float scale = 255.0f / (shi - slo + 1e-8f);
         for (size_t i = 0; i < n; i++) u8[i] = (uint8_t)SP_CLAMP((int)((depth[i] - slo) * scale), 0, 255);
+        if (kp) {
+            kp->w = dec->width;
+            kp->h = dec->height;
+            BOOL ok = key_take(kp, fr, u8, mw, mh, t);
+            av_frame_unref(fr);
+            if (!ok) goto done;
+        }
         shrink(u8, mw, mh, small_, ow, oh);
         dilate(small_, ow, oh, 2);
         blur(small_, ow, oh, 1);
@@ -1176,27 +1200,14 @@ static double sharp_focal_mm(IWICImagingFactory *f, const wchar_t *path)
     return mm >= 1.0 ? mm : SHARP_FOCAL;
 }
 
-/* The picture to the page's file: the GPU unless it has failed here before, else the CPU. Exit code. */
-static int sharp_picture(IWICImagingFactory *f, IWICBitmapSource *src, UINT sw, UINT sh, HMODULE dll, const wchar_t *model,
-                         const wchar_t *out, const wchar_t *tmp, int mode, const wchar_t *image)
+/* SHARP on a prepared input (3 x SHARP_SIZE^2): GPU or CPU as recorded, the GPU first when nothing is; 0 or 4. */
+static int sharp_chw(HMODULE dll, const wchar_t *model, float *chw, UINT sw, UINT sh, double focal, const wchar_t *out,
+                     const wchar_t *tmp, int mode)
 {
-    const size_t px = (size_t)SHARP_SIZE * SHARP_SIZE;
-    uint8_t *rgb = scaled_rgb(f, src, SHARP_SIZE, SHARP_SIZE);
-    float *chw = rgb ? (float *)malloc(px * 3 * sizeof(float)) : NULL;
     Backend rec;
     char fp[17] = "";
     BOOL known = FALSE, ok;
     int gpu = 0;
-    if (!chw) {
-        free(rgb);
-        LOGE(L"depth: out of memory");
-        return 4;
-    }
-    for (size_t i = 0; i < px; i++)
-        for (int c = 0; c < 3; c++) chw[(size_t)c * px + i] = rgb[i * 3 + c] / 255.0f;
-    free(rgb);
-    double mm = sharp_focal_mm(f, image), focal = mm * sqrt((double)sw * sw + (double)sh * sh) / sqrt(36.0 * 36.0 + 24.0 * 24.0);
-    LOGI(L"depth: SHARP lens %.0f mm", mm);
     ZeroMemory(&rec, sizeof rec);
     if (mode == DEPTH_AUTO || mode == DEPTH_BENCH) {
         adapter_fingerprint(fp);
@@ -1215,7 +1226,6 @@ static int sharp_picture(IWICImagingFactory *f, IWICBitmapSource *src, UINT sw, 
         gpu = 0;
         ok = sharp_run(dll, 0, model, chw, (float)(focal / sw), sw, sh, focal, out, tmp, &ms, &run);
     }
-    free(chw);
     if (ok && mode != DEPTH_CPU) {
         rec.gpu = gpu;
         if (gpu) { rec.gpuMs = ms; rec.gpuRun = run; }
@@ -1223,6 +1233,130 @@ static int sharp_picture(IWICImagingFactory *f, IWICBitmapSource *src, UINT sw, 
         write_backend(&rec);
     }
     return ok ? 0 : 4;
+}
+
+static float *chw_of(const uint8_t *rgb)
+{
+    const size_t px = (size_t)SHARP_SIZE * SHARP_SIZE;
+    float *chw = rgb ? (float *)malloc(px * 3 * sizeof(float)) : NULL;
+    if (!chw) return NULL;
+    for (size_t i = 0; i < px; i++)
+        for (int c = 0; c < 3; c++) chw[(size_t)c * px + i] = rgb[i * 3 + c] / 255.0f;
+    return chw;
+}
+
+/* The picture to the page's file: the GPU unless it has failed here before, else the CPU. Exit code. */
+static int sharp_picture(IWICImagingFactory *f, IWICBitmapSource *src, UINT sw, UINT sh, HMODULE dll, const wchar_t *model,
+                         const wchar_t *out, const wchar_t *tmp, int mode, const wchar_t *image)
+{
+    uint8_t *rgb = scaled_rgb(f, src, SHARP_SIZE, SHARP_SIZE);
+    float *chw = chw_of(rgb);
+    free(rgb);
+    if (!chw) {
+        LOGE(L"depth: out of memory");
+        return 4;
+    }
+    double mm = sharp_focal_mm(f, image), focal = mm * sqrt((double)sw * sw + (double)sh * sh) / sqrt(36.0 * 36.0 + 24.0 * 24.0);
+    LOGI(L"depth: SHARP lens %.0f mm", mm);
+    int rc = sharp_chw(dll, model, chw, sw, sh, focal, out, tmp, mode);
+    free(chw);
+    return rc;
+}
+
+/* write_video's keyframe test for one frame (depth: its grey depth, mw x mh); a new keyframe keeps the frame at
+ * SHARP's size. FALSE: out of memory. */
+static BOOL key_take(KeyPick *kp, const AVFrame *fr, const uint8_t *depth, int mw, int mh, double t)
+{
+    uint32_t sum[KEY_TW * KEY_TH] = { 0 }, cnt[KEY_TW * KEY_TH] = { 0 };
+    uint8_t th[KEY_TW * KEY_TH];
+    for (int y = 0; y < mh; y++)
+        for (int x = 0; x < mw; x++) {
+            int c = (y * KEY_TH / mh) * KEY_TW + x * KEY_TW / mw;
+            sum[c] += depth[(size_t)y * mw + x];
+            cnt[c]++;
+        }
+    for (int i = 0; i < KEY_TW * KEY_TH; i++) th[i] = (uint8_t)(cnt[i] ? sum[i] / cnt[i] : 0);
+    if (kp->count) {
+        double d = 0.0;
+        for (int i = 0; i < KEY_TW * KEY_TH; i++) d += abs((int)th[i] - (int)kp->thumb[i]);
+        d /= KEY_TW * KEY_TH;
+        if (d < KEY_DIFF || t - kp->t[kp->count - 1] < KEY_GAP) return TRUE;
+        if (kp->count >= KEY_MAX) {
+            kp->over++;
+            return TRUE;
+        }
+        LOGI(L"depth: keyframe %d at %.2f s (the picture changed by %.0f)", kp->count, t, d);
+    }
+    uint8_t *px = (uint8_t *)malloc((size_t)SHARP_SIZE * SHARP_SIZE * 3);
+    struct SwsContext *s = px ? sws_getContext(fr->width, fr->height, (enum AVPixelFormat)fr->format, SHARP_SIZE, SHARP_SIZE,
+                                               AV_PIX_FMT_RGB24, SWS_AREA, NULL, NULL, NULL) : NULL;
+    if (!s) {
+        free(px);
+        return FALSE;
+    }
+    uint8_t *dst[4] = { px, NULL, NULL, NULL };
+    int ls[4] = { SHARP_SIZE * 3, 0, 0, 0 };
+    sws_scale(s, (const uint8_t *const *)fr->data, fr->linesize, 0, fr->height, dst, ls);
+    sws_freeContext(s);
+    kp->rgb[kp->count] = px;
+    kp->t[kp->count++] = t;
+    memcpy(kp->thumb, th, sizeof th);
+    return TRUE;
+}
+
+/* SHARP for a video, in fresh processes each (DirectML keeps its GPU memory until the process ends, so SHARP after
+ * another model in the same process fails on the GPU); depth.c's job runs them in turn:
+ *  --keys: the video's per-frame depth (depth-sharp-da.bin) while picking keyframes, each kept as key<i>.raw
+ *          ("SPKF", u32 video w, h, then SHARP_SIZE^2 RGB), and keys.txt: one line per keyframe, its time in seconds;
+ *  --keyframe: SHARP on one key<i>.raw into the file named (all its Gaussians: fewer leave holes in the picture).
+ * The job then writes depth-sharp.bin, the page's list of them. */
+static int keys_write(const KeyPick *kp, const wchar_t *dir)
+{
+    wchar_t path[SP_MAX_PATH], name[32];
+    char line[32];
+    if (!kp->count) return 4;
+    if (kp->over) LOGW(L"depth: the depth kept changing (%d more keyframes wanted): the camera moves", kp->over);
+    path_join(path, SP_COUNTOF(path), dir, L"keys.txt");
+    HANDLE list = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (list == INVALID_HANDLE_VALUE) return 4;
+    BOOL ok = TRUE;
+    for (int i = 0; ok && i < kp->count; i++) {
+        uint32_t head[3] = { 0x464B5053u /* "SPKF" */, (uint32_t)kp->w, (uint32_t)kp->h };
+        str_printf(name, SP_COUNTOF(name), L"key%d.raw", i);
+        path_join(path, SP_COUNTOF(path), dir, name);
+        HANDLE h = CreateFileW(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        ok = h != INVALID_HANDLE_VALUE && put(h, head, sizeof head) && put(h, kp->rgb[i], (DWORD)SHARP_SIZE * SHARP_SIZE * 3);
+        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+        snprintf(line, sizeof line, "%.3f\n", kp->t[i]);
+        ok = ok && put(list, line, (DWORD)strlen(line));
+    }
+    CloseHandle(list);
+    LOGI(L"depth: %d keyframe(s) for SHARP", kp->count);
+    return ok ? 0 : 4;
+}
+
+static int sharp_keyframe(HMODULE dll, const wchar_t *model, const wchar_t *raw, const wchar_t *out, int mode)
+{
+    const size_t px = (size_t)SHARP_SIZE * SHARP_SIZE * 3;
+    uint32_t head[3] = { 0 };
+    uint8_t *rgb = (uint8_t *)malloc(px);
+    wchar_t tmp[SP_MAX_PATH];
+    DWORD n = 0, m = 0;
+    HANDLE h = CreateFileW(raw, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    BOOL ok = rgb && h != INVALID_HANDLE_VALUE && ReadFile(h, head, sizeof head, &n, NULL) && n == sizeof head &&
+              head[0] == 0x464B5053u && head[1] && head[2] && ReadFile(h, rgb, (DWORD)px, &m, NULL) && m == px;
+    if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    float *chw = ok ? chw_of(rgb) : NULL;
+    free(rgb);
+    if (!chw) {
+        LOGE(L"depth: cannot read the keyframe %ls", raw);
+        return 2;
+    }
+    double focal = SHARP_FOCAL * sqrt((double)head[1] * head[1] + (double)head[2] * head[2]) / sqrt(36.0 * 36.0 + 24.0 * 24.0);
+    str_printf(tmp, SP_COUNTOF(tmp), L"%ls.tmp", out);
+    int rc = sharp_chw(dll, model, chw, head[1], head[2], focal, out, tmp, mode);
+    free(chw);
+    return rc;
 }
 
 /* ---------------------------------------------------------------- motion regions (UperNet ConvNeXt-T, ADE20K) */
@@ -1342,13 +1476,27 @@ int depth_infer_main(const wchar_t *image, const wchar_t *dir, int mode, int wan
     if (g_model) str_printf(name, SP_COUNTOF(name), L"depth-%ls%ls", m->key, video || m->splat ? L".bin" : L".png");
     else str_copy(name, SP_COUNTOF(name), video ? L"depth.bin" : L"depth.png");
     path_join(png, SP_COUNTOF(png), dir, name);
+    if (video == DEPTH_VIDEO_KEYFRAME) {                /* image is a keyframe's .raw, dir the file to write */
+        rc = 3;
+        if (!(dll = load_runtime())) goto done;
+        rc = sharp_keyframe(dll, model, image, dir, mode);
+        goto done;
+    }
     if (FAILED(CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&f))) goto done;
-    if (video && m->splat) goto done;
     if (video) {
         rc = 3;
         if (!(dll = load_runtime())) goto done;
         Notify nt = { notifyWnd, 0.0 };
-        rc = write_video(f, dll, m, model, image, png, mode, &nt);
+        if (video == DEPTH_VIDEO_KEYS) {
+            KeyPick kp;
+            ZeroMemory(&kp, sizeof kp);
+            path_join(png, SP_COUNTOF(png), dir, L"depth-sharp-da.bin");
+            rc = write_video(f, dll, m, model, image, png, mode, &nt, &kp);
+            if (!rc) rc = keys_write(&kp, dir);
+            for (int i = 0; i < kp.count; i++) free(kp.rgb[i]);
+        } else {
+            rc = write_video(f, dll, m, model, image, png, mode, &nt, NULL);
+        }
         goto done;
     }
     path_join(tmp, SP_COUNTOF(tmp), dir, L"depth.tmp");

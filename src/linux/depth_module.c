@@ -16,6 +16,8 @@ int depth_child_main(int argc, char **argv)
         else if (!strcmp(argv[i], "--model") && i + 1 < argc) model = wide_from_utf8(argv[++i], -1);
         else if (!strcmp(argv[i], "--notify") && i + 1 < argc) notify = (HWND)(uintptr_t)strtoull(argv[++i], NULL, 16);
         else if (!strcmp(argv[i], "--video")) video = 1;
+        else if (!strcmp(argv[i], "--keys")) video = DEPTH_VIDEO_KEYS;
+        else if (!strcmp(argv[i], "--keyframe")) video = DEPTH_VIDEO_KEYFRAME;
         else if (!strcmp(argv[i], "--cpu")) mode = DEPTH_CPU;
         else if (!strcmp(argv[i], "--bench")) mode = DEPTH_BENCH;
         else if (!strcmp(argv[i], "--crashed")) mode = DEPTH_CRASHED;
