@@ -30,7 +30,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
   `ui_core.c`, `ui_pages.c`, `textedit.c` are shared with Windows: `d2d_cairo.c` is the Direct2D/DirectWrite subset they use on Cairo and Pango,
   `win_ui.h` the window messages and USER32 calls, `ui_sdl.c` feeds SDL3 events to `ui_proc`, draws menus and dialogs. Thumbnails: `ui_thumbs.c`, system ffmpeg (stills first, then animations, as `src/ui/thumbs.c`; pages with no preview of their own are recorded, see `preview.c`).
   Icons: `resources/fonts` (Fluent System Icons, MIT); a new `GL_*` needs a line in `ui_icons.h`. `ui_stubs.c`: the screensaver stubs and small dialogs.
-- Build: `cmake -S . -B build-linux -G Ninja`. CI: `.github/workflows/linux.yml` (pushes to cross-platform; `release.yml` calls it). GitLab: `.gitlab-ci.yml` builds Linux on its own machines (tar.gz, .deb for Debian and Ubuntu, .rpm; `scripts/gitlab-linux.sh`) beside the Windows build, and one release carries both.
+- Build: `cmake -S . -B build-linux -G Ninja`. CI: `.github/workflows/linux.yml` (pushes to cross-platform; `release.yml` calls it). GitLab: `.gitlab-ci.yml` builds Linux on its own machines (tar.gz, .deb for Debian and Ubuntu, .rpm built on Fedora 44 for every Fedora: it carries `scripts/build-ffmpeg-linux.sh`'s small shared FFmpeg in `/usr/lib/screenplus/ffmpeg/` (screenplus-depth.so's RUNPATH) and requires no system FFmpeg, whose sonames change per release; bump the image when 44 is end of life); `scripts/gitlab-linux.sh`) beside the Windows build, and one release carries both.
 - KWin has layer-shell, so the engine can be tried on KDE with plasmashell stopped. In a VM, idle dimming and screen-off make screenshots dark or black, and with 3D on `VBoxManage screenshotpng` is stale: look at the VM window. Web wallpapers need 3D on; without a GPU Chromium stalls. A service started over SSH gets no keyboard in the window.
 - Shared Windows code runs on Linux through small stand-ins, not rewrites. `winobj.c`: threads, events, processes, SRW locks, condition variables. `service.c`: `PostMessageW`/`SetTimer` (a queue and timer table its loop drains; `g_app.shellWnd` is the write end of a pipe, so a child's `PostMessageW` reaches the same queue). `http_linux.c`: `webfetch.h` over a `curl` child per request, plus SHA-256. `wic_linux.[ch]`: the WIC calls depth_infer.c uses, on libav.
 - Store, updates, samples, depth.c: in the service, unchanged apart from `#ifdef`s. Update's asset is the tarball, run through `update.sh` (written by install.sh; its presence means "installed").
@@ -156,7 +156,7 @@ Renderer details:
   Playback position is wall clock (`epoch`), so engine, graphs and Plasma agree. The engine plays from memory: `T_REC`
   (33 ms, only while a slot with one is ACTIVE) sets `wpapi_live_set`, which `wpapi_load_adjust` and
   `wpapi_properties_js` prefer, then calls `vt->apply`; properties every third tick. Hyprland: `rec_tick` in
-  engine_gtk.c. Plasma: the service writes the smoothed recording as `Recording`, `Recording.qml` plays it (the
+  engine_gtk.c. Plasma: the service saves the smoothed recording to `cache/rec/<id>.json` and writes its web-host address (`webhost_recording`, `http://127.0.0.1:<port>/<token>-rec/...`; never inline: kde_apply's script is one dbus-send argument, capped at 128 KB) as `Recording`, `Recording.qml` fetches and plays it (the
   plugin grades brightness/contrast/saturation only). Graph view: speed (epoch kept so the playhead stays), smooth
   (circular box filter), draw over a track (not colours).
 

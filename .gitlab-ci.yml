@@ -107,12 +107,13 @@ ubuntu:
     - *apt
     - bash scripts/gitlab-linux.sh deb ubuntu
 
+# Built on the oldest Fedora still supported, so glibc's symbols suit the newer ones; it carries its own FFmpeg.
 fedora:
   extends: .linux
-  image: fedora:latest
+  image: fedora:44
   script:
     - if [ "$SKIP" = 1 ]; then exit 0; fi
-    - dnf install -y gcc cmake ninja-build pkgconf-pkg-config rpm-build 'pkgconfig(sdl3)' 'pkgconfig(cairo)' 'pkgconfig(pangocairo)' 'pkgconfig(fontconfig)' 'pkgconfig(gtk4)' 'pkgconfig(gtk4-layer-shell-0)' 'pkgconfig(webkitgtk-6.0)' 'pkgconfig(mpv)' 'pkgconfig(epoxy)' 'pkgconfig(libavformat)' 'pkgconfig(libavcodec)' 'pkgconfig(libavutil)' 'pkgconfig(libswscale)'
+    - dnf install -y gcc cmake ninja-build pkgconf-pkg-config rpm-build make nasm xz patchelf 'pkgconfig(dav1d)' 'pkgconfig(zlib)' 'pkgconfig(sdl3)' 'pkgconfig(cairo)' 'pkgconfig(pangocairo)' 'pkgconfig(fontconfig)' 'pkgconfig(gtk4)' 'pkgconfig(gtk4-layer-shell-0)' 'pkgconfig(webkitgtk-6.0)' 'pkgconfig(mpv)' 'pkgconfig(epoxy)'
     - bash scripts/gitlab-linux.sh rpm
 
 release:

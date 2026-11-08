@@ -11,6 +11,7 @@ struct WallpaperEntry;
 void webhost_start(void);                 /* web wallpapers' folders as local web hosts */
 void webhost_sync(const struct Config *c);
 char *webhost_url(const struct WallpaperEntry *e);   /* NULL: not a local page, or no host; free() */
+char *webhost_recording(const wchar_t *wallpaperId, const char *json);   /* a recording's address for Plasma; free() */
 void feed_start(void);                    /* audio, system and track data for pages */
 void feed_set_paused(int paused);
 void feed_set_audio(int on);              /* the html_audio setting */

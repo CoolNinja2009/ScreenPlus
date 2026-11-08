@@ -26,7 +26,7 @@ WallpaperItem {
 
     Recording {
         id: recording
-        json: root.configuration.Recording
+        source: root.configuration.Recording
         running: !root.held
         onPropsScript: js => { if (root.shownKind === "html" && view.item && view.item.run) view.item.run(js) }
     }

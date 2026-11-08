@@ -83,6 +83,13 @@ static int resolve(const char *root, char *rel, char *out, size_t cap)
     return 1;
 }
 
+static char *recordings_dir(void)          /* cache/rec, UTF-8; free() */
+{
+    wchar_t d[SP_MAX_PATH];
+    path_join(d, SP_COUNTOF(d), paths_cache(), L"rec");
+    return sp_path_utf8(d);
+}
+
 static void reply_status(int fd, const char *status)
 {
     char h[160];
@@ -113,7 +120,12 @@ static void serve(int fd)
     /* <token>-<id>.localhost */
     size_t tl = strlen(g_token);
     char root[MAX_PATH] = "";
-    if (!strncasecmp(host, g_token, tl) && host[tl] == '-') {
+    if (path[0] == '/' && !strncmp(path + 1, g_token, tl) && !strncmp(path + 1 + tl, "-rec/", 5)) {
+        char *dir = recordings_dir();                   /* /<token>-rec/<file>: Customise recordings for the plugin */
+        if (dir) snprintf(root, sizeof root, "%s", dir);
+        free(dir);
+        path += tl + 5;
+    } else if (!strncasecmp(host, g_token, tl) && host[tl] == '-') {
         char *id = host + tl + 1;
         size_t n = strcspn(id, ".");
         pthread_mutex_lock(&g_lock);
@@ -268,4 +280,36 @@ char *webhost_url(const WallpaperEntry *e)
     sb_append(&b, "", 1);
     if (b.failed) { sb_free(&b); return NULL; }
     return b.p;
+}
+
+/* A Customise recording for the Plasma plugin (Recording.qml fetches it). It can't travel in kde_apply's script:
+ * that is one dbus-send argument, which Linux caps at 128 KB, and a recording runs to megabytes. Saved as
+ * cache/rec/<id>.json; the address names its content, so a new take loads again. NULL when the host isn't up. */
+char *webhost_recording(const wchar_t *wallpaperId, const char *json)
+{
+    if (!g_port || !wallpaperId || !json) return NULL;
+    char *dir = recordings_dir(), *id = utf8_from_wide(wallpaperId, NULL);
+    char file[2 * MAX_PATH], tmp[2 * MAX_PATH + 8];
+    char *url = NULL;
+    uint32_t h = 2166136261u;
+    for (const unsigned char *p = (const unsigned char *)json; *p; p++) h = (h ^ *p) * 16777619u;
+    if (dir && id) {
+        mkdir(dir, 0700);
+        snprintf(file, sizeof file, "%s/%s.json", dir, id);
+        snprintf(tmp, sizeof tmp, "%s.tmp", file);
+        FILE *f = fopen(tmp, "wb");
+        size_t len = strlen(json);
+        int ok = f && fwrite(json, 1, len, f) == len;
+        if (f && fclose(f)) ok = 0;
+        if (ok && !rename(tmp, file)) {
+            StrBuf b = { 0 };
+            sb_printf(&b, "http://127.0.0.1:%d/%s-rec/%s.json?v=%08x", g_port, g_token, id, h);
+            if (!b.failed) url = b.p;
+        } else {
+            unlink(tmp);
+        }
+    }
+    free(dir);
+    free(id);
+    return url;
 }

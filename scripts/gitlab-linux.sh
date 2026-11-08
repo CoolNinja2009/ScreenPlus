@@ -8,6 +8,11 @@ distro=${2:-}
 ver=$VERSION
 echo "Building Screen+ $ver ($kind)"
 
+if [ "$kind" = rpm ]; then
+    # One .rpm for every Fedora: the depth module carries its own FFmpeg (the system's sonames differ per release)
+    bash scripts/build-ffmpeg-linux.sh "$PWD/ffmpeg-own"
+    export PKG_CONFIG_PATH=$PWD/ffmpeg-own/lib/pkgconfig
+fi
 cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSCREENPLUS_VERSION="$VERSION"
 cmake --build build-linux
 build-linux/src/linux/screenplus version
@@ -89,6 +94,7 @@ Recommends: qt6-qtwebengine
 %global __os_install_post %{nil}
 %global _build_id_links none
 %global __provides_exclude_from ^/usr/lib/screenplus/.*\$
+%global __requires_exclude ^lib(avcodec|avformat|avutil|swscale|swresample)\\.so
 %description
 Live wallpapers.
 %install
@@ -100,6 +106,14 @@ cp -a $pkg/. %{buildroot}/
 /usr/share/icons/hicolor/256x256/apps/org.screenplus.ScreenPlus.png
 /usr/share/doc/screenplus
 SPEC
+    # scripts/build-ffmpeg-linux.sh's FFmpeg beside the depth module (its RUNPATH is $ORIGIN/ffmpeg), each finding
+    # the others next to itself; the package then requires no particular FFmpeg
+    local ff=$pkg/usr/lib/screenplus/ffmpeg lib
+    mkdir -p "$ff"
+    cp -a ffmpeg-own/lib/*.so.* ffmpeg-own/COPYING.LGPLv2.1 "$ff/"
+    for lib in "$ff"/*.so.*; do
+        [ -L "$lib" ] || patchelf --set-rpath '$ORIGIN' "$lib"
+    done
     rpmbuild -bb --define "_rpmdir $PWD/rpms" screenplus.spec
     cp rpms/x86_64/*.rpm "release/ScreenPlus-$ver-fedora-x86_64.rpm"
     dnf install -y "./release/ScreenPlus-$ver-fedora-x86_64.rpm"

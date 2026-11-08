@@ -15,6 +15,10 @@ Screen+ uses the FFmpeg libraries `avformat-62.dll`, `avcodec-62.dll`, `avutil-6
   tarball above.
 - The libraries are dynamically linked (delay-loaded) and may be replaced: drop in any
   ABI-compatible FFmpeg 8.x build of the same major versions next to `ScreenPlus.exe`.
+- Linux: the Fedora `.rpm` ships the same release as `libavformat.so.62`, `libavcodec.so.62`,
+  `libavutil.so.60`, `libswscale.so.9` and `libswresample.so.6` in `/usr/lib/screenplus/ffmpeg/`
+  (with `COPYING.LGPLv2.1`), built by `scripts/build-ffmpeg-linux.sh` (also LGPL only), dynamically
+  linked and replaceable in the same way. The other Linux packages use the system's FFmpeg.
 - Codec patents: some formats (e.g. H.264/HEVC) may be covered by patents in some
   jurisdictions. Distributors are responsible for any required licenses.
 

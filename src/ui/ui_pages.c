@@ -1425,24 +1425,56 @@ static void rec_save_edit(int sec)
     app_apply_customise();
 }
 
-/* Pause holds the playhead where it is; play carries on from there (the epoch moves by the time it was held). */
+/* Pause holds the playhead where it is; play carries on from there (the epoch moves by the time it was held).
+ * A paused recording drives nothing: the frame it stopped on becomes the section's settings, which can then be
+ * changed, and play hands the section back to the recording. */
 static void rec_pause(int sec)
 {
     Rec *r = &cus.rec[sec];
+    WallpaperEntry *e = customise_entry();
     if (!r->n) return;
     double now = wprec_now();
     if (r->paused > 0) {
         r->epoch += now - r->paused;
         r->paused = 0;
     } else {
+        double pos = wprec_pos(r, now);
         r->paused = now;
+        if (e && sec == REC_LOOK) {
+            wprec_look(r, pos, &cus.adj);
+            wpapi_save_adjust(e->id, &cus.adj);
+        }
+        for (int k = 0; e && sec == REC_PROPS && k < r->count; k++)
+            for (int i = 0; i < cus.propCount; i++) {
+                CustomProp *cp = &cus.props[i];
+                JVal *v = strcmp(r->t[k].key, cp->name) ? NULL : wprec_value(&r->t[k], r->n, pos);
+                if (!v) continue;
+                json_free(cp->value);
+                cp->value = v;
+                cp->overridden = 1;
+                wpapi_save_override(e, cp->name, cp->value);
+            }
     }
     rec_save_edit(sec);
     ui_invalidate();
 }
 
-/* While a section's recording plays, its controls show the played values (not while recording a new take). */
-static int rec_shown(int sec) { return cus.rec[sec].n && !(cus.take && cus.takeSec == sec); }
+/* While a section's recording plays, its controls show the played values (not while recording a new take or
+ * while it is paused: then the section's own settings hold). */
+static int rec_shown(int sec) { return cus.rec[sec].n && cus.rec[sec].paused <= 0 && !(cus.take && cus.takeSec == sec); }
+
+/* A section whose recording plays takes no edits: the recording would overwrite them. Pause it to edit. */
+static int rec_locked(int id)
+{
+    switch (HIT_KIND(id)) {
+    case HK_SLIDER: case HK_DISC: case HK_LOOKVAL: case HK_RESET_LOOK:
+        return rec_shown(REC_LOOK);
+    case HK_PSLIDER: case HK_PCHECK: case HK_PDOWN: case HK_PCOLOR: case HK_PTEXT: case HK_PVAL: case HK_RESET_PROPS:
+        return rec_shown(REC_PROPS);
+    default:
+        return 0;
+    }
+}
 
 /* Saves and pushes the look; `live` commits (mid-drag) are throttled, the release always sends. */
 static void look_commit(int live)
@@ -1738,6 +1770,7 @@ void pages_drag(int id, float x, float y, int commit)
 {
     int kind = HIT_KIND(id), data = HIT_DATA(id);
     D2D1_RECT_F r = g_ui->pressedRect;
+    if (rec_locked(id)) return;
     if (kind == HK_REC_SPEED || kind == HK_REC_SMOOTH || kind == HK_REC_GRAPH) {
         rec_drag(kind, data, r, x, y, commit);
         return;
@@ -1777,6 +1810,7 @@ static int customise_key(UINT vk, int shift)
     Ui *u = g_ui;
     int kind = HIT_KIND(u->focus), data = HIT_DATA(u->focus);
     if ((kind != HK_SLIDER && kind != HK_PSLIDER) || (vk != VK_LEFT && vk != VK_RIGHT)) return 0;
+    if (rec_locked(u->focus)) return 1;
     int dir = vk == VK_RIGHT ? 1 : -1;
     if (kind == HK_SLIDER) {
         int *f = look_field(data);
@@ -2364,6 +2398,7 @@ static float draw_look_section(Ui *u, float x, float y, float w, const Wallpaper
         float bw = ui_button_width(L"Reset look", GL_REFRESH);
         ui_button(HIT_ID(HK_RESET_LOOK, 0), rectf(x + w - 14 - bw, ry + 10, bw, 32), L"Reset look", GL_REFRESH, BTN_GHOST);
     }
+    if (rec_shown(REC_LOOK)) ui_rrect(rectf(x, y, w, card), 14, col_a(t->bg, 0.4f));      /* the recording sets these */
     return y + card + 26.0f;
 }
 
@@ -2482,6 +2517,7 @@ static float draw_props_section(Ui *u, float x, float y, float w)
         float bw = ui_button_width(L"Restore defaults", GL_REFRESH);
         ui_button(HIT_ID(HK_RESET_PROPS, 0), rectf(x + w - 14 - bw, ry + 10, bw, 32), L"Restore defaults", GL_REFRESH, BTN_GHOST);
     }
+    if (rec_shown(REC_PROPS)) ui_rrect(rectf(x, y, w, card), 14, col_a(t->bg, 0.4f));   /* the recording sets these */
     return y + card + 26.0f;
 }
 
@@ -2777,6 +2813,7 @@ void pages_activate(int id, int dbl)
     Ui *u = g_ui;
     int kind = HIT_KIND(id), data = HIT_DATA(id);
     (void)dbl;                           /* double clicks are handled through the text engine */
+    if (rec_locked(id)) return;
     switch (kind) {
     case HK_NAV:
         if (u->page != data) {
@@ -3113,6 +3150,7 @@ int pages_key(UINT vk, int ctrl, int shift)
 
 const wchar_t *pages_tooltip(int id)
 {
+    if (rec_locked(id)) return L"Pause the recording to change this";
     switch (HIT_KIND(id)) {
     case HK_URL:           return L"Import from a link";
     case HK_IMPORT_FOLDER: return HIT_DATA(id) == 0 ? L"Import a wallpaper folder" : NULL;

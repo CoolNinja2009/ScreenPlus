@@ -279,7 +279,8 @@ static void rec_load(Slot *s)
     rec_unload(s);
     if (!s->wallpaper[0]) return;
     wpapi_load_adjust(s->wallpaper, &s->recBase);
-    for (int k = 0; k < REC_SECTIONS; k++) wprec_load(s->wallpaper, k, &s->rec[k]);
+    for (int k = 0; k < REC_SECTIONS; k++)
+        if (wprec_load(s->wallpaper, k, &s->rec[k]) && s->rec[k].paused > 0) wprec_free(&s->rec[k]);   /* paused: own settings hold */
 }
 
 static int rec_playing(const Slot *s) { return s->win && !s->paused && (s->rec[0].n || s->rec[1].n); }

@@ -6,7 +6,23 @@ import QtQuick
 
 Item {
     id: rec
-    property string json             /* the recording (desktop_kde.c's recording_json) */
+    /* desktop_kde.c's Recording: the address the service's web host serves it at (webhost_recording), or the
+     * recording itself when there is no host and it is small. */
+    property string source
+    property string json
+    onSourceChanged: { retry.n = 0; load(0) }
+    function load(tries) {
+        if (!source || source[0] === "{") { json = source; return }
+        const want = source, x = new XMLHttpRequest()
+        x.onreadystatechange = () => {
+            if (x.readyState !== XMLHttpRequest.DONE || want !== source) return
+            if (x.status === 200) json = x.responseText
+            else if (tries < 20) retry.start()
+        }
+        x.open("GET", want)
+        x.send()
+    }
+    Timer { id: retry; interval: 500; property int n: 0; onTriggered: rec.load(++n) }
     property bool running: false
     readonly property int rate: 30
 

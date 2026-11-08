@@ -872,7 +872,7 @@ static void rec_write(StrBuf *b, const Rec *r, int played)   /* played: the smoo
             json_write(b, t->opts);
         }
         sb_puts(b, ",\"v\":[");
-        for (int k = 0; k < r->n; k++) sb_printf(b, k ? ",%.7g" : "%.7g", (played && t->play ? t->play : t->v)[k]);
+        for (int k = 0; k < r->n; k++) sb_printf(b, k ? ",%.9g" : "%.9g", (played && t->play ? t->play : t->v)[k]);
         sb_puts(b, "]}");
     }
     sb_puts(b, "]}");

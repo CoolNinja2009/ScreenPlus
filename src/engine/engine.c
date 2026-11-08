@@ -148,7 +148,11 @@ static void slot_load_rec(Slot *s)
     if (!s->wp.id[0]) return;
     wpapi_load_adjust(s->wp.id, &s->recBase);
     int any = 0;
-    for (int k = 0; k < REC_SECTIONS; k++) any |= wprec_load(s->wp.id, k, &s->rec[k]);
+    for (int k = 0; k < REC_SECTIONS; k++) {
+        if (!wprec_load(s->wp.id, k, &s->rec[k])) continue;
+        if (s->rec[k].paused > 0) wprec_free(&s->rec[k]);    /* paused: the section's own settings hold */
+        else any = 1;
+    }
     if (any) LOGI(L"display %d: playing a Customise recording", s->mon.index);
 }
 

@@ -219,7 +219,7 @@ static char *stream_address(const wchar_t *link)
     return out[0] ? strdup(out) : NULL;
 }
 
-/* Customise recordings for the plugin to play (Recording.qml): {"we":0|1,"look":rec,"props":rec}; "" when none. */
+/* Customise recordings for the plugin to play (Recording.qml): {"we":0|1,"look":rec,"props":rec}; NULL when none. */
 static char *recording_json(const WallpaperEntry *e)
 {
     StrBuf b = { 0 };
@@ -228,6 +228,10 @@ static char *recording_json(const WallpaperEntry *e)
     for (int s = 0; s < REC_SECTIONS; s++) {
         Rec r;
         if (!wprec_load(e->id, s, &r)) continue;
+        if (r.paused > 0) {                         /* paused: the section's own settings hold */
+            wprec_free(&r);
+            continue;
+        }
         char *j = wprec_json(&r);
         if (j) {
             sb_printf(&b, ",\"%s\":", s == REC_LOOK ? "look" : "props");
@@ -266,8 +270,11 @@ static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int pau
               span ? span->right - span->left : 0, span ? span->bottom - span->top : 0);
     sb_printf(b, ",\"Brightness\":%d,\"Contrast\":%d,\"Saturation\":%d", a.brightness, a.contrast, a.saturation);
     char *rec = e ? recording_json(e) : NULL;
+    char *recUrl = rec ? webhost_recording(e->id, rec) : NULL;   /* too big for the script: the plugin fetches it */
     sb_puts(b, ",\"Recording\":");
-    json_write_string(b, rec ? rec : "");
+    json_write_string(b, recUrl ? recUrl : rec && strlen(rec) < 16384 ? rec : "");
+    if (rec && !recUrl && strlen(rec) >= 16384) LOGW(L"kde: no web host, so the recording can't reach Plasma");
+    free(recUrl);
     free(rec);
     if (e && e->type == WP_HTML) {
         char *shim = shim_url(c->s.webFps);
