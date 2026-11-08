@@ -262,7 +262,7 @@ static float draw_hero(Ui *u, float x, float y, float w)
     }
     float bx = rx;
     if (e) {
-        const wchar_t *tn = e->type == WP_VIDEO ? L"VIDEO" : e->type == WP_HTML ? L"HTML" : L"IMAGE";
+        const wchar_t *tn = e->type == WP_VIDEO ? L"VIDEO" : e->type == WP_HTML ? L"HTML" : e->type == WP_SPX ? L"SCREEN-" : L"IMAGE";
         float bw = ui_text_width(tn, u->fCenterS) + 18;
         ui_pill(rectf(bx, ry, bw, 22), tn, col_a(t->accent, 0.16f), t->accent);
         bx += bw + 10;
@@ -345,7 +345,7 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
         ui_icon(GL_WARNING, u->fIcon, rectf(th.left, th.top, th.right - th.left, (th.bottom - th.top) - 14), col(0xFFFFFF, 1));
         ui_text(L"File not found", u->fCenter, rectf(th.left, (th.top + th.bottom) * 0.5f + 4, th.right - th.left, 20), col(0xFFFFFF, 0.9f));
     }
-    const wchar_t *tn = e->type == WP_VIDEO ? L"VIDEO" : e->type == WP_HTML ? L"HTML" : L"IMAGE";
+    const wchar_t *tn = e->type == WP_VIDEO ? L"VIDEO" : e->type == WP_HTML ? L"HTML" : e->type == WP_SPX ? L"SCREEN-" : L"IMAGE";
     float bw = ui_text_width(tn, u->fCenterS) + 34;
     D2D1_RECT_F b = { th.left + 8, th.bottom - 30, th.left + 8 + bw, th.bottom - 8 };
     ui_rrect(b, 11, col(0x000000, 0.48f));

@@ -58,7 +58,8 @@ typedef enum WallpaperType {
     WP_NONE  = 0,
     WP_IMAGE = 1,
     WP_VIDEO = 2,
-    WP_HTML  = 3
+    WP_HTML  = 3,
+    WP_SPX   = 4    /* Screen- project (.spx): run by the Screen- runtime (spx_renderer.c) */
 } WallpaperType;
 
 /* Runtime states of a wallpaper renderer (one per monitor slot). */

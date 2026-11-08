@@ -17,6 +17,7 @@ const wchar_t *wallpaper_type_name(WallpaperType t)
     case WP_IMAGE: return L"Image";
     case WP_VIDEO: return L"Video";
     case WP_HTML:  return L"HTML";
+    case WP_SPX:   return L"Screen-";
     default:       return L"None";
     }
 }

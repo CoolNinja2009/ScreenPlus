@@ -68,7 +68,7 @@ static void jstr(StrBuf *b, const wchar_t *w)
 
 static const wchar_t *type_key(WallpaperType t)
 {
-    return t == WP_IMAGE ? L"image" : t == WP_VIDEO ? L"video" : t == WP_HTML ? L"html" : L"none";
+    return t == WP_IMAGE ? L"image" : t == WP_VIDEO ? L"video" : t == WP_HTML ? L"html" : t == WP_SPX ? L"spx" : L"none";
 }
 
 static const wchar_t *format_key(int f)
@@ -1039,6 +1039,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"web_fps",             offsetof(Settings, webFps),            SK_FPS,   L"Frame-rate limit for web wallpapers: 30, 60 or off" },
     { L"lively_auto_import",  offsetof(Settings, livelyImport),      SK_BOOL,  L"Add new Lively Wallpaper packages at launch" },
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
+    { L"spx_enabled",         offsetof(Settings, spxEnabled),        SK_BOOL,  L"Screen- projects (.spx, in development)" },
     { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
     { L"display_mode",        offsetof(Settings, displayMode),       SK_MODE,  L"Displays: independent, duplicate or span" },

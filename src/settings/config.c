@@ -19,6 +19,7 @@ WallpaperType wallpaper_type_from_path(const wchar_t *path)
     for (size_t i = 0; i < SP_COUNTOF(k_imageExt); i++) if (str_ieq(ext, k_imageExt[i])) return WP_IMAGE;
     for (size_t i = 0; i < SP_COUNTOF(k_videoExt); i++) if (str_ieq(ext, k_videoExt[i])) return WP_VIDEO;
     for (size_t i = 0; i < SP_COUNTOF(k_htmlExt); i++)  if (str_ieq(ext, k_htmlExt[i]))  return WP_HTML;
+    if (str_ieq(ext, L".spx")) return WP_SPX;
     return WP_NONE;
 }
 
@@ -345,7 +346,7 @@ static void finish_entry(Config *c, WallpaperEntry *e, int *open)
     if (!*open) return;
     *open = 0;
     if (!e->path[0]) return;
-    if (e->type < WP_IMAGE || e->type > WP_HTML) e->type = wallpaper_is_url(e->path) ? WP_HTML : wallpaper_type_from_path(e->path);
+    if (e->type < WP_IMAGE || e->type > WP_SPX) e->type = wallpaper_is_url(e->path) ? WP_HTML : wallpaper_type_from_path(e->path);
     if (e->type == WP_NONE) return;
     if (!valid_id(e->id) || config_index_of(c, e->id) >= 0) random_id(e->id);
     if (config_find_path(c, e->path)) return;              /* duplicate path */
@@ -409,6 +410,7 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"lively_auto_import")) s->livelyImport = parse_bool(val, s->livelyImport);
             else if (str_ieq(key, L"url_import")) s->urlImport = parse_bool(val, s->urlImport);
             else if (str_ieq(key, L"interactive_images")) s->depthAll = parse_bool(val, s->depthAll);
+            else if (str_ieq(key, L"spx_enabled")) s->spxEnabled = parse_bool(val, s->spxEnabled);
             else if (str_ieq(key, L"depth_model")) str_copy(s->depthModel, SP_COUNTOF(s->depthModel), val);
             else if (str_ieq(key, L"pause_apps")) str_copy(s->pauseApps, SP_COUNTOF(s->pauseApps), val);
             else if (str_ieq(key, L"mute_apps")) str_copy(s->muteApps, SP_COUNTOF(s->muteApps), val);
@@ -438,7 +440,7 @@ static int parse_text(Config *c, wchar_t *text)
             if (str_ieq(key, L"id")) str_copy(cur.id, SP_ID_LEN, val);
             else if (str_ieq(key, L"type"))
                 cur.type = str_ieq(val, L"image") ? WP_IMAGE : str_ieq(val, L"video") ? WP_VIDEO
-                         : str_ieq(val, L"html") ? WP_HTML : WP_NONE;
+                         : str_ieq(val, L"html") ? WP_HTML : str_ieq(val, L"spx") ? WP_SPX : WP_NONE;
             else if (str_ieq(key, L"name")) str_copy(cur.name, SP_COUNTOF(cur.name), val);
             else if (str_ieq(key, L"path")) str_copy(cur.path, SP_COUNTOF(cur.path), val);
             else if (str_ieq(key, L"added")) cur.added = parse_i64(val);
@@ -522,7 +524,7 @@ BOOL config_load(Config *c, const wchar_t *path)
 
 static const char *type_key(WallpaperType t)
 {
-    return t == WP_IMAGE ? "image" : t == WP_VIDEO ? "video" : t == WP_HTML ? "html" : "none";
+    return t == WP_IMAGE ? "image" : t == WP_VIDEO ? "video" : t == WP_HTML ? "html" : t == WP_SPX ? "spx" : "none";
 }
 
 BOOL config_save(const Config *c, const wchar_t *path)
@@ -543,6 +545,7 @@ BOOL config_save(const Config *c, const wchar_t *path)
               s->scrAudio, s->scrDisplays == SCRD_SPAN ? "span" : s->scrDisplays == SCRD_PRIMARY ? "primary" : "all",
               s->scrExitOnMouse, s->autoUpdate, s->autoUpdateSamples,
               s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system");
+    sb_printf(&b, "spx_enabled=%d\r\n", s->spxEnabled);
     sb_puts(&b, "depth_model=");     /* its own line: sb_printf formats into 512 bytes */
     sb_put_wide(&b, s->depthModel);
     sb_puts(&b, "\r\npause_apps=");

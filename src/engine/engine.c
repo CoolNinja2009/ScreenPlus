@@ -125,7 +125,7 @@ static Slot *audio_slot(void)
     Slot *best = NULL;
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &E.slots[i];
-        if (!s->used || (s->wp.type != WP_VIDEO && s->wp.type != WP_HTML)) continue;
+        if (!s->used || (s->wp.type != WP_VIDEO && s->wp.type != WP_HTML && s->wp.type != WP_SPX)) continue;
         if (!best || (s->mon.primary && !best->mon.primary)) best = s;
     }
     return best;
@@ -312,11 +312,16 @@ static void slot_start_renderer(Slot *s)
     case WP_IMAGE: s->r = image_renderer_create(&ctx, err, SP_COUNTOF(err)); break;
     case WP_VIDEO: s->r = video_renderer_create(&ctx, err, SP_COUNTOF(err)); break;
     case WP_HTML:  s->r = html_renderer_create(&ctx, err, SP_COUNTOF(err)); break;
+    case WP_SPX:
+        if (E.cfg.s.spxEnabled) s->r = spx_renderer_create(&ctx, err, SP_COUNTOF(err));
+        else str_copy(err, SP_COUNTOF(err), L"Screen- projects are switched off (setting spx_enabled)");
+        break;
     default: str_copy(err, SP_COUNTOF(err), L"Unknown wallpaper type"); break;
     }
     if (!s->r) {
         BOOL permanent = !file_exists(s->wp.path) || (s->wp.type == WP_HTML && !html_runtime_version(NULL, 0)) ||
-                         (s->wp.type == WP_VIDEO && !video_ffmpeg_available(NULL, 0)) || s->wp.type == WP_NONE;
+                         (s->wp.type == WP_VIDEO && !video_ffmpeg_available(NULL, 0)) || s->wp.type == WP_NONE ||
+                         (s->wp.type == WP_SPX && (!E.cfg.s.spxEnabled || !spx_runtime_available()));
         slot_fail(s, err[0] ? err : L"Renderer could not be created", !permanent);
         return;
     }
@@ -1159,6 +1164,7 @@ static void stills_tick(void)
         if (!s->used || !s->shown || !s->r || s->failed || !stills_path(&s->mon, &s->wp, path, SP_COUNTOF(path)) ||
             file_exists(path))
             continue;
+        if (s->wp.type == WP_SPX) continue;                     /* no still of a running program yet */
         if (s->wp.type != WP_HTML) stills_make(&s->mon, &s->wp, NULL);
         else if (s->state == RS_ACTIVE) html_grab(s->r);     /* paused or covered: when it shows again */
     }

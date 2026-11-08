@@ -79,6 +79,9 @@ void renderer_post(HWND notify, uint32_t rid, int code, HRESULT hr, const wchar_
 Renderer *image_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);
 Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);
 Renderer *html_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);
+/* Screen- projects (.spx): the Screen- runtime as a child process, its window adopted (spx_renderer.c). */
+Renderer *spx_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);
+BOOL      spx_runtime_available(void);
 
 /* Process-wide subsystems (engine process only). */
 BOOL video_ffmpeg_available(wchar_t *err, size_t cap);

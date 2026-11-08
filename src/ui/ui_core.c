@@ -427,7 +427,7 @@ void ui_animate(void)
 const wchar_t *ui_type_icon(WallpaperType t)
 {
     static wchar_t s[2];
-    s[0] = t == WP_VIDEO ? GL_VIDEO : t == WP_HTML ? GL_CODE : GL_PHOTO;
+    s[0] = t == WP_VIDEO ? GL_VIDEO : t == WP_HTML || t == WP_SPX ? GL_CODE : GL_PHOTO;
     s[1] = 0;
     return s;
 }
@@ -717,7 +717,7 @@ void ui_draw_thumb(const WallpaperEntry *e, D2D1_RECT_F r, float radius, int lar
         return;
     }
     ui_rrect(r, radius, t->chip);
-    wchar_t g = e->type == WP_VIDEO ? GL_VIDEO : e->type == WP_HTML ? GL_CODE : GL_PHOTO;
+    wchar_t g = e->type == WP_VIDEO ? GL_VIDEO : e->type == WP_HTML || e->type == WP_SPX ? GL_CODE : GL_PHOTO;
     ui_icon(g, rh > 120 ? u->fIconL : u->fIcon, r, t->text3);
 }
 

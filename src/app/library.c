@@ -2,13 +2,15 @@
  * level of a picked folder, or the wallpaper libraries of Lively Wallpaper / Wallpaper Engine
  * (known locations only, never a drive scan). Entries store paths; wallpaper files are never
  * copied, modified or deleted, except those Screen+ made itself (<data>\downloads, cache\streams:
- * url_import.c; <data>\depth: depth.c), which are deleted with their entry (library_discard). */
+ * url_import.c; <data>\depth: depth.c; <data>\spx: Screen- projects, copied in after their scan), which are
+ * deleted with their entry (library_discard). */
 #include "app.h"
 #include "../ui/ui.h"
 #include "../common/util.h"
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/json.h"
+#include "spx_scan.h"
 #ifdef _WIN32
 #include <shobjidl.h>
 #include <shlobj.h>
@@ -21,6 +23,7 @@
 
 typedef struct ImportStats {
     int added, dup, bad, unsupported, packages;
+    int blocked;                         /* .spx packs the scan refused (their notice is already shown) */
 } ImportStats;
 
 BOOL library_html_entry(const wchar_t *folder, wchar_t *out, size_t cap)
@@ -70,6 +73,81 @@ static int add_entry(WallpaperType t, const wchar_t *path, const wchar_t *name, 
     return 1;
 }
 
+/* ---------------------------------------------------------------- Screen- projects (.spx) */
+
+/* <data>\spx\<manifest id>: the pack as imported (the renderer scans it again at every start and runs the
+ * project.pck it copies out then) and its preview.jpg for the library card. */
+static void spx_dir(wchar_t *out, size_t cap, const char *id)
+{
+    wchar_t *wid = wide_from_utf8(id, -1), root[SP_MAX_PATH];
+    path_join(root, SP_COUNTOF(root), paths_root(), L"spx");
+    path_join(out, cap, root, wid ? wid : L"unknown");
+    free(wid);
+}
+
+static void spx_log_findings(const SpxReport *r, const wchar_t *file)
+{
+    for (int i = 0; i < r->n; i++) {
+        const SpxFinding *f = &r->items[i];
+        wchar_t *msg = wide_from_utf8(f->msg, -1), *where = wide_from_utf8(f->file, -1);
+        if (f->sev == SPX_BLOCK) LOGW(L"spx: %ls: %hs %ls:%d %ls", file, f->code, where ? where : L"", f->line, msg ? msg : L"");
+        else LOGI(L"spx: %ls: %hs %hs %ls:%d %ls", file, spx_severity_name(f->sev), f->code, where ? where : L"", f->line, msg ? msg : L"");
+        free(msg);
+        free(where);
+    }
+}
+
+static int import_spx(const wchar_t *path, ImportStats *st)
+{
+    if (!g_app.cfg.s.spxEnabled) {                  /* hidden while Screen- is in development */
+        st->unsupported++;
+        return 0;
+    }
+    char *u8 = utf8_from_wide(path, NULL);
+    SpxReport r;
+    int rc = u8 ? spx_scan(u8, &r) : -1;
+    free(u8);
+    if (rc != 0) {
+        spx_report_free(&r);
+        st->bad++;
+        return 0;
+    }
+    spx_log_findings(&r, path_filename(path));
+    if (r.verdict == SPX_BLOCK) {
+        const SpxFinding *f = spx_report_worst(&r);
+        wchar_t *msg = f ? wide_from_utf8(f->msg, -1) : NULL, *where = f ? wide_from_utf8(f->file, -1) : NULL;
+        app_notice(NOTICE_WARN, L"'%ls' was not added: the safety check refused it (%ls%ls%ls).", path_filename(path),
+                   where && where[0] ? where : L"", where && where[0] ? L": " : L"", msg ? msg : L"");
+        free(msg);
+        free(where);
+        spx_report_free(&r);
+        st->blocked++;
+        return 0;
+    }
+    wchar_t dir[SP_MAX_PATH], pack[SP_MAX_PATH], thumb[SP_MAX_PATH];
+    spx_dir(dir, SP_COUNTOF(dir), r.id);
+    path_join(pack, SP_COUNTOF(pack), dir, L"pack.spx");
+    path_join(thumb, SP_COUNTOF(thumb), dir, L"preview.jpg");
+    wchar_t *title = wide_from_utf8(r.title, -1);
+    spx_report_free(&r);
+    int ok = 0;
+    if (config_find_path(&g_app.cfg, pack)) {
+        st->dup++;                                  /* the same project (by id) is already in the library */
+    } else if (dir_create_recursive(dir) && CopyFileW(path, pack, FALSE)) {
+        char *p8 = utf8_from_wide(pack, NULL), *t8 = utf8_from_wide(thumb, NULL), why[200];
+        if (!p8 || !t8 || spx_extract_file(p8, "preview.jpg", t8, why, sizeof why) != 0) thumb[0] = 0;
+        free(p8);
+        free(t8);
+        ok = add_entry(WP_SPX, pack, title, WPF_PLAIN, 0, thumb, st);
+        if (ok) LOGI(L"library: added Screen- project '%ls' from %ls", title ? title : L"", path);
+    } else {
+        LOGE(L"library: could not copy %ls into %ls", path, dir);
+        st->bad++;
+    }
+    free(title);
+    return ok;
+}
+
 static int add_file(const wchar_t *path, ImportStats *st)
 {
     WallpaperType t = wallpaper_type_from_path(path);
@@ -77,6 +155,7 @@ static int add_file(const wchar_t *path, ImportStats *st)
         st->bad++;
         return 0;
     }
+    if (t == WP_SPX) return import_spx(path, st);
     wchar_t name[SP_NAME_LEN] = L"";
     if (t == WP_HTML) {                      /* HTML wallpapers are named after their folder */
         wchar_t dir[SP_MAX_PATH];
@@ -272,6 +351,8 @@ static void report(const ImportStats *st, const wchar_t *source, int before, BOO
         app_notice(NOTICE_INFO, L"Everything%ls%ls is already in your library.%ls", source[0] ? L" from " : L"", source, extra);
     else if (st->unsupported && !st->bad)
         app_notice(NOTICE_WARN, L"Nothing to import.%ls", extra);
+    else if (st->blocked && !st->bad)
+        ;                                       /* import_spx said why */
     else
         app_notice(NOTICE_WARN, L"Nothing was imported. These files are not supported.");
     ui_on_config_changed();
@@ -587,6 +668,12 @@ void library_remove(const wchar_t *id)
     if (url_import_forget(path, thumb)) {
         LOGI(L"library: removed '%ls' and deleted its download", name);
         app_notice(NOTICE_INFO, L"Removed '%ls' and its downloaded file.", name);
+    } else if (gone.type == WP_SPX && _wcsnicmp(path, paths_root(), wcslen(paths_root())) == 0) {
+        wchar_t dir[SP_MAX_PATH];                              /* <data>\spx\<id>: imported, so ours to delete */
+        path_dirname(dir, SP_COUNTOF(dir), path);
+        library_discard(dir, TRUE);
+        LOGI(L"library: removed Screen- project '%ls' and its copy", name);
+        app_notice(NOTICE_INFO, L"Removed '%ls' from the library.", name);
     } else if (wallpaper_is_url(path)) {                       /* a web page or stream: no file */
         LOGI(L"library: removed '%ls'", name);
         app_notice(NOTICE_INFO, L"Removed '%ls' from the library.", name);
@@ -666,13 +753,14 @@ void library_discard(const wchar_t *path, BOOL folder)
     LOGI(L"library: '%ls' is in use; it is deleted at the next start", path);
 }
 
-/* only what Screen+ made: a direct child of <data>\downloads or <data>\depth */
+/* only what Screen+ made: a direct child of <data>\downloads, <data>\depth or <data>\spx */
 static BOOL made_here(const wchar_t *path)
 {
-    wchar_t dir[SP_MAX_PATH], depth[SP_MAX_PATH];
+    wchar_t dir[SP_MAX_PATH], depth[SP_MAX_PATH], spx[SP_MAX_PATH];
     path_dirname(dir, SP_COUNTOF(dir), path);
     path_join(depth, SP_COUNTOF(depth), paths_root(), L"depth");
-    return str_ieq(dir, paths_downloads()) || str_ieq(dir, depth);
+    path_join(spx, SP_COUNTOF(spx), paths_root(), L"spx");
+    return str_ieq(dir, paths_downloads()) || str_ieq(dir, depth) || str_ieq(dir, spx);
 }
 
 /* an entry uses it again: its file or picture is path, or lies inside the folder path (named after an entry) */

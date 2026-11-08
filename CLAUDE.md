@@ -130,6 +130,8 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 | `src/renderer/video/` | `video_renderer.c`, `video_audio.c`, `video_stream.c`, `ffmpeg_thumb.c` (UI thumbnails), `video.hlsl` (NV12/I420/RGB + grading); details below |
 | `src/renderer/html/` | `html_renderer.c` (WebView2), `wallpaper_api.c` (Lively/WE JS APIs, author properties); details below |
 | `src/renderer/image/image_renderer.c` | WIC decode; presents on paint only |
+| `src/renderer/spx/spx_renderer.c` | Screen- projects (`WP_SPX`, branch `spx`, hidden setting `spx_enabled`): re-scans `pack.spx`, copies `project.pck` to `run\`, starts the Screen- runtime in a job object (`SCREENPLUS_SPX_RUNTIME`, else `<data>\runtime\screen-runtime.exe`), JSON-RPC bus over a named pipe, adopts the window named in `sp.ready`. Linux: not yet (engine_gtk logs it) |
+| `third_party/spxscan/` | The .spx scanner, vendored from the Screen- repo (`../ScreenMinus/scanner`) by `scripts/sync-spxscan.sh`; never edit the copy. Used by import (`library.c` `import_spx` → `<data>\spx\<id>\`), the renderer and `screenplus spx scan` |
 | `src/ui/ui_core.c` | Window, Direct2D/DirectWrite primitives, input, focus, caret, tooltip |
 | `src/ui/ui_pages.c` | Library, Displays, Customise and Settings pages; `pages_activate`, `pages_context`, `pages_tooltip` |
 | `src/ui/thumbs.c`, `d2d_c.h`, `dwrite_c.h` | Thumbnail worker thread; hand-written C COM declarations |
@@ -354,7 +356,9 @@ Renderer details:
   tool.
 
 ## Known gaps (vs Lively)
-- There are no application, Unity or Godot wallpapers; they are reported as unsupported.
+- There are no application, Unity or Godot wallpapers; they are reported as unsupported. Screen- projects (.spx) are
+  in development on branch `spx`. Test them with the Screen- repo's `tools/fake_runtime.c` as `SCREENPLUS_SPX_RUNTIME`
+  and a scratch engine.
 - Missing features: in-app update notices. Web screensavers get no audio, system or
   track data.
 - Customise skips author property types `button` and `label`. Web grading has no gamma, because CSS has no

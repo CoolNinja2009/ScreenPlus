@@ -17,6 +17,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include "spx_scan.h"
+
 enum { EXIT_OK = 0, EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_NOT_RUNNING = 3 };
 
 static int g_json, g_quiet;
@@ -60,6 +62,7 @@ static const char k_help[] =
     "  logs [-n N] [-f]       Show the log\n"
     "  paths | path <name>    Where Screen+ keeps things\n"
     "  tools                  Whether yt-dlp and curl are installed\n"
+    "  spx scan <file> [--json]  Check a Screen- project (exit 0 pass, 1 warn, 2 blocked)\n"
     "  version | help\n";
 
 static int cmd_paths(void)
@@ -260,6 +263,15 @@ static int dispatch(int argc, char **argv)
     if (!strcmp(c, "path")) return cmd_path(argc > 1 ? argv[1] : NULL);
     if (!strcmp(c, "tools")) return cmd_tools();
     if (!strcmp(c, "startup")) return cmd_startup(argc > 1 ? argv[1] : NULL);
+    if (!strcmp(c, "spx")) {
+        if (argc < 3 || strcmp(argv[1], "scan")) { fputs("Usage: screenplus spx scan <file.spx> [--json]\n", stderr); return 3; }
+        SpxReport r;
+        if (spx_scan(argv[2], &r) != 0) { fprintf(stderr, "Can't open %s\n", argv[2]); spx_report_free(&r); return 3; }
+        if (argc > 3 && !strcmp(argv[3], "--json")) spx_report_json(&r, stdout); else spx_report_print(&r, stdout);
+        int verdict = (int)r.verdict;
+        spx_report_free(&r);
+        return verdict;
+    }
     if (!strcmp(c, "show") && connect_probe() != EXIT_OK && cmd_start() != EXIT_OK) return EXIT_FAILED;
     if (!strcmp(c, "screensaver")) {
         fputs("Not available on Linux yet.\n", stderr);

@@ -94,6 +94,17 @@ foreach(entry vs_main:vs_4_0:video_vs ps_nv12:ps_4_0:video_ps_nv12 ps_i420:ps_4_
     list(APPEND SHADER_HEADERS "${SHADER_OUT}/${name}.h")
 endforeach()
 
+# ---------------------------------------------------------------- spxscan
+# The .spx scanner from the Screen- repository, vendored (scripts/sync-spxscan.sh; commit in SCREENMINUS_COMMIT).
+add_library(spxscan STATIC third_party/spxscan/scan.c third_party/spxscan/zip.c third_party/spxscan/pck.c
+    third_party/spxscan/manifest.c third_party/spxscan/rules.c third_party/spxscan/sjson.c
+    third_party/spxscan/extract.c third_party/spxscan/third_party/puff.c)
+target_include_directories(spxscan PUBLIC third_party/spxscan)
+target_compile_definitions(spxscan PRIVATE _CRT_SECURE_NO_WARNINGS)
+target_compile_options(spxscan PRIVATE /W4 /utf-8 /guard:cf /GS)
+# zlib's puff.c, kept as Mark Adler wrote it: its narrowing assignments are intended
+set_source_files_properties(third_party/spxscan/third_party/puff.c PROPERTIES COMPILE_OPTIONS "/wd4324;/wd4244")
+
 # ---------------------------------------------------------------- application
 set(SOURCES
     src/main.c
@@ -110,6 +121,7 @@ set(SOURCES
     src/renderer/video/video_renderer.c src/renderer/video/video_audio.c src/renderer/video/ffmpeg_thumb.c
     src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
+    src/renderer/spx/spx_renderer.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
     src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c src/app/samples_update.c
     src/app/store_sources.c
@@ -130,7 +142,7 @@ target_compile_definitions(ScreenPlus PRIVATE UNICODE _UNICODE COBJMACROS NOMINM
 target_compile_options(ScreenPlus PRIVATE /W4 /utf-8 /guard:cf /GS /sdl- /wd4204 /wd4221 /wd4100)
 target_link_options(ScreenPlus PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf ${FFMPEG_DELAYLOAD}
                                        /MANIFEST:NO)
-target_link_libraries(ScreenPlus PRIVATE
+target_link_libraries(ScreenPlus PRIVATE spxscan
     "${WEBVIEW2_SDK_DIR}/build/native/x64/WebView2LoaderStatic.lib"
     ${FFMPEG_IMPLIBS} delayimp
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
@@ -208,7 +220,7 @@ target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN3
                                                  SP_SAMPLES_ID="${SAMPLES_ID}")
 target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /wd4221 /wd4100)
 target_link_options(ScreenPlusCli PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /INCREMENTAL:NO)
-target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 oleaut32 advapi32 bcrypt winhttp taskschd)
+target_link_libraries(ScreenPlusCli PRIVATE spxscan user32 shell32 shlwapi ole32 oleaut32 advapi32 bcrypt winhttp taskschd)
 
 # Validation helpers (not shipped): check the wallpaper is attached and visible behind the
 # icons, and print the livelySystemInformation payload the engine feeds web wallpapers.

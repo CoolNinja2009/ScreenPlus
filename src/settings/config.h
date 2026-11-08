@@ -94,6 +94,7 @@ typedef struct Settings {
     int       livelyImport;   /* add newly installed Lively Wallpaper packages at launch */
     int       urlImport;      /* link button: import from web links (setup's optional yt-dlp component) */
     int       depthAll;       /* make every image wallpaper interactive (depth.c) when it is applied */
+    int       spxEnabled;     /* hidden while Screen- is in development: .spx import and the Screen- runtime */
     wchar_t   depthModel[32]; /* the depth model's key (depth.c's table; unknown: the default) */
     ThemeMode theme;
     DisplayMode displayMode;

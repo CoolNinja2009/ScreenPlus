@@ -411,6 +411,10 @@ static Slot *slot_for(const char *monitor)
 
 static void slot_open(Slot *s, GdkMonitor *mon, const WallpaperEntry *e, const GdkRectangle *span)
 {
+    if (e->type == WP_SPX) {   /* the Screen- runtime hands frames over dmabuf on Linux: not built yet */
+        LOGW(L"engine: '%ls' is a Screen- project, which doesn't run on Linux yet", e->name);
+        return;
+    }
     GtkWidget *view = e->type == WP_HTML ? web_view(s, e) : mpv_view(s, e, span);
     if (!view) {
         LOGE(L"engine: could not show '%ls'", e->name);

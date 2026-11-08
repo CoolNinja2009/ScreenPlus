@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "spx_scan.h"
+
 enum { EXIT_OK = 0, EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_NOT_RUNNING = 3 };
 
 #define MAX_ARGS 64
@@ -321,6 +323,7 @@ static const wchar_t k_help[] =
     L"  samples install                        the sample wallpapers besides Singularity, Koi Pond and Aurora (setup's optional download)\n"
     L"  samples [check | update | status]      which downloaded samples changed in the latest release; update: replace them\n"
     L"  vcredist [install]                     the Microsoft Visual C++ runtime that Make wallpaper cooler needs\n"
+    L"  spx scan <file.spx> [--json]           check a Screen- project before installing it (exit 0 pass, 1 warn, 2 blocked)\n"
     L"  startup [on | off]                     start Screen+ when you sign in (a logon task)\n"
     L"  screensaver [on | off | preview]       Screen+ as the Windows screensaver\n"
     L"  screensaver timeout <minutes>          idle time before it starts (a Windows setting)\n"
@@ -623,6 +626,34 @@ static int cmd_startup(const wchar_t *sub)
         out(L"Start with Windows: %ls\n", kind == AUTOSTART_TASK ? L"on" : kind == AUTOSTART_RUN ? L"on (Run key)" : L"off");
     if (SUCCEEDED(hrCo)) CoUninitialize();
     return rc;
+}
+
+/* ---- spx scan: the same scan an import runs (third_party/spxscan, from the Screen- repository) */
+
+static int cmd_spx(int n, wchar_t **argv)
+{
+    if (n < 3 || !str_ieq(argv[1], L"scan")) {
+        err(L"Usage: screenplus spx scan <file.spx> [--json]\n");
+        return 3;
+    }
+    char *path = utf8_from_wide(argv[2], NULL);
+    if (!path) return 3;
+    SpxReport r;
+    int rc = spx_scan(path, &r);
+    free(path);
+    if (rc != 0) {
+        err(L"Can't open %ls\n", argv[2]);
+        spx_report_free(&r);
+        return 3;
+    }
+    fflush(stdout);
+    SetConsoleOutputCP(CP_UTF8);
+    if (n > 3 && str_ieq(argv[3], L"--json")) spx_report_json(&r, stdout);
+    else spx_report_print(&r, stdout);
+    fflush(stdout);
+    int verdict = (int)r.verdict;
+    spx_report_free(&r);
+    return verdict;
 }
 
 /* ---- vcredist: the Microsoft Visual C++ runtime ONNX Runtime needs (setup offers it when it is missing) */
@@ -928,6 +959,7 @@ static int run_command(int argc, wchar_t **in)
     if (str_ieq(c, L"tools")) return cmd_tools(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"samples") && (n < 2 || str_ieq(argv[1], L"install"))) return cmd_samples(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"vcredist")) return cmd_vcredist(n > 1 ? argv[1] : NULL);
+    if (str_ieq(c, L"spx")) return cmd_spx(n, argv);
     if (str_ieq(c, L"startup")) return cmd_startup(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"screensaver") && !(n > 1 && str_ieq(argv[1], L"use"))) return cmd_screensaver(n, argv);
     if (str_ieq(c, L"watch") || (watch && str_ieq(c, L"status"))) {

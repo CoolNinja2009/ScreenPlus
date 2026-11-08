@@ -15,7 +15,12 @@ set(SHARED
 add_executable(screenplus cli.c service.c desktop_kde.c url_import.c http_linux.c preview.c feed.c webhost.c ${SHARED}
     ${ROOT}/app/cli_server.c ${ROOT}/app/library.c ${ROOT}/app/store.c ${ROOT}/app/store_sources.c
     ${ROOT}/app/update.c ${ROOT}/app/samples_update.c ${ROOT}/app/depth.c)
-target_link_libraries(screenplus PRIVATE m pthread ${CMAKE_DL_LIBS})
+# The .spx scanner from the Screen- repository, vendored (scripts/sync-spxscan.sh).
+set(SPXSCAN_DIR ${CMAKE_SOURCE_DIR}/third_party/spxscan)
+file(GLOB SPXSCAN ${SPXSCAN_DIR}/*.c)
+add_library(spxscan STATIC ${SPXSCAN} ${SPXSCAN_DIR}/third_party/puff.c)
+target_include_directories(spxscan PUBLIC ${SPXSCAN_DIR})
+target_link_libraries(screenplus PRIVATE spxscan m pthread ${CMAKE_DL_LIBS})
 set_target_properties(screenplus PROPERTIES ENABLE_EXPORTS ON)   # screenplus-ui.so calls back into it
 
 add_compile_definitions(_GNU_SOURCE SP_VERSION_STR="${SCREENPLUS_VERSION}${SCREENPLUS_SUFFIX}")

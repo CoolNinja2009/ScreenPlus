@@ -258,7 +258,7 @@ static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int pau
     if (e) wpapi_load_adjust(e->id, &a);
     sb_puts(b, "{\"Source\":");
     json_write_string(b, uri ? uri : "");
-    sb_printf(b, ",\"Kind\":\"%s\"", !e ? "none" : e->type == WP_HTML ? "html" : e->type == WP_IMAGE ? "image" : "video");
+    sb_printf(b, ",\"Kind\":\"%s\"", !e ? "none" : e->type == WP_HTML ? "html" : e->type == WP_IMAGE ? "image" : e->type == WP_SPX ? "none" : "video");
     sb_printf(b, ",\"Muted\":%s,\"Paused\":%s,\"PauseOnFullscreen\":%s", c->s.audio && !g_micBusy ? "false" : "true",
               paused ? "true" : "false", c->s.pauseOnFullscreen ? "true" : "false");
     char *apps = utf8_from_wide(c->s.pauseApps, NULL);
