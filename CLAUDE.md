@@ -82,7 +82,8 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 - **Engine**: `ScreenPlus.exe --engine`, `src/engine/engine.c`. Owns the desktop-hosted windows, renderers,
   the per-monitor pause state machine (fullscreen, occlusion, battery, lock) and recovery. While an app is fullscreen,
   `watch_fullscreen` hooks EVENT_OBJECT_LOCATIONCHANGE for its thread only: leaving fullscreen in place fires no
-  global hook, and with every display paused the 2 s safety re-check is off. App rules (`pause_apps`/`mute_apps`,
+  global hook, and with every display paused the 2 s safety re-check is off. `check_shell` (T_SAFETY, then T_SHELL every 1 s) pauses
+  every wallpaper while Explorer is hung (`IsHungAppWindow` on Progman/taskbar) and resumes 3 s after it answers. App rules (`pause_apps`/`mute_apps`,
   `config_rule_*`, CLI `rules`): the foreground process is matched in `update_occlusion` (`foreground_matches`);
   mute reads `HKCU\...\CapabilityAccessManager\ConsentStore\microphone` (LastUsedTimeStop 0 = recording) on a
   registry change notification (`mic_watch`, `WM_SP_MIC`), only while `mute_apps` is set. It reads

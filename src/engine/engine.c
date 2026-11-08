@@ -23,11 +23,12 @@
 #define WM_SP_SHELL_GONE (WM_APP + 42)
 #define WM_SP_MIC        (WM_APP + 43)
 
-enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS, T_RESTACK, T_HELLO, T_REC };
+enum { T_OCCLUSION = 1, T_SAFETY, T_DISPLAY, T_REHOST, T_RETRY, T_STATUS, T_WALLPAPER_DATA, T_STILLS, T_RESTACK, T_HELLO, T_REC, T_SHELL };
 #define REC_TICK_MS 33               /* recordings play at ~30 Hz; properties every third tick (web pages may rebuild) */
 
 #define MAX_RETRIES 3
 #define SAFETY_MS   2000
+#define SHELL_RESUME_MS 3000
 
 typedef struct Slot {
     int            used;
@@ -83,6 +84,8 @@ static struct {
     MonitorInfo    mons[SP_MAX_MONITORS];   /* connected displays (a span slot covers them all) */
     int            monCount;
     int            screensaver;             /* ScreenPlus.scr is running: everything is hidden */
+    int            shellHung;               /* Explorer stopped answering: wallpapers paused (see check_shell) */
+    ULONGLONG      shellBack;               /* when Explorer answered again; resume waits SHELL_RESUME_MS */
     DWORD          scrPid;
     HANDLE         scrProcess, scrWait;
     int            appPaused;               /* app rules: a pause_apps app is in front */
@@ -94,6 +97,7 @@ static struct {
 } E;
 
 static void apply_states(void);
+static void update_occlusion(void);
 static void status_dirty(void);
 
 /* ================================================================ slots */
@@ -584,6 +588,7 @@ static RenderState desired_state(const Slot *s, int *keepFrame)
 {
     *keepFrame = 0;
     if (E.sleeping || E.displayOff || E.disconnected || (E.locked && E.cfg.s.suspendOnLock)) return RS_SUSPENDED;
+    if (E.shellHung) return RS_SUSPENDED;
     if (E.screensaver) {                 /* nothing to see; the frame stays for the moment it ends */
         *keepFrame = 1;
         return RS_SUSPENDED;
@@ -634,6 +639,38 @@ static void apply_states(void)
 }
 
 static void CALLBACK win_event(HWINEVENTHOOK hook, DWORD ev, HWND hwnd, LONG idObject, LONG idChild, DWORD tid, DWORD time);
+
+/* Our windows are children of Explorer's desktop window. Leaving a fullscreen app has, now and then, left Explorer
+ * (taskbar, Start, Alt-Tab) not responding while a wallpaper played, until the wallpaper paused (lock, sleep) or
+ * Windows closed Explorer. So while Explorer doesn't answer (IsHungAppWindow: no messages read for 5 s), every
+ * wallpaper pauses; it plays again SHELL_RESUME_MS after Explorer answers. Checked on T_SAFETY, and every second
+ * on T_SHELL while paused for it. */
+static void check_shell(void)
+{
+    HWND tray = FindWindowW(L"Shell_TrayWnd", NULL);
+    int hung = (E.host.progman && IsWindow(E.host.progman) && IsHungAppWindow(E.host.progman)) ||
+               (tray && IsHungAppWindow(tray));
+    ULONGLONG now = GetTickCount64();
+    if (hung) {
+        E.shellBack = 0;
+        if (!E.shellHung) {
+            E.shellHung = 1;
+            LOGW(L"Explorer is not responding: wallpapers paused until it answers");
+            SetTimer(E.ctl, T_SHELL, 1000, NULL);
+            apply_states();
+        }
+        return;
+    }
+    if (!E.shellHung) return;
+    if (!E.shellBack) { E.shellBack = now; return; }
+    if (now - E.shellBack < SHELL_RESUME_MS) return;
+    E.shellHung = 0;
+    E.shellBack = 0;
+    KillTimer(E.ctl, T_SHELL);
+    LOGW(L"Explorer is responding again: wallpapers resumed");
+    apply_states();
+    update_occlusion();
+}
 
 /* Leaving fullscreen in place (F11 in a browser or player, a game going windowed) changes no foreground
  * window and shows or hides nothing, so none of the global hooks fire; and with every display paused the
@@ -1181,6 +1218,7 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             update_occlusion();
             break;
         case T_SAFETY:
+            check_shell();
             update_occlusion();
             if (!desktop_host_valid(&E.host)) SetTimer(h, T_REHOST, 500, NULL);
             else restack();
@@ -1222,6 +1260,9 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case T_HELLO:
             send_hello();
+            break;
+        case T_SHELL:
+            check_shell();
             break;
         case T_REC:
             rec_tick();
