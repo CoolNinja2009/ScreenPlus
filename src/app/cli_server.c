@@ -1310,6 +1310,7 @@ static void run(Reply *r, const Req *q)
         say(r, L"Screensaver wallpaper: %ls\n", e ? e->name : L"the desktop's");
     } else if (str_ieq(c, L"hide")) {
         ui_destroy();
+        update_on_ui_closed();          /* as the window's close: a downloaded update was waiting for it */
 #ifdef _WIN32
         say(r, L"Window closed (Screen+ keeps running in the notification area).\n");
 #else

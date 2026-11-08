@@ -327,13 +327,16 @@ static int can_install(void) { return g_state.supported; }
 /* Setup closes this process (--exit), replaces the files and starts the new version (/UPDATE). */
 static void run_setup(void)
 {
-    wchar_t cmd[SP_MAX_PATH + 32], text[SP_COUNTOF(g_state.text)];
+    wchar_t cmd[2 * SP_MAX_PATH + 64], text[SP_COUNTOF(g_state.text)];
     STARTUPINFOW si = { sizeof si };
     PROCESS_INFORMATION pi;
 #ifdef _WIN32
     str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" /S /UPDATE", g_ready);
 #else
-    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls/update.sh\" \"%ls\"", paths_exe_dir(), g_ready);
+    /* Under a systemd unit (sign-in starts it as screenplus.service) update.sh would sit in the service's cgroup,
+     * and its `screenplus stop` would take it down with the service: it gets a scope of its own. */
+    str_printf(cmd, SP_COUNTOF(cmd), L"%ls\"%ls/update.sh\" \"%ls\"",
+               getenv("INVOCATION_ID") ? L"systemd-run --user --scope --quiet " : L"", paths_exe_dir(), g_ready);
 #endif
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         LOGW(L"update: could not start the installer (err %lu)", GetLastError());

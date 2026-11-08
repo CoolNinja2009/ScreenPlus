@@ -5,7 +5,6 @@
 #include "desktop.h"
 
 DWORD windows_build_number(void) { return 22000; }
-void  update_on_ui_closed(void) {}
 
 /* Each display's number, as a notification: Plasma and Hyprland both show them. */
 void identify_displays(const MonitorInfo *mons, int n)
