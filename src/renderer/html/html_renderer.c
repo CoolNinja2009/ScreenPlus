@@ -361,7 +361,7 @@ static HRESULT on_captured(HtmlRenderer *r, void *hrv, void *unused)
             wchar_t err[SP_ERR_LEN];
             if (GetObjectW(bmp, sizeof ds, &ds) == sizeof ds && ds.dsBm.bmBits &&
                 gfx_texture_from_bgra(ds.dsBm.bmBits, r->w, r->h, &tex, err, SP_COUNTOF(err)) &&
-                SUCCEEDED(gfx_present(r->hwnd, &r->snapSwap, tex, r->w, r->h, NULL))) {
+                SUCCEEDED(gfx_present(r->hwnd, &r->snapSwap, tex, r->w, r->h, NULL, 0))) {
                 DeleteObject(bmp);
             } else {
                 if (r->snapshot) DeleteObject(r->snapshot);

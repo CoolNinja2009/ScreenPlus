@@ -300,6 +300,7 @@ static const wchar_t k_help[] =
     L"  look set <key> <value> ...             brightness contrast saturation gamma (-100..100),\n"
     L"                                         hue (-180..180), tint #RRGGBB, tint-strength tint-brightness (0..100)\n"
     L"  look reset                             back to neutral\n"
+    L"  upscale [off|smooth|sharp]             upscaling of a video or image smaller than the display\n"
     L"  props                                  the wallpaper's own settings (Lively / Wallpaper Engine)\n"
     L"  props set <name> <value>               e.g. props set rainIntensity 80 | props set Scaling Fill\n"
     L"  props reset                            the wallpaper's defaults\n"
@@ -487,6 +488,14 @@ static const UrlTool k_samples = {
     L"-samples.zip",
     SP_SAMPLES_SHA256, SP_SAMPLES_SIZE
 };
+/* The GitLab mirror's copy (its package registry, as update.c), tried when GitHub fails: the account was hidden
+ * in 2026-11. Same file, same pins. */
+static const UrlTool k_samplesLab = {
+    L"samples.zip", L"the sample wallpapers",
+    L"https://gitlab.com/api/v4/projects/88596566/packages/generic/screenplus/" SP_VERSION_W L"/ScreenPlus-" SP_VERSION_W
+    L"-samples.zip",
+    SP_SAMPLES_SHA256, SP_SAMPLES_SIZE
+};
 
 static int cmd_samples(const wchar_t *sub)
 {
@@ -510,7 +519,13 @@ static int cmd_samples(const wchar_t *sub)
     }
     int last = -1;
     out(L"Downloading the sample wallpapers (about %d MB, SHA-256 verified)...\n", (int)((k_samples.size + 500000) / 1000000));
-    if (!dir_create_recursive(dir) || !fetch_pinned(&k_samples, zip, tools_progress, &last, e, SP_COUNTOF(e))) {
+    BOOL made = dir_create_recursive(dir), got = made && fetch_pinned(&k_samples, zip, tools_progress, &last, e, SP_COUNTOF(e));
+    if (made && !got) {
+        out(L"\nGitHub didn't answer; trying GitLab...\n");
+        last = -1;
+        got = fetch_pinned(&k_samplesLab, zip, tools_progress, &last, e, SP_COUNTOF(e));
+    }
+    if (!got) {
         err(L"%ls%ls%ls\n", c_red(), e[0] ? e : L"Could not create the samples folder.", c_off());
         return EXIT_FAILED;
     }

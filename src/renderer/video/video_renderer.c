@@ -37,6 +37,7 @@ typedef struct CBParams {
     float grade[4];    /* brightness offset, contrast gain, gamma exponent, saturation gain */
     float hue[4];      /* x: hue rotation (radians) */
     float tint[4];     /* xyz tint colour, w lift (blacks -> tint) */
+    float up[4];       /* x: 0 bilinear, 1 bicubic, 2 bicubic + sharpen, 3 sharpen; y sharpness; zw texel size */
 } CBParams;
 
 typedef struct PlaneSet {
@@ -1080,6 +1081,16 @@ static void draw_output(VideoOutput *o, const PlaneSet *ps, const AVFrame *f)
     if (ps->yuv) yuv_matrix(f, &cb);
     cb.off[3] = ps->slice;
     grade_fill(&cb, &o->adj);
+    /* bicubic only when the visible part of the frame has fewer pixels than the output; Sharp always sharpens,
+     * one source texel apart when enlarged, else one output pixel apart */
+    double visW = (u1 - u0) * ps->frameW, visH = (v1 - v0) * ps->frameH;
+    int enlarged = o->w > visW * 1.02 || o->h > visH * 1.02;
+    if (o->upscale == UPSCALE_SHARP || (o->upscale == UPSCALE_SMOOTH && enlarged)) {
+        cb.up[0] = !enlarged ? 3.0f : o->upscale == UPSCALE_SHARP ? 2.0f : 1.0f;
+        cb.up[1] = 1.0f;
+        cb.up[2] = enlarged ? 1.0f / ps->texW : cb.uvRect[2] / (float)o->w;
+        cb.up[3] = enlarged ? 1.0f / ps->texH : cb.uvRect[3] / (float)o->h;
+    }
 
     D3D11_MAPPED_SUBRESOURCE m;
     if (SUCCEEDED(ID3D11DeviceContext_Map(g.ctx, (ID3D11Resource *)g.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
@@ -1370,8 +1381,10 @@ static void vo_apply(Renderer *base)
     VideoOutput *o = (VideoOutput *)base;
     WallpaperAdjust a;
     wpapi_load_adjust(o->wpId, &a);
+    int up = wpapi_load_upscale(o->wpId);
     EnterCriticalSection(&o->src->outLock);   /* the present thread reads adj under this lock */
     o->adj = a;
+    o->upscale = up;
     LeaveCriticalSection(&o->src->outLock);
     InterlockedExchange(&o->src->redraw, 1);  /* re-present the current frame, also while paused */
     SetEvent(o->src->wake);
@@ -1473,6 +1486,7 @@ Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     o->notify = ctx->notify;
     str_copy(o->wpId, SP_COUNTOF(o->wpId), ctx->wp->id);
     wpapi_load_adjust(o->wpId, &o->adj);
+    o->upscale = wpapi_load_upscale(o->wpId);
     o->w = SP_MAX(ctx->width, 1);
     o->h = SP_MAX(ctx->height, 1);
     o->state = RS_ACTIVE;
@@ -1555,7 +1569,7 @@ BOOL gfx_texture_from_bgra(const void *bits, int w, int h, struct ID3D11Texture2
 
 /* Draws tex into the back buffer through the grading shader (caller holds g.lock + renderLock).
  * FALSE when a view could not be created: the caller copies instead. */
-static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int w, int h, const WallpaperAdjust *adj)
+static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int w, int h, const WallpaperAdjust *adj, int sharpen)
 {
     if (!g.psRGB || !g.vs || !g.cb) return FALSE;
     ID3D11RenderTargetView *rtv = NULL;
@@ -1576,6 +1590,12 @@ static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int w, int h,
     cb.uvRect[2] = cb.uvRect[3] = 1.0f;
     cb.uvClamp[0] = cb.uvClamp[1] = 1.0f;
     grade_fill(&cb, adj);
+    if (sharpen) {                     /* the image is already scaled to the display: sharpen only, 1:1 */
+        cb.up[0] = 3.0f;
+        cb.up[1] = 1.0f;
+        cb.up[2] = 1.0f / (float)w;
+        cb.up[3] = 1.0f / (float)h;
+    }
     D3D11_MAPPED_SUBRESOURCE m;
     if (SUCCEEDED(ID3D11DeviceContext_Map(g.ctx, (ID3D11Resource *)g.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
         memcpy(m.pData, &cb, sizeof cb);
@@ -1601,7 +1621,7 @@ static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int w, int h,
 }
 
 HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h,
-                    const WallpaperAdjust *adj)
+                    const WallpaperAdjust *adj, int sharpen)
 {
     HRESULT hr = S_OK;
     AcquireSRWLockExclusive(&g.lock);
@@ -1636,7 +1656,8 @@ HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Textu
         hr = IDXGISwapChain1_GetBuffer(*swap, 0, &IID_ID3D11Texture2D, (void **)&bb);
         if (SUCCEEDED(hr)) {
             /* neutral grading keeps the free copy; a failed graded draw falls back to it too */
-            if (!(adj && adjust_active(adj) && draw_graded(bb, tex, w, h, adj)))
+            int graded = adj && adjust_active(adj);
+            if (!((graded || sharpen) && draw_graded(bb, tex, w, h, graded ? adj : NULL, sharpen)))
                 ID3D11DeviceContext_CopyResource(g.ctx, (ID3D11Resource *)bb, (ID3D11Resource *)tex);
             ID3D11Texture2D_Release(bb);
             hr = IDXGISwapChain1_Present(*swap, 0, 0);

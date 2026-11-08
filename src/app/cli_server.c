@@ -697,6 +697,30 @@ static void cmd_look(Reply *r, const Req *q)
     if (gammaOnWeb) say(r, L"Note: gamma has no effect on web wallpapers.\n");
 }
 
+static void cmd_upscale(Reply *r, const Req *q)
+{
+    static const wchar_t *names[] = { L"off", L"smooth", L"sharp" };
+    const MonitorInfo *mon;
+    WallpaperEntry *e = target_wallpaper(r, q, &mon);
+    if (!e) return;
+    if (e->type != WP_VIDEO && e->type != WP_IMAGE && !(e->flags & WPFLAG_DEPTH)) {
+        fail(r, L"Upscaling is for videos, images and Make wallpaper cooler pictures.");
+        return;
+    }
+    if (q->argc > 1) {
+        int m = -1;
+        for (int i = 0; i < 3; i++) if (str_ieq(q->argv[1], names[i])) m = i;
+        if (m < 0 || (m == UPSCALE_SMOOTH && e->type == WP_IMAGE)) {
+            fail(r, e->type == WP_IMAGE ? L"Usage: screenplus upscale [off|sharp]   (images are already scaled smoothly)"
+                                        : L"Usage: screenplus upscale [off|smooth|sharp]");
+            return;
+        }
+        wpapi_save_upscale(e->id, m);
+        customise_changed();
+    }
+    say(r, L"Upscaling: %ls\n", names[wpapi_load_upscale(e->id)]);
+}
+
 /* ------------------------------------------------------------------ wallpaper properties */
 
 static const wchar_t *prop_type_name(CustomType t)
@@ -1327,6 +1351,8 @@ static void run(Reply *r, const Req *q)
         cmd_store(r, q);
     } else if (str_ieq(c, L"look") || str_ieq(c, L"grade")) {
         cmd_look(r, q);
+    } else if (str_ieq(c, L"upscale")) {
+        cmd_upscale(r, q);
     } else if (str_ieq(c, L"props") || str_ieq(c, L"prop") || str_ieq(c, L"properties")) {
         cmd_props(r, q);
     } else if (str_ieq(c, L"settings") || str_ieq(c, L"setting") || str_ieq(c, L"config")) {

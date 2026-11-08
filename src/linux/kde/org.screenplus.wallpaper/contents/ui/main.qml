@@ -17,6 +17,9 @@ WallpaperItem {
                                  || (configuration.PauseWhenCovered && coveredHere) || appHere
     readonly property bool graded: configuration.Brightness !== 0 || configuration.Contrast !== 0 || configuration.Saturation !== 0
                                    || recording.hasLook
+    /* Upscaling Sharp (2): sharpen.frag deblurs the picture as Qt shows it, at any size.
+     * Smooth has nothing to change here: Qt only scales bilinearly. */
+    readonly property bool sharp: configuration.Upscale === 2
 
     /* A Customise recording's value while one plays, else the stored one. */
     function lookValue(key, stored) {
@@ -59,27 +62,36 @@ WallpaperItem {
         color: "black"
     }
 
-    Loader {
-        id: view
-        x: root.configuration.SpanW > 0 ? -root.configuration.SpanX : 0     /* span: this display's part of the whole */
-        y: root.configuration.SpanW > 0 ? -root.configuration.SpanY : 0
-        width: root.configuration.SpanW > 0 ? root.configuration.SpanW : root.width
-        height: root.configuration.SpanW > 0 ? root.configuration.SpanH : root.height
-        onLoaded: {
-            if (root.shownKind === "html") {    /* the shim first: it has to be in place when the page loads */
-                item.shim = Qt.binding(() => root.configuration.ShimUrl)
-                item.script = Qt.binding(() => root.configuration.Script)
-            }
-            item.paused = Qt.binding(() => root.held)
-            item.muted = Qt.binding(() => root.configuration.Muted)
-            item.source = root.shownSrc      /* not a binding: the old view lingers a moment after a switch */
-            recording.reset()
+    Item {
+        anchors.fill: parent
+        layer.enabled: root.sharp
+        layer.effect: ShaderEffect {
+            property vector2d texel: Qt.vector2d(1 / Math.max(width, 1), 1 / Math.max(height, 1))
+            fragmentShader: Qt.resolvedUrl("sharpen.frag.qsb")
         }
-        layer.enabled: root.graded
-        layer.effect: MultiEffect {
-            brightness: root.lookValue("brightness", root.configuration.Brightness) / 100
-            contrast: root.lookValue("contrast", root.configuration.Contrast) / 100
-            saturation: root.lookValue("saturation", root.configuration.Saturation) / 100
+
+        Loader {
+            id: view
+            x: root.configuration.SpanW > 0 ? -root.configuration.SpanX : 0     /* span: this display's part of the whole */
+            y: root.configuration.SpanW > 0 ? -root.configuration.SpanY : 0
+            width: root.configuration.SpanW > 0 ? root.configuration.SpanW : root.width
+            height: root.configuration.SpanW > 0 ? root.configuration.SpanH : root.height
+            onLoaded: {
+                if (root.shownKind === "html") {    /* the shim first: it has to be in place when the page loads */
+                    item.shim = Qt.binding(() => root.configuration.ShimUrl)
+                    item.script = Qt.binding(() => root.configuration.Script)
+                }
+                item.paused = Qt.binding(() => root.held)
+                item.muted = Qt.binding(() => root.configuration.Muted)
+                item.source = root.shownSrc      /* not a binding: the old view lingers a moment after a switch */
+                recording.reset()
+            }
+            layer.enabled: root.graded
+            layer.effect: MultiEffect {
+                brightness: root.lookValue("brightness", root.configuration.Brightness) / 100
+                contrast: root.lookValue("contrast", root.configuration.Contrast) / 100
+                saturation: root.lookValue("saturation", root.configuration.Saturation) / 100
+            }
         }
     }
 

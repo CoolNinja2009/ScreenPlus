@@ -143,6 +143,16 @@ Renderer details:
 - **Video**: one D3D11 swapchain per display and one `VideoSource` per path, shared across displays. Decode
   and present run on their own threads; decoding uses D3D11VA with a software fallback (`SCREENPLUS_HWDEC`).
   `video_stream.c` handles stream wallpapers.
+- **Upscaling** (Customise card, CLI `upscale`; `wpapi_load/save_upscale`, not part of the look, so recordings and
+  Reset look leave it). Smooth = Catmull-Rom bicubic, only while the picture is smaller than the display; Sharp =
+  that plus a deblur at any size (two-radius unsharp mask on luma, clamped to the 3x3 range: no halos), the same maths
+  in every copy. Video: `video.hlsl`'s `up` constants (taps a source texel apart when enlarged, else an output pixel).
+  Images are already WIC-cubic at display size, so only Off/Sharp: `gfx_present(..., sharpen)` 1:1. Depth pages
+  (not SHARP splats): `wpapi_properties_js` adds property `upscale` for `WPFLAG_DEPTH`, `depth.html`'s `pic()` does
+  both. Hyprland: mpv `scale=ewa_lanczos`/`ewa_lanczossharp` + `cache/sharpen.glsl` (written by engine_gtk.c; a
+  `//!WHEN` needs `NATIVE_CROPPED`, `MAIN` silently disables the hook). Plasma: Sharp = `sharpen.frag.qsb` as a layer
+  over the view, Smooth does nothing (Qt only scales bilinearly). After changing `sharpen.frag`, recompile it on a Linux box:
+  `qsb --glsl "100 es,120,150" --hlsl 50 --msl 12 -o sharpen.frag.qsb sharpen.frag`.
 - **HTML**: one WebView2 environment is shared. Folders are mapped to the virtual host
   `https://wallpaper.screenplus.example/`, and URL pages load directly. Hidden pages are suspended with a
   low memory target.
@@ -177,7 +187,7 @@ Renderer details:
   | Path | Contents |
   | --- | --- |
   | `config.ini` | Settings and library |
-  | `props\<id>.json` | Customise: author property overrides, plus grading under `_screenplus_adjust` |
+  | `props\<id>.json` | Customise: author property overrides, plus grading under `_screenplus_adjust` and Upscaling under `_screenplus_upscale` |
   | `logs\` | `screenplus.log`, `engine.log`, `capture.log`, `crash\` minidumps |
   | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails), `store\` (Store previews, kept a week), `stills\` (Windows wallpaper stills, `original.txt`) |
   | `WebView2\` | WebView2 user data |

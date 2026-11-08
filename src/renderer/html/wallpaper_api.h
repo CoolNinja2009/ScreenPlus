@@ -65,6 +65,11 @@ void wpapi_clear_properties(const wchar_t *wallpaperId);
 /* Colour grading. out gets defaults when nothing is stored; out->used is derived (adjust_active). */
 BOOL wpapi_load_adjust(const wchar_t *wallpaperId, WallpaperAdjust *out);
 void wpapi_save_adjust(const wchar_t *wallpaperId, const WallpaperAdjust *a);
+/* Upscaling (Customise, videos and images): UPSCALE_* under "_screenplus_upscale"; not part of the
+ * look, so recordings and Reset look leave it alone. Off is today's scaling (bilinear video, cubic images). */
+enum { UPSCALE_OFF = 0, UPSCALE_SMOOTH = 1, UPSCALE_SHARP = 2 };
+int  wpapi_load_upscale(const wchar_t *wallpaperId);
+void wpapi_save_upscale(const wchar_t *wallpaperId, int mode);
 
 /* Stores one override value; native type (checkbox bool, slider/dropdown number,
  * colour/text string). Returns 1 when the file was written. */

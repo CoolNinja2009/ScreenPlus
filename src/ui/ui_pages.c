@@ -1209,6 +1209,7 @@ static const struct { const wchar_t *label; int min, max; } k_look[SL_COUNT] = {
 static struct {
     wchar_t         wpId[SP_ID_LEN];
     WallpaperAdjust adj;               /* working copy: edits land here and are saved on commit */
+    int             upscale;           /* UPSCALE_* */
     CustomProp     *props;
     int             propCount;
     wchar_t         edit[SP_MAX_PATH]; /* text of the field being typed into (u->textFocus) */
@@ -1273,6 +1274,7 @@ static void customise_refresh(void)
     u->textFocus = 0;
     cus.forceReload = 0;
     wpapi_load_adjust(e->id, &cus.adj);
+    cus.upscale = wpapi_load_upscale(e->id);
     wpapi_props_free(cus.props, cus.propCount);
     cus.props = wpapi_props_list(e, &cus.propCount);
     if (cus.take && cus.takePropCount != cus.propCount) rec_drop_take();   /* the list changed under the take */
@@ -2402,6 +2404,31 @@ static float draw_look_section(Ui *u, float x, float y, float w, const Wallpaper
     return y + card + 26.0f;
 }
 
+/* Which wallpapers the Upscaling card is for: videos, images and depth pages (not SHARP's 3D splats). */
+static int upscale_applies(const WallpaperEntry *e)
+{
+    if (e->flags & WPFLAG_DEPTH) {
+        int m = depth_entry_model(e);
+        return m < 0 || !depth_model(m)->splat;
+    }
+    return e->type == WP_VIDEO || e->type == WP_IMAGE;
+}
+
+/* Upscaling: Smooth enlarges with bicubic, Sharp also deblurs at any size. Plain images are already scaled smoothly,
+ * so Off/Sharp. */
+static float draw_upscale_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
+{
+    static const wchar_t *vopts[] = { L"Off", L"Smooth", L"Sharp" }, *iopts[] = { L"Off", L"Sharp" };
+    static const int idata[] = { UPSCALE_OFF, UPSCALE_SHARP };
+    int image = e->type == WP_IMAGE, n = image ? 2 : 3;
+    int sel = image ? (cus.upscale == UPSCALE_SHARP) : cus.upscale;
+    y = section(u, x, y, L"UPSCALING");
+    ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+    row_label(u, x, y, w - n * 84 - 40, L"Upscaling", NULL);
+    segmented(u, x + w - 18 - n * 84, y + 15, HK_UPSCALE, image ? iopts : vopts, n, sel, 84, image ? idata : NULL);
+    return y + 62 + 26.0f;
+}
+
 static void draw_choice(Ui *u, int id, D2D1_RECT_F r, const wchar_t *text)
 {
     Theme *t = &u->t;
@@ -2689,6 +2716,7 @@ static void draw_customise(Ui *u, float cx, float cw)
         if (rec_shown(REC_LOOK)) wprec_look(&cus.rec[REC_LOOK], wprec_pos(&cus.rec[REC_LOOK], wprec_now()), &cus.adj);
         y = draw_look_section(u, x, y, w, e);
         cus.adj = own;
+        if (upscale_applies(e)) y = draw_upscale_section(u, x, y, w, e);
         y = draw_props_section(u, x, y, w);
     }
     ui_pop_clip();
@@ -2935,6 +2963,16 @@ void pages_activate(int id, int dbl)
         cus.adj = adjust_defaults();
         look_commit(0);
         break;
+    case HK_UPSCALE: {
+        WallpaperEntry *e = customise_entry();
+        cus.upscale = data;
+        if (e) {
+            wpapi_save_upscale(e->id, data);
+            app_apply_customise();
+        }
+        ui_invalidate();
+        break;
+    }
     case HK_DEPTH_PICK:
         g_depthList = !g_depthList;
         ui_invalidate();

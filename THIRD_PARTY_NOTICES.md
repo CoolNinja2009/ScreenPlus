@@ -80,6 +80,7 @@ folder keeps its own license file and its source link (`LivelyInfo.json`).
 | `spfaevge.qza` | Music Tunnel | rocksdanister | MIT |
 | `xn0quq52.bq2` | Matrix Rain Customizable | parambirs, khuong | none stated (see its `README.md`) |
 | `zmijuhra.1n3` | Music TV (LQ) | rocksdanister | MIT |
+| `NullSaint` | NULL//SAINT | Screen+ | MIT; its photo `media/neon-streets.jpg` ("Neon streets", Unsplash via Wikimedia Commons) is CC0 1.0 |
 
 ## Windows SDK / system components
 

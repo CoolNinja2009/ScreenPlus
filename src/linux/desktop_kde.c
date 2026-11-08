@@ -269,6 +269,7 @@ static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int pau
     sb_printf(b, ",\"SpanX\":%d,\"SpanY\":%d,\"SpanW\":%d,\"SpanH\":%d", span ? span->left : 0, span ? span->top : 0,
               span ? span->right - span->left : 0, span ? span->bottom - span->top : 0);
     sb_printf(b, ",\"Brightness\":%d,\"Contrast\":%d,\"Saturation\":%d", a.brightness, a.contrast, a.saturation);
+    sb_printf(b, ",\"Upscale\":%d", e && e->type != WP_HTML ? wpapi_load_upscale(e->id) : 0);
     char *rec = e ? recording_json(e) : NULL;
     char *recUrl = rec ? webhost_recording(e->id, rec) : NULL;   /* too big for the script: the plugin fetches it */
     sb_puts(b, ",\"Recording\":");

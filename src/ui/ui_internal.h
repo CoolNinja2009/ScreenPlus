@@ -36,6 +36,7 @@ enum HitKind {
     HK_STORE_TEXT, HK_STORE_CLEAR, HK_STORE_CARD, HK_STORE_DL, HK_STORE_RETRY,  /* Store; data: the item's index */
     HK_STORE_FILTER,                                                            /* data: SF_* */
     HK_UPDATE_CHECK, HK_SAMPLES_CHECK, HK_RESET_SETTINGS,
+    HK_UPSCALE,                       /* Customise upscaling; data: UPSCALE_* */
     HK_DEPTH_PICK, HK_DEPTH_MODEL,    /* depth model list: open/close; pick (data: depth_model index) */
     HK_RULE_ADD, HK_RULE_DEL,         /* app rules; data: list (0 pause, 1 mute), DEL adds index << 8 */
     HK_REC, HK_REC_EDIT, HK_REC_DEL,  /* Customise recordings; data: section (REC_LOOK, REC_PROPS) */

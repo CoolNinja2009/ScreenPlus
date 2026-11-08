@@ -98,6 +98,8 @@ BOOL html_grab(Renderer *r);
 /* Shared WIC helper: decode (file path or stream), apply EXIF orientation and scale-to-cover
  * into a top-down 32-bpp DIB of exactly w x h. Caller owns the HBITMAP. */
 HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut);
+/* Same, and *scale gets how much the picture was enlarged (< 1: shrunk). */
+HBITMAP image_decode_cover_ex(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut, double *scale);
 /* The frame a video starts on, BGRA w x h cover crop (ffmpeg_thumb.c), for the Windows wallpaper still;
  * the caller frees it with free(). */
 BOOL ffmpeg_first_frame(const wchar_t *path, int w, int h, uint8_t **bgra);
@@ -113,5 +115,6 @@ struct IDXGISwapChain1;
 BOOL    gfx_texture_from_bgra(const void *bits, int w, int h, struct ID3D11Texture2D **tex, wchar_t *err, size_t cap);
 struct WallpaperAdjust;
 HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h,
-                    const struct WallpaperAdjust *adj);   /* NULL: no colour grading */
+                    const struct WallpaperAdjust *adj,    /* NULL: no colour grading */
+                    int sharpen);                         /* sharpen the (upscaled) picture, 1:1 */
 void    gfx_release(struct IDXGISwapChain1 **swap);

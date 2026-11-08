@@ -65,6 +65,11 @@ int image_orientation_transform(UINT o)
 
 HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut)
 {
+    return image_decode_cover_ex(path, stream, w, h, hrOut, NULL);
+}
+
+HBITMAP image_decode_cover_ex(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut, double *scaleOut)
+{
     IWICImagingFactory *f = NULL;
     IWICBitmapDecoder *dec = NULL;
     IWICBitmapFrameDecode *frame = NULL;
@@ -105,6 +110,7 @@ HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, H
 
     /* scale to cover the target, then center-crop */
     double scale = SP_MAX((double)w / sw, (double)h / sh);
+    if (scaleOut) *scaleOut = scale;
     UINT dw = (UINT)SP_MAX((double)w, ceil(sw * scale));
     UINT dh = (UINT)SP_MAX((double)h, ceil(sh * scale));
     hr = IWICImagingFactory_CreateBitmapScaler(f, &scaler);
@@ -161,10 +167,12 @@ typedef struct ImageRenderer {
     wchar_t          path[SP_MAX_PATH];
     wchar_t          wpId[SP_ID_LEN];
     WallpaperAdjust  adj;          /* Customise panel colour grading (reloadable) */
+    int              upscale;      /* UPSCALE_* (reloadable) */
     int              w, h;
     /* guarded by lock */
     ID3D11Texture2D *tex;          /* decoded GPU copy; retained so grading can re-present */
     int              texW, texH;
+    int              enlarged;     /* the picture is smaller than the display */
     HBITMAP          bmp;          /* GDI fallback only */
     int              bmpW, bmpH;
     /* engine thread */
@@ -197,7 +205,8 @@ static void CALLBACK decode_work(PTP_CALLBACK_INSTANCE inst, void *ctx)
     HRESULT hrInit = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     double t0 = time_ms();
     HRESULT hr = S_OK;
-    HBITMAP bmp = image_decode_cover(r->path, NULL, job->w, job->h, &hr);
+    double scale = 1.0;
+    HBITMAP bmp = image_decode_cover_ex(r->path, NULL, job->w, job->h, &hr, &scale);
     if (SUCCEEDED(hrInit)) CoUninitialize();
 
     ID3D11Texture2D *tex = NULL;
@@ -228,6 +237,7 @@ static void CALLBACK decode_work(PTP_CALLBACK_INSTANCE inst, void *ctx)
         r->tex = tex;
         r->texW = r->bmpW = job->w;
         r->texH = r->bmpH = job->h;
+        r->enlarged = scale > 1.02;
         r->bmp = bmp;
         ReleaseSRWLockExclusive(&r->lock);
         InterlockedExchange(&r->repaint, 1);    /* new texture (first decode or resize): present it */
@@ -267,6 +277,7 @@ static void img_apply(Renderer *base)
 {
     ImageRenderer *r = (ImageRenderer *)base;
     wpapi_load_adjust(r->wpId, &r->adj);
+    r->upscale = wpapi_load_upscale(r->wpId);
     InterlockedExchange(&r->repaint, 1);
     InvalidateRect(r->hwnd, NULL, FALSE);
 }
@@ -286,7 +297,7 @@ static BOOL img_paint(Renderer *base, HDC dc, const RECT *rc)
     ImageRenderer *r = (ImageRenderer *)base;
     AcquireSRWLockShared(&r->lock);
     ID3D11Texture2D *tex = NULL;               /* retained: re-presentable when grading changes */
-    int tw = r->texW, th = r->texH;
+    int tw = r->texW, th = r->texH, sharpen = r->upscale == UPSCALE_SHARP;
     if (r->tex) {
         tex = r->tex;
         ID3D11Texture2D_AddRef(tex);
@@ -294,7 +305,7 @@ static BOOL img_paint(Renderer *base, HDC dc, const RECT *rc)
     ReleaseSRWLockShared(&r->lock);
     if (tex) {
         if (InterlockedExchange(&r->repaint, 0) || !r->presented) {
-            HRESULT hr = gfx_present(r->hwnd, &r->swap, tex, tw, th, &r->adj);
+            HRESULT hr = gfx_present(r->hwnd, &r->swap, tex, tw, th, &r->adj, sharpen);
             if (FAILED(hr)) {
                 ID3D11Texture2D_Release(tex);
                 renderer_post(r->notify, r->base.rid, REV_FAILED, hr, L"Could not present the image (0x%08lX)", (unsigned long)hr);
@@ -365,6 +376,7 @@ Renderer *image_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     r->notify = ctx->notify;
     str_copy(r->wpId, SP_COUNTOF(r->wpId), ctx->wp->id);
     wpapi_load_adjust(r->wpId, &r->adj);
+    r->upscale = wpapi_load_upscale(r->wpId);
     r->w = ctx->width;
     r->h = ctx->height;
     str_copy(r->path, SP_COUNTOF(r->path), ctx->wp->path);

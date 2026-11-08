@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "2.0.1" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
+set(SCREENPLUS_VERSION "2.1.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
 project(ScreenPlus VERSION ${SCREENPLUS_VERSION} LANGUAGES C)
 
 if(NOT WIN32)

@@ -1,0 +1,993 @@
+{
+  "h_core": {
+    "type": "label",
+    "value": "▓▓ CORE ▓▓"
+  },
+  "preset": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Preset (applies on change)",
+    "items": [
+      "Keep my settings",
+      "Balanced",
+      "Calm Night",
+      "Total Meltdown",
+      "Retro CRT",
+      "Ghost In The Wires",
+      "Minimal HUD",
+      "Seizure-Safe"
+    ]
+  },
+  "theme": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Colour theme",
+    "items": [
+      "Neon Tokyo",
+      "Toxic Sludge",
+      "Blood Moon",
+      "Ice Ghost",
+      "Vapor Mall",
+      "Amber Terminal",
+      "Rain Code",
+      "Ultraviolet",
+      "Dead Channel",
+      "Acid Candy",
+      "Chrome Sunset",
+      "Custom"
+    ]
+  },
+  "colA": {
+    "type": "color",
+    "value": "#ff2bd6",
+    "text": "Custom neon A"
+  },
+  "colB": {
+    "type": "color",
+    "value": "#00f0ff",
+    "text": "Custom neon B"
+  },
+  "colC": {
+    "type": "color",
+    "value": "#ffe600",
+    "text": "Custom neon C"
+  },
+  "colBg": {
+    "type": "color",
+    "value": "#05010f",
+    "text": "Custom sky top"
+  },
+  "colBg2": {
+    "type": "color",
+    "value": "#2a0636",
+    "text": "Custom horizon"
+  },
+  "hueCycle": {
+    "type": "slider",
+    "value": 0,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Hue drift speed"
+  },
+  "intensity": {
+    "type": "slider",
+    "value": 100,
+    "min": 0,
+    "max": 250,
+    "step": 5,
+    "text": "Glitch intensity (%)"
+  },
+  "chaos": {
+    "type": "slider",
+    "value": 45,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Chaos (event frequency)"
+  },
+  "speed": {
+    "type": "slider",
+    "value": 100,
+    "min": 10,
+    "max": 300,
+    "step": 5,
+    "text": "Time speed (%)"
+  },
+  "quality": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Render resolution",
+    "items": [
+      "50% (fast)",
+      "75%",
+      "100% (sharp)"
+    ]
+  },
+  "fps": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Frame cap",
+    "items": [
+      "30 fps",
+      "60 fps",
+      "Unlimited"
+    ]
+  },
+  "boot": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Boot sequence on start"
+  },
+  "seed": {
+    "type": "textbox",
+    "value": "NULLSAINT",
+    "text": "Reality seed (changes the city)"
+  },
+  "safe": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Seizure-safe mode (no strobes or flashes)"
+  },
+  "h_city": {
+    "type": "label",
+    "value": "▓▓ MEGACITY ▓▓"
+  },
+  "city": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Show city"
+  },
+  "cityDensity": {
+    "type": "slider",
+    "value": 60,
+    "min": 10,
+    "max": 100,
+    "step": 1,
+    "text": "Building density"
+  },
+  "cityHeight": {
+    "type": "slider",
+    "value": 60,
+    "min": 10,
+    "max": 100,
+    "step": 1,
+    "text": "Skyscraper height"
+  },
+  "parallax": {
+    "type": "slider",
+    "value": 50,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Mouse parallax"
+  },
+  "moon": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Sky object",
+    "items": [
+      "None",
+      "Broken moon",
+      "Striped sun",
+      "Black hole",
+      "Giant eye",
+      "Planet rings"
+    ]
+  },
+  "moonSize": {
+    "type": "slider",
+    "value": 50,
+    "min": 10,
+    "max": 100,
+    "step": 1,
+    "text": "Sky object size"
+  },
+  "signs": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Neon kanji signs"
+  },
+  "cars": {
+    "type": "slider",
+    "value": 50,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Flying traffic"
+  },
+  "weather": {
+    "type": "slider",
+    "value": 40,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Rain"
+  },
+  "fog": {
+    "type": "slider",
+    "value": 45,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Smog"
+  },
+  "searchlights": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Searchlights"
+  },
+  "lightning": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Data lightning"
+  },
+  "grid": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Synth grid floor"
+  },
+  "h_glyph": {
+    "type": "label",
+    "value": "▓▓ GLYPH RAIN ▓▓"
+  },
+  "glyphs": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Glyph rain"
+  },
+  "glyphSet": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Glyph set",
+    "items": [
+      "Katakana",
+      "Hex",
+      "Binary",
+      "Runes",
+      "Box drawing",
+      "Math",
+      "Hangul",
+      "Braille",
+      "Mixed",
+      "Custom"
+    ]
+  },
+  "glyphCustom": {
+    "type": "textbox",
+    "value": "NULLSAINT01",
+    "text": "Custom glyphs"
+  },
+  "glyphDensity": {
+    "type": "slider",
+    "value": 35,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Glyph density"
+  },
+  "glyphSpeed": {
+    "type": "slider",
+    "value": 50,
+    "min": 5,
+    "max": 100,
+    "step": 1,
+    "text": "Glyph speed"
+  },
+  "glyphSize": {
+    "type": "slider",
+    "value": 16,
+    "min": 8,
+    "max": 40,
+    "step": 1,
+    "text": "Glyph size"
+  },
+  "glyphRepel": {
+    "type": "slider",
+    "value": 60,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Cursor repels glyphs"
+  },
+  "glyphColor": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Glyph colour",
+    "items": [
+      "Neon A",
+      "Neon B",
+      "Neon C",
+      "Rainbow",
+      "Audio"
+    ]
+  },
+  "h_saint": {
+    "type": "label",
+    "value": "▓▓ THE SAINT ▓▓"
+  },
+  "saint": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Show the Saint"
+  },
+  "saintStyle": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Form",
+    "items": [
+      "Scanline face",
+      "Single eye",
+      "Particle swarm",
+      "Random each visit"
+    ]
+  },
+  "saintPos": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Position",
+    "items": [
+      "Centre",
+      "Left",
+      "Right",
+      "Haunts the cursor",
+      "Wanders"
+    ]
+  },
+  "saintSize": {
+    "type": "slider",
+    "value": 55,
+    "min": 15,
+    "max": 100,
+    "step": 1,
+    "text": "Size"
+  },
+  "saintTrack": {
+    "type": "slider",
+    "value": 80,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Eye tracking"
+  },
+  "saintAlpha": {
+    "type": "slider",
+    "value": 75,
+    "min": 10,
+    "max": 100,
+    "step": 1,
+    "text": "Opacity"
+  },
+  "saintTalk": {
+    "type": "checkbox",
+    "value": true,
+    "text": "The Saint speaks"
+  },
+  "saintWords": {
+    "type": "textbox",
+    "value": "",
+    "text": "Its words (separate with |)"
+  },
+  "saintBlink": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Blinks"
+  },
+  "h_girl": {
+    "type": "label",
+    "value": "▓▓ KEI (CYBER GIRL) ▓▓"
+  },
+  "girl": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Show Kei, the cyber girl"
+  },
+  "girlMode": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Look",
+    "items": [
+      "Drawn (Kei)",
+      "Your own image"
+    ]
+  },
+  "girlPos": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "Stands on the",
+    "items": [
+      "Left",
+      "Right",
+      "Side away from the cursor"
+    ]
+  },
+  "girlSize": {
+    "type": "slider",
+    "value": 45,
+    "min": 10,
+    "max": 100,
+    "step": 1,
+    "text": "Size"
+  },
+  "girlHair": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Hair colour",
+    "items": [
+      "Neon A",
+      "Neon B",
+      "Silver",
+      "Midnight",
+      "Sakura",
+      "Mint"
+    ]
+  },
+  "girlAcc": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Accessory",
+    "items": [
+      "Cat-ear headphones",
+      "Holo visor",
+      "Both",
+      "None"
+    ]
+  },
+  "girlUmbrella": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Neon umbrella"
+  },
+  "girlTalk": {
+    "type": "checkbox",
+    "value": true,
+    "text": "She chats"
+  },
+  "girlFlip": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Mirror her"
+  },
+  "girlFile": {
+    "type": "folderDropdown",
+    "value": "",
+    "text": "Your image (PNG with transparency works best)",
+    "filter": "*.png|*.webp|*.gif|*.jpg",
+    "folder": "girls"
+  },
+  "girlUrl": {
+    "type": "textbox",
+    "value": "",
+    "text": "Or image URL / path"
+  },
+  "h_photo": {
+    "type": "label",
+    "value": "▓▓ PHOTO SIGNAL ▓▓"
+  },
+  "photo": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Photo layer",
+    "items": [
+      "None",
+      "Neon streets (bundled, CC0)",
+      "Your own photo"
+    ]
+  },
+  "photoPlace": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Photo placement",
+    "items": [
+      "Sky backdrop",
+      "Ghost overlay",
+      "Replace the city"
+    ]
+  },
+  "photoMix": {
+    "type": "slider",
+    "value": 55,
+    "min": 5,
+    "max": 100,
+    "step": 1,
+    "text": "Photo strength"
+  },
+  "photoDrift": {
+    "type": "slider",
+    "value": 30,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Photo drift"
+  },
+  "photoTint": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Tint photo with theme"
+  },
+  "photoFile": {
+    "type": "folderDropdown",
+    "value": "",
+    "text": "Your photo",
+    "filter": "*.jpg|*.jpeg|*.png|*.webp",
+    "folder": "photos"
+  },
+  "h_holo": {
+    "type": "label",
+    "value": "▓▓ HOLOGRAMS & ADS ▓▓"
+  },
+  "ads": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Holo billboards"
+  },
+  "adCount": {
+    "type": "slider",
+    "value": 5,
+    "min": 0,
+    "max": 12,
+    "step": 1,
+    "text": "Billboard count"
+  },
+  "holo": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Floating wireframe artifact"
+  },
+  "holoShape": {
+    "type": "dropdown",
+    "value": 5,
+    "text": "Artifact shape",
+    "items": [
+      "Cube",
+      "Icosahedron",
+      "Torus",
+      "Pyramid",
+      "Knot",
+      "Cycle"
+    ]
+  },
+  "holoSize": {
+    "type": "slider",
+    "value": 40,
+    "min": 10,
+    "max": 100,
+    "step": 1,
+    "text": "Artifact size"
+  },
+  "h_hud": {
+    "type": "label",
+    "value": "▓▓ HUD ▓▓"
+  },
+  "hud": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Show HUD"
+  },
+  "hudGlitch": {
+    "type": "checkbox",
+    "value": false,
+    "text": "HUD goes through the glitch"
+  },
+  "clock": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Clock"
+  },
+  "clock24": {
+    "type": "checkbox",
+    "value": true,
+    "text": "24-hour clock"
+  },
+  "logs": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Terminal logs"
+  },
+  "sys": {
+    "type": "checkbox",
+    "value": true,
+    "text": "System monitor"
+  },
+  "reticle": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Cursor reticle"
+  },
+  "ticker": {
+    "type": "checkbox",
+    "value": true,
+    "text": "News ticker"
+  },
+  "popups": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Haunted error popups"
+  },
+  "popupRate": {
+    "type": "slider",
+    "value": 30,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Popup frequency"
+  },
+  "operator": {
+    "type": "textbox",
+    "value": "OPERATOR",
+    "text": "Operator name"
+  },
+  "messages": {
+    "type": "textbox",
+    "value": "",
+    "text": "Your own messages (separate with |)"
+  },
+  "hudScale": {
+    "type": "slider",
+    "value": 100,
+    "min": 60,
+    "max": 180,
+    "step": 5,
+    "text": "HUD scale (%)"
+  },
+  "h_post": {
+    "type": "label",
+    "value": "▓▓ SIGNAL DAMAGE ▓▓"
+  },
+  "rgb": {
+    "type": "slider",
+    "value": 45,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "RGB split"
+  },
+  "scan": {
+    "type": "slider",
+    "value": 45,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Scanlines"
+  },
+  "curve": {
+    "type": "slider",
+    "value": 20,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "CRT curvature"
+  },
+  "grain": {
+    "type": "slider",
+    "value": 30,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Static grain"
+  },
+  "blocks": {
+    "type": "slider",
+    "value": 35,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Block corruption"
+  },
+  "tear": {
+    "type": "slider",
+    "value": 30,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Line tearing"
+  },
+  "vhs": {
+    "type": "slider",
+    "value": 25,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "VHS tracking"
+  },
+  "mosh": {
+    "type": "slider",
+    "value": 30,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Datamosh"
+  },
+  "sort": {
+    "type": "slider",
+    "value": 20,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Pixel sorting"
+  },
+  "bloom": {
+    "type": "slider",
+    "value": 60,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Neon bloom"
+  },
+  "vignette": {
+    "type": "slider",
+    "value": 50,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Vignette"
+  },
+  "wave": {
+    "type": "slider",
+    "value": 10,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Signal wave"
+  },
+  "pixelate": {
+    "type": "slider",
+    "value": 0,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Pixelate"
+  },
+  "posterize": {
+    "type": "slider",
+    "value": 0,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Posterize"
+  },
+  "dither": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Ordered dither"
+  },
+  "mask": {
+    "type": "checkbox",
+    "value": false,
+    "text": "CRT phosphor mask"
+  },
+  "ascii": {
+    "type": "dropdown",
+    "value": 1,
+    "text": "ASCII vision",
+    "items": [
+      "Off",
+      "During events",
+      "Always"
+    ]
+  },
+  "colorMode": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Colour mode",
+    "items": [
+      "Normal",
+      "Thermal",
+      "Night vision",
+      "Inverted",
+      "1-bit",
+      "Sepia rot",
+      "Chroma hell"
+    ]
+  },
+  "mirror": {
+    "type": "dropdown",
+    "value": 0,
+    "text": "Mirror",
+    "items": [
+      "Off",
+      "Left/right",
+      "Quad",
+      "Kaleidoscope"
+    ]
+  },
+  "h_touch": {
+    "type": "label",
+    "value": "▓▓ INTERACTION ▓▓"
+  },
+  "trail": {
+    "type": "slider",
+    "value": 55,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Cursor smear"
+  },
+  "lens": {
+    "type": "slider",
+    "value": 35,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Cursor lens warp"
+  },
+  "click": {
+    "type": "dropdown",
+    "value": 4,
+    "text": "Click effect",
+    "items": [
+      "Nothing",
+      "Shockwave",
+      "Data burst",
+      "Reality tear",
+      "Random",
+      "Everything"
+    ]
+  },
+  "clickPower": {
+    "type": "slider",
+    "value": 60,
+    "min": 0,
+    "max": 100,
+    "step": 1,
+    "text": "Click power"
+  },
+  "idleRot": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Idle rot (decays while you are away)"
+  },
+  "idleTime": {
+    "type": "slider",
+    "value": 60,
+    "min": 10,
+    "max": 600,
+    "step": 10,
+    "text": "Idle rot after (s)"
+  },
+  "keys": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Keyboard triggers (browser)"
+  },
+  "h_audio": {
+    "type": "label",
+    "value": "▓▓ AUDIO ▓▓"
+  },
+  "audio": {
+    "type": "checkbox",
+    "value": true,
+    "text": "React to system audio"
+  },
+  "audioGain": {
+    "type": "slider",
+    "value": 100,
+    "min": 10,
+    "max": 400,
+    "step": 10,
+    "text": "Audio gain"
+  },
+  "audioRing": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Spectrum ring"
+  },
+  "beatGlitch": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Glitch on bass hits"
+  },
+  "fakeBeat": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Fake pulse when silent"
+  },
+  "h_sound": {
+    "type": "label",
+    "value": "▓▓ SOUND (OFF BY DEFAULT) ▓▓"
+  },
+  "sound": {
+    "type": "checkbox",
+    "value": false,
+    "text": "Synth glitch sounds"
+  },
+  "soundVol": {
+    "type": "slider",
+    "value": 40,
+    "min": 0,
+    "max": 100,
+    "step": 5,
+    "text": "Sound volume"
+  },
+  "drone": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Low city drone"
+  },
+  "h_ghost": {
+    "type": "label",
+    "value": "▓▓ PHANTOMS ▓▓"
+  },
+  "ghosts": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Phantom cursors replay your past moves"
+  },
+  "ghostCount": {
+    "type": "slider",
+    "value": 2,
+    "min": 1,
+    "max": 6,
+    "step": 1,
+    "text": "Max phantoms at once"
+  },
+  "h_events": {
+    "type": "label",
+    "value": "▓▓ EVENTS ▓▓"
+  },
+  "events": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Random glitch events"
+  },
+  "evBreach": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Security breach"
+  },
+  "evMelt": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Meltdown"
+  },
+  "evShuffle": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Tile shuffle"
+  },
+  "evInvert": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Negative strobe"
+  },
+  "evPanic": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Kernel panic screen"
+  },
+  "evWorm": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Corruption worm"
+  },
+  "evAscii": {
+    "type": "checkbox",
+    "value": true,
+    "text": "ASCII collapse"
+  },
+  "evBlackout": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Blackout (it sees you)"
+  },
+  "evTakeover": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Saint takeover"
+  },
+  "evSignal": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Signal lost"
+  },
+  "evMirror": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Kaleidoscope slip"
+  },
+  "evFreeze": {
+    "type": "checkbox",
+    "value": true,
+    "text": "Time freeze"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "AppVersion": "2.0.6.1",
+  "Title": "NULL//SAINT",
+  "Thumbnail": "preview.jpg",
+  "Preview": "preview.jpg",
+  "Desc": "A glitching cyberpunk megacity watched by the Saint, a face that tracks your cursor and talks back. WebGL datamosh, pixel sorting, CRT, ASCII vision, haunted popups, 12 glitch events, audio reactive, 100+ options.",
+  "Author": "Screen+",
+  "License": "MIT",
+  "Contact": null,
+  "Type": 1,
+  "FileName": "index.html",
+  "Arguments": null,
+  "IsAbsolutePath": false
+}

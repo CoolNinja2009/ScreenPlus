@@ -20,6 +20,7 @@
     <entry name="Brightness" type="Int"><default>0</default></entry>
     <entry name="Contrast" type="Int"><default>0</default></entry>
     <entry name="Saturation" type="Int"><default>0</default></entry>
+    <entry name="Upscale" type="Int"><default>0</default></entry>
     <entry name="ShimUrl" type="String"><default></default></entry>
     <entry name="Script" type="String"><default></default></entry>
   </group>

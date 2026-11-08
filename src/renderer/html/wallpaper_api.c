@@ -170,6 +170,9 @@ static JVal *property_values(const WallpaperEntry *wp, const JVal *over)
             json_write(&b, v);
         }
     }
+    if (wp->flags & WPFLAG_DEPTH)      /* the Upscaling card reaches depth.html as a property of its own */
+        sb_printf(&b, "%s\"upscale\":%d", count++ ? "," : "",
+                  SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_SHARP));
     sb_puts(&b, "}");
     JVal *vals = b.failed ? NULL : json_parse(b.p, b.len);
     sb_free(&b);
@@ -499,12 +502,35 @@ void wpapi_clear_properties(const wchar_t *wallpaperId)
     wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
     JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
     const JVal *a = json_geti(over, "_screenplus_adjust");
+    int up = (int)json_num(json_geti(over, "_screenplus_upscale"), 0);
     StrBuf b = { 0 };
     if (a) json_write(&b, a);
     DeleteFileW(p);
     if (a && !b.failed && b.p) save_override_file(wallpaperId, "_screenplus_adjust", b.p);   /* keep the look */
+    if (up) wpapi_save_upscale(wallpaperId, up);                                           /* and the upscaling */
     sb_free(&b);
     json_free(over);
+}
+
+int wpapi_load_upscale(const wchar_t *wallpaperId)
+{
+    if (!wallpaperId || !wallpaperId[0]) return UPSCALE_OFF;
+    wchar_t p[SP_MAX_PATH];
+    wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
+    if (!file_exists(p)) return UPSCALE_OFF;
+    JVal *over = json_parse_file(p);
+    int m = SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_SHARP);
+    json_free(over);
+    return m;
+}
+
+void wpapi_save_upscale(const wchar_t *wallpaperId, int mode)
+{
+    if (!wallpaperId || !wallpaperId[0]) return;
+    mode = SP_CLAMP(mode, UPSCALE_OFF, UPSCALE_SHARP);
+    char v[8];
+    snprintf(v, sizeof v, "%d", mode);
+    save_override_file(wallpaperId, "_screenplus_upscale", mode ? v : NULL);
 }
 
 BOOL wpapi_load_adjust(const wchar_t *wallpaperId, WallpaperAdjust *out)

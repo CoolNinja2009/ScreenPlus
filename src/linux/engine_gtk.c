@@ -33,6 +33,7 @@ typedef struct Slot {
     int                 paused;
     JVal               *sent;           /* the property values the page has */
     char               *uri;            /* mpv: loaded once its render context exists */
+    char                defScale[32];   /* mpv's own scaler, for Upscaling Off */
     Rec                 rec[REC_SECTIONS];   /* Customise recordings playing here */
     WallpaperAdjust     recBase;
     JVal               *recProps;
@@ -132,6 +133,49 @@ static void mpv_look(Slot *s, const WallpaperEntry *e)
     snprintf(v, sizeof v, "%d", a.hue * 100 / 180); mpv_set_property_string(s->mpv, "hue", v);
 }
 
+/* Upscaling (Customise): Off keeps mpv's own scaler; Smooth is EWA Lanczos (enlarging only); Sharp is the sharper
+ * EWA Lanczos plus the deblur of video.hlsl at display resolution, at any size. */
+static const char k_casShader[] =
+    "//!HOOK SCALED\n"
+    "//!BIND HOOKED\n"
+    "//!DESC Screen+ sharpen\n"
+    "#define T(x, y) HOOKED_texOff(vec2(x, y)).rgb\n"
+    "vec4 hook() {\n"
+    "    vec4 c4 = HOOKED_tex(HOOKED_pos);\n"
+    "    vec3 c = c4.rgb, n = T(0.0, -1.0), s = T(0.0, 1.0), w = T(-1.0, 0.0), e = T(1.0, 0.0);\n"
+    "    vec3 nw = T(-1.0, -1.0), se = T(1.0, 1.0), ne = T(1.0, -1.0), sw = T(-1.0, 1.0);\n"
+    "    vec3 n2 = T(0.0, -2.0), s2 = T(0.0, 2.0), w2 = T(-2.0, 0.0), e2 = T(2.0, 0.0);\n"
+    "    const vec3 L = vec3(0.2126, 0.7152, 0.0722);\n"
+    "    vec3 b1 = (c * 4.0 + (n + s + w + e) * 2.0 + (nw + ne + sw + se)) / 16.0;\n"
+    "    vec3 b2 = (b1 * 4.0 + n2 + s2 + w2 + e2) / 8.0;\n"
+    "    float d = dot(c - b1, L) * 1.6 + dot(b1 - b2, L) * 1.2;\n"
+    "    vec3 mn = min(c, min(min(min(n, s), min(w, e)), min(min(nw, se), min(ne, sw))));\n"
+    "    vec3 mx = max(c, max(max(max(n, s), max(w, e)), max(max(nw, se), max(ne, sw))));\n"
+    "    return vec4(clamp(clamp(c + d, mn - 0.02, mx + 0.02), 0.0, 1.0), c4.a);\n"
+    "}\n";
+
+static void mpv_upscale(Slot *s, const WallpaperEntry *e)
+{
+    static char shader[1024];
+    if (!shader[0]) {
+        wchar_t p[SP_MAX_PATH];
+        path_join(p, SP_COUNTOF(p), paths_cache(), L"sharpen.glsl");
+        char *u = utf8_from_wide(p, NULL);
+        FILE *f = u ? fopen(u, "wb") : NULL;
+        if (f && fwrite(k_casShader, 1, sizeof k_casShader - 1, f) == sizeof k_casShader - 1) snprintf(shader, sizeof shader, "%s", u);
+        if (f) fclose(f);
+        free(u);
+    }
+    if (!s->defScale[0]) {
+        char *d = mpv_get_property_string(s->mpv, "scale");
+        snprintf(s->defScale, sizeof s->defScale, "%s", d ? d : "lanczos");
+        mpv_free(d);
+    }
+    int m = wpapi_load_upscale(e->id);
+    mpv_set_property_string(s->mpv, "scale", m == UPSCALE_SHARP ? "ewa_lanczossharp" : m == UPSCALE_SMOOTH ? "ewa_lanczos" : s->defScale);
+    mpv_set_property_string(s->mpv, "glsl-shaders", m == UPSCALE_SHARP && shader[0] ? shader : "");
+}
+
 /* Span: each display shows its share of the picture. */
 static void mpv_crop(Slot *s, const GdkRectangle *box)
 {
@@ -168,6 +212,7 @@ static GtkWidget *mpv_view(Slot *s, const WallpaperEntry *e, const GdkRectangle 
     g_signal_connect(gl, "render", G_CALLBACK(gl_render), s);
     s->gl = gl;
     mpv_look(s, e);
+    mpv_upscale(s, e);
     free(s->uri);
     s->uri = sp_file_uri(e->path);
     return gl;
@@ -477,7 +522,7 @@ static void sync_slots(void)
                 if (e) slot_open(s, m, e, useSpan ? &box : NULL);
             } else {
                 s->geo = g;
-                if (s->mpv) mpv_look(s, e);
+                if (s->mpv) { mpv_look(s, e); mpv_upscale(s, e); }
                 if (s->web) web_send_properties(s, e);
             }
             if (s->win) slot_set_sound(s, g_cfg.s.audio && !g_micHeld);
