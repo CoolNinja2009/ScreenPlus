@@ -19,7 +19,7 @@ struct SPPipe {
 
 SPPipe *sp_pipe_open(const char *p_name) {
 	char path[512];
-	snprintf(path, sizeof(path), "\\.\pipe\%s", p_name);
+	snprintf(path, sizeof(path), "\\\\.\\pipe\\%s", p_name);
 	wchar_t wpath[512];
 	if (!MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, 512)) {
 		return nullptr;
