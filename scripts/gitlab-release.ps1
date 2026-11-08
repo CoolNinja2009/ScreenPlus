@@ -115,10 +115,29 @@ $stage = 'dist\ScreenPlus'
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item build\ScreenPlus.exe, build\*.dll $stage
 Copy-Item build\licenses, build\samples $stage -Recurse
-# Self-contained like the rest of the zip: the URL-import tools, fetched and SHA-256 verified by the app.
+# Self-contained like the rest of the zip: the URL-import tools, fetched and SHA-256 verified by the app. GitHub's
+# release downloads fail for hours at a time (504s on 2026-11-08), so a copy is kept in the package registry, keyed
+# by the pinned list in webfetch.c, as FFmpeg is; the app checks whatever it gets against its own SHA-256 pins.
+# Without either source the zip goes without them: the app fetches them on first use, as an installed copy does.
 $env:SCREENPLUS_DATA_DIR = "$env:TEMP\sp-data"
-Invoke-Native 'URL-import tools' { & build\ScreenPlus.com tools install } 4
-Copy-Item "$env:SCREENPLUS_DATA_DIR\tools" $stage -Recurse
+$toolDir = "$env:SCREENPLUS_DATA_DIR\tools"
+$toolNames = 'yt-dlp.exe', 'qjs.exe'
+$toolPins = (Select-String -Path src\common\webfetch.c -Pattern 'https://github\.com/.*/releases/download/' | ForEach-Object { $_.Line.Trim() }) -join "`n"
+$toolHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($toolPins))).Replace('-', '').Substring(0, 16).ToLower()
+$toolUrl = "$api/packages/generic/url-tools-$toolHash/1.0.0"
+New-Item -ItemType Directory -Force $toolDir | Out-Null
+$cached = $true
+foreach ($t in $toolNames) {
+    try { Invoke-WebRequest "$toolUrl/$t" -Headers $auth -OutFile "$toolDir\$t" -UseBasicParsing }
+    catch { $cached = $false }
+}
+$haveTools = $true
+try { Invoke-Native 'URL-import tools' { & build\ScreenPlus.com tools install } 4 }
+catch { $haveTools = $false; Write-Warning "URL-import tools unavailable ($_); the portable zip goes without them" }
+if ($haveTools) {
+    Copy-Item $toolDir $stage -Recurse
+    if (-not $cached) { foreach ($t in $toolNames) { Send-File "$toolDir\$t" "$toolUrl/$t" } }
+}
 New-Item -ItemType Directory -Force release | Out-Null
 Copy-Item $setup, "build\ScreenPlus-$ver-samples.zip", "build\ScreenPlus-$ver-samples.json" release\
 Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$ver-win-x64-portable.zip"
