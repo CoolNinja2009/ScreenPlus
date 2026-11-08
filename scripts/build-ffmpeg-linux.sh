@@ -18,7 +18,7 @@ JOBS=$(nproc 2>/dev/null || echo 4)
 
 mkdir -p "$WORK"
 tarball=$WORK/ffmpeg-$FFMPEG_VERSION.tar.xz
-[ -f "$tarball" ] || curl -L --fail -o "$tarball" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+[ -f "$tarball" ] || curl -L --fail --retry 5 --retry-all-errors --retry-delay 15 -o "$tarball" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
 echo "$FFMPEG_SHA256  $tarball" | sha256sum -c -
 rm -rf "$WORK/ffmpeg-$FFMPEG_VERSION"
 tar -xf "$tarball" -C "$WORK"

@@ -10,9 +10,13 @@ $auth = @{ 'JOB-TOKEN' = $env:CI_JOB_TOKEN }
 $publish = $env:CI_PIPELINE_SOURCE -ne 'merge_request_event' -and
     ($env:CI_COMMIT_TAG -or $env:CI_COMMIT_BRANCH -eq $env:CI_DEFAULT_BRANCH)
 
-function Invoke-Native([string]$What, [scriptblock]$Run) {
-    & $Run
-    if ($LASTEXITCODE -ne 0) { throw "$What failed ($LASTEXITCODE)" }
+function Invoke-Native([string]$What, [scriptblock]$Run, [int]$Tries = 1) {
+    for ($i = 1; $i -le $Tries; $i++) {
+        & $Run
+        if ($LASTEXITCODE -eq 0) { return }
+        if ($i -lt $Tries) { Write-Host "$What failed ($LASTEXITCODE), retrying in 20 s"; Start-Sleep 20 }
+    }
+    throw "$What failed ($LASTEXITCODE)"
 }
 
 function Test-Url([string]$Url) {
@@ -113,7 +117,7 @@ Copy-Item build\ScreenPlus.exe, build\*.dll $stage
 Copy-Item build\licenses, build\samples $stage -Recurse
 # Self-contained like the rest of the zip: the URL-import tools, fetched and SHA-256 verified by the app.
 $env:SCREENPLUS_DATA_DIR = "$env:TEMP\sp-data"
-Invoke-Native 'URL-import tools' { & build\ScreenPlus.com tools install }
+Invoke-Native 'URL-import tools' { & build\ScreenPlus.com tools install } 4
 Copy-Item "$env:SCREENPLUS_DATA_DIR\tools" $stage -Recurse
 New-Item -ItemType Directory -Force release | Out-Null
 Copy-Item $setup, "build\ScreenPlus-$ver-samples.zip", "build\ScreenPlus-$ver-samples.json" release\

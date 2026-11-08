@@ -23,7 +23,7 @@ JOBS="$(nproc 2>/dev/null || echo 4)"
 mkdir -p "$DEPS"
 if [ ! -f "$SRC/configure" ]; then
     tarball="$DEPS/ffmpeg-$FFMPEG_VERSION.tar.xz"
-    [ -f "$tarball" ] || curl -L --fail -o "$tarball" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
+    [ -f "$tarball" ] || curl -L --fail --retry 5 --retry-all-errors --retry-delay 15 -o "$tarball" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
     tar -xf "$tarball" -C "$DEPS"
 fi
 
