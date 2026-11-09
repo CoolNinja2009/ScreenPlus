@@ -5,14 +5,28 @@
 # Usage: scripts/gitlab-install-test.sh <distro>; VERSION comes from the version job.
 set -eu
 distro=$1
+
+# A mirror caught mid-sync (openSUSE's oss repo pointed at metadata it didn't have yet) fails the job for nothing:
+# try again for a few minutes before giving up.
+retry() {
+    n=1
+    until "$@"; do
+        [ $n -ge 6 ] && return 1
+        echo "Attempt $n failed, trying again in 30 s: $*"
+        n=$((n + 1))
+        sleep 30
+    done
+}
+suse_ready() { zypper --non-interactive refresh && zypper --non-interactive install tar gzip gawk grep findutils; }
+
 case $distro in
-    arch) pacman -Syu --noconfirm --needed tar gzip gawk grep ;;
-    fedora) dnf install -y tar gzip gawk grep findutils ;;
-    opensuse) zypper --non-interactive install tar gzip gawk grep findutils ;;
+    arch) retry pacman -Syu --noconfirm --needed tar gzip gawk grep ;;
+    fedora) retry dnf install -y tar gzip gawk grep findutils ;;
+    opensuse) retry suse_ready ;;
     debian|ubuntu|neon)
         export DEBIAN_FRONTEND=noninteractive
-        apt-get update
-        apt-get install -y --no-install-recommends ca-certificates gawk
+        retry apt-get update
+        retry apt-get install -y --no-install-recommends ca-certificates gawk
         if [ "$distro" = neon ]; then
             apt-get install -y --no-install-recommends curl gnupg
             curl -fsSL https://archive.neon.kde.org/public.key | gpg --dearmor -o /usr/share/keyrings/neon.gpg
