@@ -136,6 +136,12 @@ void pages_rebuild_view(void)
         qsort(u->view, (size_t)u->viewCount, sizeof(int), cmp_sort);
     }
     if (u->target >= g_app.monCount) u->target = -1;
+    for (int i = 0; i < u->viewCount; i++) g_app.cfg.items[u->view[i]].uiMark |= 16;   /* a filter or search hid them: */
+    for (int i = 0; i < g_app.cfg.count; i++) {                                          /* no longer selected */
+        WallpaperEntry *e = &g_app.cfg.items[i];
+        if (!(e->uiMark & 16)) e->uiMark &= ~1;
+        e->uiMark &= ~16;
+    }
 }
 
 /* ================================================================ sidebar */
@@ -212,13 +218,32 @@ static float draw_notice(Ui *u, float x, float y, float w)
     return 56.0f;
 }
 
+/* The scrollbar: a thumb to drag, or a click on the track to jump there (HK_SCROLLBAR, data: the page;
+ * pages_drag). Registered last, so it wins over the page under it. */
+static float g_sbGrab = -1.0f;      /* where in the thumb it was taken, while dragging */
+
 static void draw_scrollbar(Ui *u, D2D1_RECT_F view, int page)
 {
     float vh = view.bottom - view.top, ch = u->contentH[page];
     if (ch <= vh + 1.0f) return;
     float th = SP_MAX(36.0f, vh * vh / ch), range = vh - th;
     float pos = range * SP_CLAMP(u->scroll[page] / (ch - vh), 0.0f, 1.0f);
-    ui_rrect(rectf(view.right - 8, view.top + pos + 2, 4, th - 4), 2, u->t.text3);
+    int id = HIT_ID(HK_SCROLLBAR, page), on = ui_is_hot(id) || u->pressed == id;
+    float bw = on ? 8.0f : 4.0f;
+    ui_rrect(rectf(view.right - 6 - bw, view.top + pos + 2, bw, th - 4), bw * 0.5f, on ? u->t.text2 : u->t.text3);
+    ui_hit(id, rectf(view.right - 16, view.top, 16, vh), 0, 0);
+}
+
+static void scrollbar_drag(Ui *u, int page, float y, int start)
+{
+    float vh = u->viewH, ch = u->contentH[page];
+    if (ch <= vh + 1.0f) return;
+    float th = SP_MAX(36.0f, vh * vh / ch), range = SP_MAX(vh - th, 1.0f), maxScroll = ch - vh;
+    float pos = range * SP_CLAMP(u->scroll[page] / maxScroll, 0.0f, 1.0f), top = u->viewTop + pos;
+    if (start) g_sbGrab = y >= top && y <= top + th ? y - top : th * 0.5f;   /* on the track: centre the thumb there */
+    float s = SP_CLAMP((y - u->viewTop - g_sbGrab) / range, 0.0f, 1.0f) * maxScroll;
+    u->scroll[page] = u->scrollTarget[page] = s;
+    ui_invalidate();
 }
 
 static void finish_scroll(Ui *u, int page, float contentBottom, float top)
@@ -389,6 +414,11 @@ static float draw_filters(Ui *u, float x, float y, float w)
         wchar_t n[48];
         str_printf(n, SP_COUNTOF(n), L"%d selected", nsel);
         ui_text(n, u->fBodyB, rectf(x + 4, y, 140, 30), u->t.text);
+        if (u->textFocus == HIT_ID(HK_COLL_TEXT, 0)) {  /* naming a new collection for them */
+            draw_coll_field(u, rectf(x + 140, y, 240, 30));
+            ui_text(L"Enter to save, Esc to cancel", u->fSmall, rectf(x + 392, y, 240, 30), u->t.text3);
+            return y + 30;
+        }
         static const wchar_t *const labels[] = { L"Favourite", L"Collections", L"Remove", L"Select all" };
         static const int kinds[] = { SEL_FAV, SEL_COLL, SEL_REMOVE, SEL_ALL };
         static const wchar_t icons[] = { GL_STAR, GL_LIBRARY, GL_CLOSE, GL_CHECK };
@@ -476,15 +506,14 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
         ui_circle(th.left + 18, th.top + 18, 12, t->accent);
         ui_icon(GL_CHECK, u->fIconS, rectf(th.left + 6, th.top + 6, 24, 24), t->onAccent);
     } else if (selected_count()) {
-        ui_circle(th.left + 18, th.top + 18, 11, col(0xFFFFFF, 0.9f));     /* an empty tick box */
-        ui_circle(th.left + 18, th.top + 18, 9.5f, col(0x000000, 0.45f));
+        ui_circle(th.left + 18, th.top + 18, 11, col(0x000000, 0.22f));    /* an empty tick ring */
+        ui_rrect_stroke(rectf(th.left + 7, th.top + 7, 22, 22), 11, 1.5f, col(0xFFFFFF, 0.92f));
     }
-    int fav = (e->flags & WPFLAG_FAV) != 0, starId = HIT_ID(HK_FAV, vi);
-    if (fav || hot || ui_is_hot(starId)) {         /* the star: always when a favourite, else on hover */
-        D2D1_RECT_F sr = { th.right - 36, th.bottom - 34, th.right - 8, th.bottom - 6 };
-        ui_circle((sr.left + sr.right) * 0.5f, (sr.top + sr.bottom) * 0.5f, 14, col(0x000000, ui_is_hot(starId) ? 0.62f : 0.48f));
-        ui_icon(fav ? GL_STAR_ON : GL_STAR, u->fIconS, sr, fav ? col(0xFFC83D, 1.0f) : col(0xFFFFFF, 0.95f));
-        ui_hit(starId, sr, 0, 1);
+    int fav = (e->flags & WPFLAG_FAV) != 0, starId = HIT_ID(HK_FAV, vi), starHot = ui_is_hot(starId);
+    D2D1_RECT_F sr = { th.right - 36, th.bottom - 34, th.right - 8, th.bottom - 6 };
+    if (fav || hot || starHot || ui_is_hot(HIT_ID(HK_NAME, vi))) {   /* the star: always when a favourite, else on hover */
+        ui_circle((sr.left + sr.right) * 0.5f, (sr.top + sr.bottom) * 0.5f, 14, col(0x000000, starHot ? 0.62f : 0.48f));
+        ui_icon(fav ? GL_STAR_ON : GL_STAR, u->fIconS, sr, fav ? col(0xFFC83D, 1.0f) : col(0xFFFFFF, starHot ? 1.0f : 0.85f));
     }
     wchar_t meta[96], ext[16];
     str_copy(ext, SP_COUNTOF(ext), path_ext(e->path)[0] ? path_ext(e->path) + 1 : L"file");
@@ -504,6 +533,79 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
     /* the name is its own hit, registered after the card's so it wins: double-click renames */
     draw_card_name(u, vi, e, rectf(r.left + 12, th.bottom + 8, r.right - r.left - 24, 20));
     ui_hit(HIT_ID(HK_NAME, vi), rectf(r.left + 10, th.bottom + 6, r.right - r.left - 20, 24), 0, 2);
+    ui_hit(starId, sr, 0, 1);                      /* after the card's, so a click on it stars instead of applying */
+}
+
+/* ---- drag to select: from empty space in the Library, a rectangle selects the cards it touches (Ctrl or Shift
+ * keeps the selection there was); a click on empty space without dragging clears the selection.
+ * Content coordinates (scroll added), so it holds while the page scrolls. */
+static struct { int on, moved; float x0, y0, x1, y1; } mq;
+
+static void draw_marquee(Ui *u)
+{
+    if (!mq.on || !mq.moved) return;
+    float s = u->scroll[PAGE_LIBRARY];
+    D2D1_RECT_F r = { SP_MIN(mq.x0, mq.x1), SP_MIN(mq.y0, mq.y1) - s, SP_MAX(mq.x0, mq.x1), SP_MAX(mq.y0, mq.y1) - s };
+    ui_rrect(r, 4, col_a(u->t.accent, 0.16f));
+    ui_rrect_stroke(r, 4, 1, col_a(u->t.accent, 0.8f));
+}
+
+static void marquee_apply(Ui *u)
+{
+    float l = SP_MIN(mq.x0, mq.x1), rr = SP_MAX(mq.x0, mq.x1), t = SP_MIN(mq.y0, mq.y1), b = SP_MAX(mq.y0, mq.y1);
+    for (int i = 0; i < u->viewCount; i++) {
+        WallpaperEntry *e = &g_app.cfg.items[u->view[i]];
+        int c = i % SP_MAX(u->cols, 1), row = i / SP_MAX(u->cols, 1);
+        float cl = u->gridX + c * u->colW, ct = u->gridY + row * u->rowH;
+        float cr = cl + u->colW - 18.0f, cb = ct + u->rowH - 18.0f;   /* the cards, not the gaps between them */
+        int in = cl < rr && cr > l && ct < b && cb > t;
+        e->uiMark = (e->uiMark & ~1) | (((e->uiMark & 4) || in) ? 1 : 0);
+    }
+}
+
+int pages_marquee_begin(float x, float y)
+{
+    Ui *u = g_ui;
+    if (u->page != PAGE_LIBRARY || x <= SIDEBAR_W) return 0;
+    int keep = GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_SHIFT) < 0;
+    for (int i = 0; i < g_app.cfg.count; i++) {
+        WallpaperEntry *e = &g_app.cfg.items[i];
+        e->uiMark = (e->uiMark & ~4) | (keep && (e->uiMark & 1) ? 4 : 0);
+    }
+    mq.on = 1;
+    mq.moved = 0;
+    mq.x0 = mq.x1 = x;
+    mq.y0 = mq.y1 = y + u->scroll[PAGE_LIBRARY];
+    return 1;
+}
+
+void pages_marquee_move(float x, float y)
+{
+    Ui *u = g_ui;
+    if (!mq.on) return;
+    mq.x1 = x;
+    mq.y1 = y + u->scroll[PAGE_LIBRARY];
+    if (!mq.moved && fabsf(mq.x1 - mq.x0) + fabsf(mq.y1 - mq.y0) < 6.0f) return;
+    mq.moved = 1;
+    if (u->viewCount && u->cols > 0) marquee_apply(u);
+    float maxScroll = SP_MAX(0.0f, u->contentH[PAGE_LIBRARY] - u->viewH);   /* past the edge: scroll along */
+    if (y > u->h - 24 || y < u->viewTop + 24) {
+        float d = y > u->h - 24 ? 24.0f : -24.0f;
+        u->scrollTarget[PAGE_LIBRARY] = SP_CLAMP(u->scrollTarget[PAGE_LIBRARY] + d, 0.0f, maxScroll);
+        ui_animate();
+    }
+    ui_invalidate();
+}
+
+int pages_marquee_active(void) { return mq.on; }
+
+void pages_marquee_end(void)
+{
+    if (!mq.on) return;
+    if (!mq.moved) select_clear();                 /* a click on empty space */
+    for (int i = 0; i < g_app.cfg.count; i++) g_app.cfg.items[i].uiMark &= ~4;
+    mq.on = 0;
+    ui_invalidate();
 }
 
 static float draw_grid(Ui *u, float x, float y, float w)
@@ -586,6 +688,7 @@ static void draw_library(Ui *u, float cx, float cw)
     else if (!u->viewCount) y = draw_empty(u, x, y, w, 1);
     else y = draw_grid(u, x, y, w);
     y += 28;
+    draw_marquee(u);
     ui_pop_clip();
     finish_scroll(u, PAGE_LIBRARY, y, top);
     draw_scrollbar(u, view, PAGE_LIBRARY);
@@ -1954,6 +2057,7 @@ static double prop_snap(const CustomProp *cp, double v)
 int pages_is_drag(int kind)
 {
     return kind == HK_SLIDER || kind == HK_DISC || kind == HK_PSLIDER || kind == HK_REC_SPEED || kind == HK_REC_SMOOTH || kind == HK_VOLUME ||
+           kind == HK_SCROLLBAR ||
            kind == HK_REC_GRAPH;
 }
 
@@ -2050,7 +2154,12 @@ void pages_drag(int id, float x, float y, int commit)
         rec_drag(kind, data, r, x, y, commit);
         return;
     }
-    if (kind == HK_VOLUME) {                             /* saved (and heard) on release */
+    if (kind == HK_SCROLLBAR) {
+        scrollbar_drag(g_ui, data, y, x == g_ui->pressX && y == g_ui->pressY && !commit);
+        return;
+    }
+    if (kind == HK_VOLUME) {                             /* heard while dragging (saved at most every 120 ms) */
+        static double lastSave;
         WallpaperEntry *e = data ? customise_entry() : NULL;
         if (data && !e) return;
         int v = (int)lroundf(100.0f * slider_norm_from_x(r, x));
@@ -2058,7 +2167,10 @@ void pages_drag(int id, float x, float y, int commit)
         if (v == cur && !commit) return;
         if (e) e->volCut = 100 - v;
         else g_app.cfg.s.volume = v;
-        if (commit) app_save_config();
+        if (commit || time_ms() - lastSave > 120.0) {
+            app_save_config();
+            lastSave = time_ms();
+        }
         ui_invalidate();
         return;
     }
@@ -3511,7 +3623,18 @@ static void selection_action(int id, int what)
         for (int i = 0; i < u->viewCount; i++) g_app.cfg.items[u->view[i]].uiMark |= 1;
         break;
     case SEL_REMOVE: {
-        int n = selected_count(), k = 0;
+        int n = selected_count(), k = 0, files = 0;
+        for (int i = 0; i < g_app.cfg.count; i++) {
+            const WallpaperEntry *e = &g_app.cfg.items[i];
+            if ((e->uiMark & 1) && (url_import_is_download(e->path) || (e->flags & WPFLAG_PPTX))) files++;
+        }
+        if (n > 1 || files) {                    /* several at once, or files that go with them: ask */
+            wchar_t q[200];
+            if (files) str_printf(q, SP_COUNTOF(q), L"Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.",
+                                  n, n == 1 ? L"" : L"s", files, files == 1 ? L"" : L"s");
+            else str_printf(q, SP_COUNTOF(q), L"Remove %d wallpapers from the library?\n\nThe files stay where they are.", n);
+            if (MessageBoxW(u->hwnd, q, L"Screen+", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) != IDYES) break;
+        }
         wchar_t (*ids)[SP_ID_LEN] = n ? (wchar_t (*)[SP_ID_LEN])malloc(sizeof *ids * (size_t)n) : NULL;
         for (int i = 0; ids && i < g_app.cfg.count; i++)
             if (g_app.cfg.items[i].uiMark & 1) str_copy(ids[k++], SP_ID_LEN, g_app.cfg.items[i].id);
@@ -3985,11 +4108,9 @@ void pages_context(int id, int sx, int sy)
         if (k < 0 || k >= n) return;
         HMENU m = CreatePopupMenu();
         if (!m) return;
-        AppendMenuW(m, MF_STRING, 2, L"Play as a slideshow");
         AppendMenuW(m, MF_STRING, 1, L"Delete collection (keeps the wallpapers)");
         UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
         DestroyMenu(m);
-        if (cmd == 2) rotate_play(names[k], 0);
         if (cmd == 1) {
             for (int i = 0; i < g_app.cfg.count; i++) config_tag_set(&g_app.cfg.items[i], names[k], FALSE);
             if (wcscmp(g_app.cfg.s.slideshowFrom, names[k]) == 0) g_app.cfg.s.slideshowFrom[0] = 0;
@@ -4069,6 +4190,17 @@ int pages_key(UINT vk, int ctrl, int shift)
     Ui *u = g_ui;
     (void)ctrl;
     if (u->page == PAGE_CUSTOMIZE && customise_key(vk, shift)) return 1;
+    if (HIT_KIND(u->focus) == HK_VOLUME && (vk == VK_LEFT || vk == VK_RIGHT)) {   /* a focused volume slider */
+        WallpaperEntry *e = HIT_DATA(u->focus) ? customise_entry() : NULL;
+        if (HIT_DATA(u->focus) && !e) return 1;
+        int v = SP_CLAMP((e ? entry_volume(e) : g_app.cfg.s.volume) + (vk == VK_RIGHT ? 1 : -1) * (shift ? 10 : 1), 0, 100);
+        if (e) e->volCut = 100 - v;
+        else g_app.cfg.s.volume = v;
+        app_save_config();
+        u->focusVisible = 1;
+        ui_invalidate();
+        return 1;
+    }
     if (u->page == PAGE_LIBRARY && ctrl && vk == 'A') {
         selection_action(0, SEL_ALL);
         return 1;

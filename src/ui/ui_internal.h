@@ -202,6 +202,10 @@ void pages_drag(int id, float x, float y, int commit);      /* sliders + colour 
 int  pages_is_drag(int kind);                               /* a control pages_drag tracks while pressed */
 int  pages_card_drag(float x, float y);                     /* moves the pressed library card under (x, y) */
 void pages_card_drop(void);                                 /* saves the order a card drag left */
+int  pages_marquee_begin(float x, float y);                 /* Library: press on empty space (1: started) */
+void pages_marquee_move(float x, float y);
+void pages_marquee_end(void);                               /* no drag: clears the selection */
+int  pages_marquee_active(void);
 void pages_customise_reload(void);                         /* Customise values changed elsewhere */
 void pages_search_open(void);                              /* focus + caret in the search box */
 void pages_store_search_open(void);                        /* the same for the Store's search box */

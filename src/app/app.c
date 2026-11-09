@@ -181,6 +181,7 @@ void app_exit(void)
     store_shutdown();
     update_shutdown();
     samples_shutdown();
+    pptx_shutdown();
     ui_destroy();
     supervisor_stop();
     tray_remove();

@@ -1279,8 +1279,10 @@ static const wchar_t *const k_themeNames[] = { L"system", L"light", L"dark", NUL
 static const wchar_t *const k_modeNames[] = { L"independent", L"duplicate", L"span", NULL };
 static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary", NULL };
 static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
-enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM };
-static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames, NULL };
+static const wchar_t *const k_sortKeyNames[] = { L"custom", L"name", L"added", L"type", L"size", NULL };   /* LIBSORT_* */
+enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM, SK_SORT };
+static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames, NULL,
+                                                     k_sortKeyNames };
 #ifdef _WIN32
 #define SP_LAUNCH_DESC L"Keep the window closed when it starts with Windows"
 #else
@@ -1315,6 +1317,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
     { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
+    { L"library_sort",        offsetof(Settings, librarySort),       SK_SORT,  L"Library order: custom, name, added, type or size" },
     { L"display_mode",        offsetof(Settings, displayMode),       SK_MODE,  L"Displays: independent, duplicate or span" },
     { L"screensaver_audio",   offsetof(Settings, scrAudio),          SK_BOOL,  L"Screensaver sound" },
     { L"screensaver_displays", offsetof(Settings, scrDisplays),      SK_SCRDISP, L"Screensaver on all displays, span or primary" },
@@ -1490,7 +1493,12 @@ static void cmd_settings(Reply *r, const Req *q)
             int idx = -1;
             for (int k = 0; names[k]; k++) if (str_ieq(v, names[k])) idx = k;
             if (idx < 0) {
-                fail(r, L"%ls is %ls, %ls or %ls.", k_settings[i].key, names[0], names[1], names[2]);
+                wchar_t all[120] = L"";
+                for (int k = 0; names[k]; k++) {
+                    if (k) str_cat(all, SP_COUNTOF(all), names[k + 1] ? L", " : L" or ");
+                    str_cat(all, SP_COUNTOF(all), names[k]);
+                }
+                fail(r, L"%ls is %ls.", k_settings[i].key, all);
                 return;
             }
             if (field == (int *)&s->displayMode) app_set_display_mode(idx);

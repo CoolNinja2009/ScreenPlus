@@ -315,6 +315,7 @@ BOOL pptx_import(const wchar_t *path, BOOL apply);     /* starts the job (TRUE);
 BOOL pptx_set_seconds(const wchar_t *id, int sec);     /* seconds per slide: renders again (or reuses a video) */
 BOOL pptx_busy(const wchar_t *id);                     /* PowerPoint is working on this entry */
 void pptx_on_event(WPARAM wp, LPARAM lp);              /* WM_SP_PPTX */
+void pptx_shutdown(void);                              /* quitting: running jobs stop */
 void samples_on_event(WPARAM wp, LPARAM lp);           /* WM_SP_SAMPLES */
 void samples_shutdown(void);
 enum { DEPTH_AUTO = 0, DEPTH_CPU = 1, DEPTH_BENCH = 2, DEPTH_CRASHED = 3 };   /* which processor: see depth_infer.c */

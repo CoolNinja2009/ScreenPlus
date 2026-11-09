@@ -1119,6 +1119,10 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             TrackMouseEvent(&tme);
             u->tracking = 1;
         }
+        if (pages_marquee_active()) {                   /* drag to select */
+            pages_marquee_move(u->mx, u->my);
+            return 0;
+        }
         if (HIT_KIND(u->pressed) == HK_CARD) {          /* a card dragged past a few pixels moves in the library */
             if (!u->cardDrag && fabsf(u->mx - u->pressX) + fabsf(u->my - u->pressY) > 8.0f)
                 u->cardDrag = pages_card_drag(u->mx, u->my);
@@ -1178,6 +1182,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         }
         set_search_focus(u, HIT_KIND(u->hot) == HK_SEARCH);
         if (is_text_kind(HIT_KIND(u->hot))) text_press(u, u->hot, u->mx, u->my);   /* caret to the click */
+        if (!u->hot) pages_marquee_begin(u->mx, u->my);       /* empty space: drag to select */
         ui_invalidate();
         return 0;
     case WM_LBUTTONUP: {
@@ -1185,6 +1190,10 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         u->pressed = 0;
         u->cardDrag = 0;
         ReleaseCapture();
+        if (pages_marquee_active()) {
+            pages_marquee_end();
+            return 0;
+        }
         if (dragged) pages_card_drop();
         else if (id) {
             int k = HIT_KIND(id);

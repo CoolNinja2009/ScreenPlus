@@ -32,6 +32,7 @@ BOOL pptx_import(const wchar_t *path, BOOL apply)
     return FALSE;
 }
 BOOL pptx_set_seconds(const wchar_t *id, int sec) { (void)id; (void)sec; return FALSE; }
+void pptx_shutdown(void) {}
 BOOL pptx_busy(const wchar_t *id) { (void)id; return FALSE; }
 void pptx_on_event(WPARAM wp, LPARAM lp) { (void)wp; (void)lp; }
 
@@ -101,19 +102,22 @@ static BOOL start_job(PptxJob *j)
         L"try{$app=New-Object -ComObject PowerPoint.Application}catch{exit 2};"
         L"$p=$app.Presentations.Open(%ls,-1,0,0);"
         L"try{$p.CreateVideo(%ls,$false,%d,%d,30,90);"
-        L"while($p.CreateVideoStatus -eq 1 -or $p.CreateVideoStatus -eq 2){Start-Sleep -Milliseconds 500};"
+        L"while($p.CreateVideoStatus -eq 1 -or $p.CreateVideoStatus -eq 2){Start-Sleep -Milliseconds 500;"
+        L"if(Test-Path -LiteralPath %ls){exit 5}};"
         L"if($p.CreateVideoStatus -ne 3){exit 3}}"
         L"finally{$p.Close();if($app.Presentations.Count -eq 0){$app.Quit()}};exit 0";
-    wchar_t qs[SP_MAX_PATH * 2 + 4], qo[SP_MAX_PATH * 2 + 4];
+    wchar_t qs[SP_MAX_PATH * 2 + 4], qo[SP_MAX_PATH * 2 + 4], qc[SP_MAX_PATH * 2 + 16], cancel[SP_MAX_PATH + 8];
     ps_quote(qs, SP_COUNTOF(qs), j->src);
     ps_quote(qo, SP_COUNTOF(qo), j->out);
-    size_t cap = wcslen(fmt) + wcslen(qs) + wcslen(qo) + 64;
+    str_printf(cancel, SP_COUNTOF(cancel), L"%ls.cancel", j->out);   /* pptx_shutdown makes it: the job stops */
+    ps_quote(qc, SP_COUNTOF(qc), cancel);
+    size_t cap = wcslen(fmt) + wcslen(qs) + wcslen(qo) + wcslen(qc) + 64;
     wchar_t *script = (wchar_t *)malloc(cap * sizeof(wchar_t));
     wchar_t *enc = script ? (wchar_t *)malloc((cap * 2 / 3 * 4 + 8) * sizeof(wchar_t) + 64) : NULL;
     wchar_t *cmd = enc ? (wchar_t *)malloc((cap * 2 / 3 * 4 + SP_MAX_PATH + 128) * sizeof(wchar_t) + 64) : NULL;
     BOOL ok = FALSE;
     if (cmd) {
-        str_printf(script, cap, fmt, qs, qo, j->sec, video_height());
+        str_printf(script, cap, fmt, qs, qo, j->sec, video_height(), qc);
         b64((const BYTE *)script, wcslen(script) * sizeof(wchar_t), enc);
         wchar_t ps[SP_MAX_PATH];
         GetSystemDirectoryW(ps, SP_MAX_PATH);
@@ -255,6 +259,27 @@ BOOL pptx_set_seconds(const wchar_t *id, int sec)
         return FALSE;
     }
     return TRUE;
+}
+
+/* Screen+ is quitting: each running job closes its presentation (and PowerPoint, when it opened it) and stops;
+ * a new import's half-made folder goes. Waits a few seconds at most. */
+void pptx_shutdown(void)
+{
+    for (size_t i = 0; i < SP_COUNTOF(g_jobs); i++) {
+        PptxJob *j = g_jobs[i];
+        if (!j) continue;
+        wchar_t cancel[SP_MAX_PATH + 8], dir[SP_MAX_PATH];
+        str_printf(cancel, SP_COUNTOF(cancel), L"%ls.cancel", j->out);
+        HANDLE f = CreateFileW(cancel, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (f != INVALID_HANDLE_VALUE) CloseHandle(f);
+        if (WaitForSingleObject(j->proc, 4000) != WAIT_OBJECT_0) TerminateProcess(j->proc, 9);
+        DeleteFileW(cancel);
+        DeleteFileW(j->out);
+        path_dirname(dir, SP_COUNTOF(dir), j->out);
+        if (!j->id[0]) library_discard(dir, TRUE);
+        LOGI(L"slides: stopped PowerPoint's video of '%ls' (closing)", j->name);
+        g_jobs[i] = NULL;                      /* the worker's message never arrives once the shell is gone */
+    }
 }
 
 void pptx_on_event(WPARAM wp, LPARAM lp)

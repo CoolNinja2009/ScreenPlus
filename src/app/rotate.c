@@ -78,8 +78,14 @@ static int period_now(const Settings *s)
     localtime_r(&t, &lt);
 #endif
     int h = lt.tm_hour, d = s->dayStart, nn = s->nightStart;
+    if (d == nn) return 0;                   /* the same hour for both: day all the time */
     int day = d <= nn ? (h >= d && h < nn) : (h >= d || h < nn);
     return day ? 0 : 1;
+}
+
+static void seen_now(void)               /* our own change: not a hand-picked wallpaper restarting the count */
+{
+    str_copy(g_seen, SP_COUNTOF(g_seen), app_wallpaper_for(NULL));
 }
 
 static void tick(void)
@@ -101,31 +107,47 @@ static void tick(void)
                 str_copy(keep, SP_COUNTOF(keep), want);
                 LOGI(L"schedule: %ls wallpaper", p == 0 ? L"day" : L"night");
                 app_apply_wallpaper(keep, NULL);
+                seen_now();
                 ui_on_config_changed();
             }
         }
         return;
     }
     g_period = -1;
-    if (s->slideshow && !s->paused && now - g_since >= (int64_t)SP_MAX(s->slideshowMin, 1) * 60) {
+    int any = 0;                         /* a collection emptied since: wait rather than show everything */
+    for (int i = 0; i < g_app.cfg.count && !any; i++) any = usable(&g_app.cfg.items[i], s->slideshowFrom);
+    if (s->slideshow && !s->paused && any && now - g_since >= (int64_t)SP_MAX(s->slideshowMin, 1) * 60) {
         LOGI(L"slideshow: next wallpaper");
         g_since = now;
         app_next_wallpaper();
+        seen_now();
         ui_on_config_changed();
     }
 }
 
+static int needed(void) { return g_app.cfg.s.slideshow || g_app.cfg.s.schedule; }
+
 void rotate_on_timer(void)
 {
     tick();
-    SetTimer(g_app.shellWnd, T_SHELL_ROTATE, ROTATE_TICK_MS, NULL);
+    const Settings *s = &g_app.cfg.s;
+    if (!needed()) {                     /* both off: no timer until one goes on (rotate_changed) */
+        KillTimer(g_app.shellWnd, T_SHELL_ROTATE);
+        return;
+    }
+    UINT ms = ROTATE_TICK_MS;
+    if (s->slideshow && !s->schedule) {  /* wake when the next change is due, not up to a tick late */
+        int64_t left = g_since + (int64_t)SP_MAX(s->slideshowMin, 1) * 60 - (int64_t)time(NULL);
+        if (left * 1000 < ms) ms = (UINT)SP_MAX(left, 1) * 1000;
+    }
+    SetTimer(g_app.shellWnd, T_SHELL_ROTATE, ms, NULL);
 }
 
 void rotate_init(void)
 {
     g_since = (int64_t)time(NULL);
     str_copy(g_seen, SP_COUNTOF(g_seen), app_wallpaper_for(NULL));
-    SetTimer(g_app.shellWnd, T_SHELL_ROTATE, 3000, NULL);
+    if (needed()) SetTimer(g_app.shellWnd, T_SHELL_ROTATE, 3000, NULL);
 }
 
 /* Play a collection ("*": favourites): a slideshow of just those, starting with one of them now. */
@@ -140,6 +162,7 @@ void rotate_play(const wchar_t *from, int minutes)
     if (!cur || !config_in_source(cur, s->slideshowFrom)) app_next_wallpaper();
     else app_save_config();
     rotate_changed();
+    seen_now();
     LOGI(L"slideshow: playing %ls every %d min", from && from[0] ? from : L"everything", s->slideshowMin);
 }
 
@@ -147,5 +170,7 @@ void rotate_changed(void)
 {
     g_period = -1;                       /* a schedule change applies at once */
     g_since = (int64_t)time(NULL);
-    SetTimer(g_app.shellWnd, T_SHELL_ROTATE, 500, NULL);
+    str_copy(g_seen, SP_COUNTOF(g_seen), app_wallpaper_for(NULL));
+    if (needed()) SetTimer(g_app.shellWnd, T_SHELL_ROTATE, 500, NULL);
+    else KillTimer(g_app.shellWnd, T_SHELL_ROTATE);
 }
