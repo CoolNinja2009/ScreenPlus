@@ -183,4 +183,5 @@ clean:
   dependencies: []              # don't download release/ again
   script:
     - Get-ChildItem $env:CI_PROJECT_DIR -Force | Remove-Item -Recurse -Force
-    - Remove-Item "$env:TEMP\ffmpeg-*.zip", "$env:TEMP\sp-data" -Recurse -Force -ErrorAction SilentlyContinue
+    # Test-Path, not -ErrorAction SilentlyContinue: a missing path still leaves $? false, and the job fails
+    - foreach ($p in @("$env:TEMP\ffmpeg-*.zip", "$env:TEMP\sp-data")) { if (Test-Path $p) { Remove-Item $p -Recurse -Force } }
