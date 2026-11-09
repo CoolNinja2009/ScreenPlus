@@ -86,10 +86,11 @@ static int anim_source(const WallpaperEntry *e, wchar_t *out, size_t cap)
         str_copy(out, cap, e->path);
         return 1;
     }
-    if (wallpaper_is_url(e->path)) return 0;
     wchar_t dir[SP_MAX_PATH];
     path_dirname(dir, SP_COUNTOF(dir), e->path);
-    if (e->type == WP_HTML || e->format != WPF_PLAIN) {     /* the folder belongs to this wallpaper */
+    if (wallpaper_is_url(e->path)) {
+        /* web address: no folder of its own */
+    } else if (e->type == WP_HTML || e->format != WPF_PLAIN) {     /* the folder belongs to this wallpaper */
         if (manifest_gif(dir, L"LivelyInfo.json", "Preview", out, cap)) return 1;
         if (manifest_gif(dir, L"project.json", "preview", out, cap)) return 1;
         if (is_gif(e->thumb) && file_exists(e->thumb)) {
@@ -101,12 +102,19 @@ static int anim_source(const WallpaperEntry *e, wchar_t *out, size_t cap)
             path_join(out, cap, dir, names[i]);
             if (file_exists(out)) return 1;
         }
-        preview_paths(e->id, out, NULL, cap);
-        if (e->type == WP_HTML && file_exists(out)) return 1;
     }
     if (e->type == WP_VIDEO && file_exists(e->path)) {
         str_copy(out, cap, e->path);
         return 1;
+    }
+    if (e->type == WP_HTML) {
+        /* No animation of its own, even with a still picture: record one. A recording that made only the still
+         * means the page does not move. */
+        wchar_t jpg[SP_MAX_PATH];
+        preview_paths(e->id, NULL, jpg, SP_COUNTOF(jpg));
+        preview_paths(e->id, out, NULL, cap);
+        if (file_exists(out)) return 1;
+        if (!file_exists(jpg)) preview_request(e->id, g_notify);
     }
     out[0] = 0;
     return 0;
@@ -154,8 +162,8 @@ static void make_animation(const Job *j)
         if (d) dur = atof(d + 9);
         if (gif && c) n = SP_MIN(n, atoi(c + 16));
     }
-    if (!gif && dur > 6.0) {
-        from = dur * 0.1;
+    if (!gif && (dur > 6.0 || dur <= 0.0)) {     /* no length (ffprobe missing, stream): the first seconds */
+        from = dur > 6.0 ? dur * 0.1 : 0.0;
         dur = ANIM_SECONDS;
     }
     if (n < 2 || dur <= 0.0) {          /* one frame, or no idea how long: the still stays */
