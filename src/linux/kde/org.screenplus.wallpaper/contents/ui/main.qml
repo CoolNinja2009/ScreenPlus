@@ -83,6 +83,7 @@ WallpaperItem {
                 }
                 item.paused = Qt.binding(() => root.held)
                 item.muted = Qt.binding(() => root.configuration.Muted)
+                if (item.volume !== undefined) item.volume = Qt.binding(() => root.configuration.Volume / 100)
                 item.source = root.shownSrc      /* not a binding: the old view lingers a moment after a switch */
                 recording.reset()
             }

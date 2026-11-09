@@ -443,10 +443,25 @@ static void slot_set_paused(Slot *s, int paused)
     if (s->web) gtk_widget_set_visible(GTK_WIDGET(s->web), !paused);   /* a hidden page stops drawing */
 }
 
+/* on: Sound allowed. The volume is the global one times the wallpaper's own; pages scale their media elements. */
 static void slot_set_sound(Slot *s, int on)
 {
-    if (s->mpv) mpv_set_property_string(s->mpv, "mute", on ? "no" : "yes");
-    if (s->web) webkit_web_view_set_is_muted(s->web, !on);
+    const WallpaperEntry *e = config_find(&g_cfg, s->wallpaper);
+    int vol = SP_CLAMP(g_cfg.s.volume, 0, 100) * (e ? entry_volume(e) : 100) / 100;
+    if (!vol) on = 0;
+    if (s->mpv) {
+        char v[16];
+        snprintf(v, sizeof v, "%d", vol);
+        mpv_set_property_string(s->mpv, "volume", v);
+        mpv_set_property_string(s->mpv, "mute", on ? "no" : "yes");
+    }
+    if (s->web) {
+        char js[256];
+        snprintf(js, sizeof js, "(function(v){document.querySelectorAll('audio,video').forEach(function(e){"
+                 "if(e.__spBase===undefined)e.__spBase=e.volume;e.volume=e.__spBase*v;});})(%.4f)", vol * vol / 10000.0);
+        webkit_web_view_set_is_muted(s->web, !on);
+        if (on) webkit_web_view_evaluate_javascript(s->web, js, -1, NULL, NULL, NULL, NULL, NULL);
+    }
 }
 
 /* ------------------------------------------------------------------ state */

@@ -16,7 +16,7 @@ typedef struct RendererContext {
     int                   height;
     UINT                  dpi;
     UINT                  refreshHz;
-    BOOL                  audio;     /* this renderer may produce audio */
+    BOOL                  audio;     /* this renderer may produce audio: its volume 1..100 (0: silent) */
     BOOL                  layered;   /* host window is WS_EX_LAYERED (24H2+ Progman host): use blt presents */
     double                rasterScale; /* HTML only, 0: follow the monitor; preview capture renders at a fixed scale */
 } RendererContext;
@@ -38,7 +38,7 @@ typedef struct RendererVtbl {
     /* keepFrame: the desktop stays visible while suspended, so the last frame must remain. */
     void (*set_state)(Renderer *r, RenderState st, BOOL keepFrame);
     void (*resize)(Renderer *r, int w, int h);
-    void (*set_audio)(Renderer *r, BOOL on);
+    void (*set_audio)(Renderer *r, BOOL on);   /* on: the volume 1..100, 0 silent */
     BOOL (*paint)(Renderer *r, HDC dc, const RECT *rc);   /* GDI content for the host window */
     void (*describe)(Renderer *r, wchar_t *buf, size_t cap);
     void (*destroy)(Renderer *r);

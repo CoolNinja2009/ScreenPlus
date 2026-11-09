@@ -902,7 +902,7 @@ static const Hit *hit_find(Ui *u, int id)
 /* Every field that supports typing goes through the text engine (textedit.c). */
 static int is_text_kind(int kind)
 {
-    return kind == HK_SEARCH || kind == HK_URL_TEXT || kind == HK_NAME || kind == HK_STORE_TEXT ||
+    return kind == HK_SEARCH || kind == HK_URL_TEXT || kind == HK_NAME || kind == HK_STORE_TEXT || kind == HK_COLL_TEXT ||
            kind == HK_PTEXT || kind == HK_PVAL || kind == HK_LOOKVAL || kind == HK_REC_REPS;
 }
 
@@ -971,8 +971,8 @@ static void on_key(Ui *u, WPARAM vk)
             pages_store_search_open();
             return;
         }
-        u->page = PAGE_LIBRARY;
-        u->focus = HIT_ID(HK_SEARCH, 0);
+        if (u->page != PAGE_SETTINGS) u->page = PAGE_LIBRARY;
+        u->focus = HIT_ID(HK_SEARCH, u->page == PAGE_SETTINGS);
         set_search_focus(u, 1);
         return;
     }

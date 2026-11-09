@@ -588,7 +588,7 @@ static BOOL is_local_video(const WallpaperEntry *e)
 
 BOOL depth_can_cool(const WallpaperEntry *e)
 {
-    return (e->type == WP_IMAGE || is_local_video(e)) && !e->missing && !str_ieq(path_ext(e->path), L".gif");
+    return (e->type == WP_IMAGE || is_local_video(e)) && !e->missing && !(e->flags & WPFLAG_PPTX) && !str_ieq(path_ext(e->path), L".gif");
 }
 
 BOOL depth_ready(void)

@@ -131,9 +131,14 @@ static Slot *audio_slot(void)
     return best;
 }
 
+/* The slot's sound volume 0..100 (0: silent): Sound on, the global volume times the wallpaper's own. The
+ * renderers' set_audio and RendererCtx.audio take it as their "on" value. */
 static BOOL slot_wants_audio(const Slot *s)
 {
-    return E.cfg.s.audio && !E.micMuted && audio_slot() == s;
+    if (!E.cfg.s.audio || E.micMuted || audio_slot() != s) return 0;
+    const WallpaperEntry *e = config_find(&E.cfg, s->wp.id);
+    int v = SP_CLAMP(E.cfg.s.volume, 0, 100) * (e ? entry_volume(e) : entry_volume(&s->wp)) / 100;
+    return v;
 }
 
 /* ---- recordings: played from memory (wpapi_live_set), so nothing is written while they run */
@@ -978,7 +983,7 @@ static void reload_config(void)
     Config fresh;
     ZeroMemory(&fresh, sizeof fresh);
     config_load(&fresh, paths_config());
-    int oldAudio = E.cfg.s.audio, oldStill = E.cfg.s.stillWallpaper, oldFps = E.cfg.s.webFps;
+    int oldStill = E.cfg.s.stillWallpaper, oldFps = E.cfg.s.webFps;
     config_free(&E.cfg);
     E.cfg = fresh;
     E.userPaused = E.cfg.s.paused;
@@ -988,10 +993,8 @@ static void reload_config(void)
         for (int i = 0; i < SP_MAX_MONITORS; i++)
             if (E.slots[i].used && E.slots[i].r && E.slots[i].r->vt->apply) E.slots[i].r->vt->apply(E.slots[i].r);
     }
-    if (oldAudio != E.cfg.s.audio) {
-        for (int i = 0; i < SP_MAX_MONITORS; i++)
-            if (E.slots[i].used && E.slots[i].r) E.slots[i].r->vt->set_audio(E.slots[i].r, slot_wants_audio(&E.slots[i]));
-    }
+    for (int i = 0; i < SP_MAX_MONITORS; i++)      /* sound, volume or a wallpaper's own volume may have changed */
+        if (E.slots[i].used && E.slots[i].r) E.slots[i].r->vt->set_audio(E.slots[i].r, slot_wants_audio(&E.slots[i]));
     E.fgPid = 0;                                   /* the pause list may have changed: ask again */
     mic_watch();
     if (oldStill && !E.cfg.s.stillWallpaper) stills_restore();

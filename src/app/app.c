@@ -159,19 +159,6 @@ void app_set_audio(BOOL on)
     ui_on_status();
 }
 
-void app_next_wallpaper(void)
-{
-    Config *c = &g_app.cfg;
-    if (!c->count) return;
-    int cur = config_index_of(c, app_wallpaper_for(NULL));
-    for (int k = 1; k <= c->count; k++) {
-        WallpaperEntry *e = &c->items[(cur + k + c->count) % c->count];
-        if (!e->missing) {
-            app_apply_wallpaper(e->id, NULL);
-            return;
-        }
-    }
-}
 
 void app_restart_renderer(void)
 {
@@ -275,6 +262,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SP_SAMPLES:
         samples_on_event(wp, lp);
         return 0;
+    case WM_SP_PPTX:
+        pptx_on_event(wp, lp);
+        return 0;
     case WM_SP_TRAY:
         tray_on_message(wp, lp);
         return 0;
@@ -289,6 +279,8 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             update_on_timer();
         } else if (wp == T_SHELL_SAMPLES) {
             samples_on_timer();
+        } else if (wp == T_SHELL_ROTATE) {
+            rotate_on_timer();
         } else if (wp == T_SHELL_STARTUP) {
             KillTimer(h, T_SHELL_STARTUP);
             startup_sync();
@@ -453,6 +445,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
     update_init();                  /* "Auto update": the first check a few minutes from now */
     samples_init();                 /* "Sample wallpaper updates", when on */
+    rotate_init();                  /* slideshow and day/night schedule */
     SetTimer(g_app.shellWnd, T_SHELL_STARTUP, 3000, NULL);   /* "Start with Windows" in step, off the start path */
     if (forward == CMD_SHOW_SETTINGS) ui_show_screensaver();
     else if (!trayOnly && !(signIn && g_app.cfg.s.launchToTray)) app_show_ui();

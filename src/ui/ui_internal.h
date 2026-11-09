@@ -44,8 +44,21 @@ enum HitKind {
     HK_REC_SPEED, HK_REC_SMOOTH,      /* the graph view's sliders; data: section */
     HK_REC_GRAPH,                     /* a track's graph (draw over it); data: section | track << 1 */
     HK_REC_PRESET,                    /* the graph presets (right-click a graph); data: preset, -1 closes, -2 the panel */
-    HK_REC_REPS                       /* a preset's repeat count, typed; data: preset */
+    HK_REC_REPS,                      /* a preset's repeat count, typed; data: preset */
+    HK_FAV,                           /* a card's star; data: view index */
+    HK_COLL,                          /* a collection chip; data: its index in the chip row */
+    HK_SORT,                          /* the Library's sort menu */
+    HK_SEL,                           /* selection bar; data: SEL_* */
+    HK_COLL_TEXT,                     /* a new collection's name, typed */
+    HK_VOLUME,                        /* volume slider; data 0: Settings (every wallpaper), 1: Customise (this one) */
+    HK_SLIDE_SEC,                     /* Customise: a presentation's seconds per slide; data: seconds */
+    HK_SLIDE_MIN,                     /* Settings: slideshow minutes; data: minutes */
+    HK_SLIDE_FROM,                    /* Settings: which wallpapers the slideshow shows (menu) */
+    HK_SCHED_PICK, HK_SCHED_HOUR,     /* Settings: day/night wallpaper and start hour; data 0 day, 1 night */
+    HK_PLAY_SET,                      /* Library: play the shown collection or favourites as a slideshow (data 1: stop) */
+    HK_PLAY_EVERY                     /* Library: its minutes menu */
 };
+enum { SEL_FAV, SEL_COLL, SEL_REMOVE, SEL_CLEAR, SEL_ALL };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
 #define HIT_KIND(id)       ((id) >> 16)
@@ -53,7 +66,8 @@ enum HitKind {
 
 enum { TOG_STARTUP, TOG_TRAY, TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY, TOG_AUDIO, TOG_RECOVER,
        TOG_HTML_MOUSE, TOG_HTML_SPECTRUM, TOG_LIVELY, TOG_URL, TOG_DEPTH_ALL,
-       TOG_SCR_ENABLE, TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK, TOG_AUTO_UPDATE, TOG_STILL, TOG_AUTO_SAMPLES, TOG_COUNT };
+       TOG_SCR_ENABLE, TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK, TOG_AUTO_UPDATE, TOG_STILL, TOG_AUTO_SAMPLES,
+       TOG_SLIDESHOW, TOG_SHUFFLE, TOG_SCHEDULE, TOG_COUNT };
 
 typedef struct Hit {
     int         id;
@@ -108,8 +122,11 @@ typedef struct Ui {
     float                  mx, my;
 
     wchar_t                search[96];
+    wchar_t                setSearch[64];
     int                    searchFocus, caretOn;
-    int                    filter;         /* 0 all, 1 image, 2 video, 3 html, 4 recent */
+    int                    filter;         /* 0 all, 1 image, 2 video, 3 html, 4 recent, 5 favourites, 6 collection coll */
+    wchar_t                coll[64];
+    int                    selAnchor;      /* view index a Shift+click selects from */
     int                    target;         /* -1 all displays, else index into g_app.mons */
     int                    textFocus;      /* hit id of the Customise field being typed into, 0 none */
     int                   *view;
@@ -222,3 +239,6 @@ const wchar_t *pages_tooltip(int id);                       /* tooltip text for 
 #define GL_COLOR    0xE2B1     /* palette glyph for the Customise page */
 #define GL_STORE    0xE719
 #define GL_DOWNLOAD 0xE896
+#define GL_STAR     0xE734
+#define GL_STAR_ON  0xE735     /* filled (Linux: the same outline, drawn in the accent colour) */
+#define GL_SORT     0xE8CB

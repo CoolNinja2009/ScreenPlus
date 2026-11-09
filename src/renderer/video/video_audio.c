@@ -223,17 +223,19 @@ static int refill(VideoSource *s, AudioDev *d, Pcm *p, AudioState *as, AVFrame *
 /* Pause fade: gain ramps per frame toward 0 (fading out before a pause) or 1 (after a start). */
 #define FADE_OUT_S 0.6
 #define FADE_IN_S  0.4
-static void copy_gain(float *dst, const float *src, UINT32 frames, int channels, int rate, float *gain, int out)
+static void copy_gain(float *dst, const float *src, UINT32 frames, int channels, int rate, float *gain, int out, float vol)
 {
     float target = out ? 0.0f : 1.0f, step = (float)(1.0 / ((out ? FADE_OUT_S : FADE_IN_S) * rate));
+    size_t n = (size_t)frames * channels;
     if (*gain == target) {
-        if (out) memset(dst, 0, (size_t)frames * channels * sizeof(float));
-        else memcpy(dst, src, (size_t)frames * channels * sizeof(float));
+        if (out || vol <= 0.0f) memset(dst, 0, n * sizeof(float));
+        else if (vol >= 1.0f) memcpy(dst, src, n * sizeof(float));
+        else for (size_t i = 0; i < n; i++) dst[i] = src[i] * vol;
         return;
     }
     for (UINT32 i = 0; i < frames; i++) {
         *gain = out ? SP_MAX(0.0f, *gain - step) : SP_MIN(1.0f, *gain + step);
-        float g = *gain * *gain;             /* squared: sounds even to the ear */
+        float g = *gain * *gain * vol;       /* squared: sounds even to the ear */
         for (int c = 0; c < channels; c++) dst[i * channels + c] = src[i * channels + c] * g;
     }
 }
@@ -268,7 +270,8 @@ static HRESULT feed(VideoSource *s, AudioDev *d, Pcm *p, AudioState *as, AVFrame
         }
         UINT32 n = SP_MIN(avail, (UINT32)p->frames);
         if (FAILED(hr = IAudioRenderClient_GetBuffer(d->render, n, &buf))) return hr;
-        copy_gain((float *)buf, p->buf, n, d->channels, d->rate, gain, s->fadeOut != 0);
+        float v = (float)SP_CLAMP(s->volume, 0, 100) / 100.0f;    /* the volume setting, squared like the fades */
+        copy_gain((float *)buf, p->buf, n, d->channels, d->rate, gain, s->fadeOut != 0, v * v);
         if (FAILED(hr = IAudioRenderClient_ReleaseBuffer(d->render, n, 0))) return hr;
         pcm_consume(p, (int)n, d->channels, d->rate);
         padding += n;

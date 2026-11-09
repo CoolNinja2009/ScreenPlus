@@ -280,7 +280,8 @@ static void report(const ImportStats *st, const wchar_t *source, int before, BOO
 int library_import(const wchar_t *const *paths, int count, BOOL applyFirst)
 {
     ImportStats st = { 0 };
-    int before = g_app.cfg.count;
+    int before = g_app.cfg.count, slides = 0;
+    library_slides_started = 0;
     for (int i = 0; i < count; i++) {
         if (dir_exists(paths[i])) add_folder(paths[i], &st);
         else if (file_exists(paths[i])) {
@@ -288,12 +289,15 @@ int library_import(const wchar_t *const *paths, int count, BOOL applyFirst)
                 wchar_t dir[SP_MAX_PATH];
                 path_dirname(dir, SP_COUNTOF(dir), paths[i]);
                 if (!import_package(dir, &st)) st.bad++;
+            } else if (pptx_is_file(paths[i])) {
+                slides++;                                           /* its own notice either way */
+                if (pptx_import(paths[i], applyFirst && count == 1)) library_slides_started++;
             } else {
                 add_file(paths[i], &st);
             }
         } else st.bad++;
     }
-    if (count) report(&st, L"", before, applyFirst);
+    if (count > slides || st.added) report(&st, L"", before, applyFirst);   /* a presentation has its own notice */
     return st.added;
 }
 
@@ -535,10 +539,11 @@ void library_import_dialog(HWND owner, BOOL folder)
         static const COMDLG_FILTERSPEC filters[] = {
             { L"Wallpapers", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr;"
                              L"*.mp4;*.m4v;*.mov;*.wmv;*.webm;*.mkv;*.avi;*.mpg;*.mpeg;*.ts;*.m2ts;*.html;*.htm;"
-                             L"LivelyInfo.json;project.json" },
+                             L"*.pptx;*.ppsx;*.pptm;*.ppt;*.pps;*.potx;LivelyInfo.json;project.json" },
             { L"Images", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr" },
             { L"Videos", L"*.mp4;*.m4v;*.mov;*.wmv;*.webm;*.mkv;*.avi;*.mpg;*.mpeg;*.ts;*.m2ts;*.gif" },
             { L"HTML wallpaper", L"*.html;*.htm" },
+            { L"PowerPoint", L"*.pptx;*.ppsx;*.pptm;*.ppt;*.pps;*.potx" },
             { L"Lively / Wallpaper Engine package", L"LivelyInfo.json;project.json" },
             { L"All files", L"*.*" },
         };
@@ -571,6 +576,8 @@ void library_import_dialog(HWND owner, BOOL folder)
 
 #endif
 
+int library_slides_started;
+
 void library_remove(const wchar_t *id)
 {
     WallpaperEntry *e = config_find(&g_app.cfg, id);
@@ -583,10 +590,18 @@ void library_remove(const wchar_t *id)
     config_remove(&g_app.cfg, id);
     app_save_config();
     depth_forget(&gone);                        /* the page "Make wallpaper cooler" generated goes with its entry */
+    if (gone.flags & WPFLAG_PPTX) {             /* PowerPoint's videos of it (pptx.c) */
+        wchar_t dir[SP_MAX_PATH];
+        path_dirname(dir, SP_COUNTOF(dir), gone.path);
+        library_discard(dir, TRUE);
+    }
     /* what Screen+ downloaded for a web link goes with its entry */
     if (url_import_forget(path, thumb)) {
         LOGI(L"library: removed '%ls' and deleted its download", name);
         app_notice(NOTICE_INFO, L"Removed '%ls' and its downloaded file.", name);
+    } else if (gone.flags & WPFLAG_PPTX) {
+        LOGI(L"library: removed '%ls' and its video", name);
+        app_notice(NOTICE_INFO, L"Removed '%ls' and its video. The presentation stays.", name);
     } else if (wallpaper_is_url(path)) {                       /* a web page or stream: no file */
         LOGI(L"library: removed '%ls'", name);
         app_notice(NOTICE_INFO, L"Removed '%ls' from the library.", name);
@@ -669,9 +684,12 @@ void library_discard(const wchar_t *path, BOOL folder)
 /* only what Screen+ made: a direct child of <data>\downloads or <data>\depth */
 static BOOL made_here(const wchar_t *path)
 {
-    wchar_t dir[SP_MAX_PATH], depth[SP_MAX_PATH];
+    wchar_t dir[SP_MAX_PATH], depth[SP_MAX_PATH], slides[SP_MAX_PATH], up[SP_MAX_PATH];
     path_dirname(dir, SP_COUNTOF(dir), path);
+    path_dirname(up, SP_COUNTOF(up), dir);
     path_join(depth, SP_COUNTOF(depth), paths_root(), L"depth");
+    path_join(slides, SP_COUNTOF(slides), paths_root(), L"slides");   /* pptx.c: a folder, or a video in one */
+    if (str_ieq(dir, slides) || str_ieq(up, slides)) return TRUE;
     return str_ieq(dir, paths_downloads()) || str_ieq(dir, depth);
 }
 

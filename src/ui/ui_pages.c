@@ -69,6 +69,42 @@ static int cmp_recent(const void *a, const void *b)
     return x->lastUsed > y->lastUsed ? -1 : x->lastUsed < y->lastUsed ? 1 : 0;
 }
 
+/* Library order other than custom (LIBSORT_*): sizes are read once per rebuild, only for the Size order. */
+static int64_t *g_sizes;
+
+static int64_t entry_size(const WallpaperEntry *e)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fa;
+    if (wallpaper_is_url(e->path) || !GetFileAttributesExW(e->path, GetFileExInfoStandard, &fa)) return -1;
+    return (int64_t)fa.nFileSizeHigh << 32 | fa.nFileSizeLow;
+}
+
+static int cmp_sort(const void *a, const void *b)
+{
+    int ia = *(const int *)a, ib = *(const int *)b, r = 0;
+    const WallpaperEntry *x = &g_app.cfg.items[ia], *y = &g_app.cfg.items[ib];
+    switch (g_app.cfg.s.librarySort) {
+    case LIBSORT_NAME:  r = _wcsicmp(x->name, y->name); break;
+    case LIBSORT_ADDED: r = x->added > y->added ? -1 : x->added < y->added ? 1 : 0; break;   /* newest first */
+    case LIBSORT_TYPE:  r = (int)x->type - (int)y->type; if (!r) r = _wcsicmp(x->name, y->name); break;
+    case LIBSORT_SIZE:  if (g_sizes) r = g_sizes[ia] > g_sizes[ib] ? -1 : g_sizes[ia] < g_sizes[ib] ? 1 : 0; break;
+    default: break;
+    }
+    return r ? r : ia - ib;
+}
+
+static int selected_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < g_app.cfg.count; i++) n += (g_app.cfg.items[i].uiMark & 1) != 0;
+    return n;
+}
+
+static void select_clear(void)
+{
+    for (int i = 0; i < g_app.cfg.count; i++) g_app.cfg.items[i].uiMark &= ~1;
+}
+
 void pages_rebuild_view(void)
 {
     Ui *u = g_ui;
@@ -86,10 +122,19 @@ void pages_rebuild_view(void)
         if (u->filter == 2 && e->type != WP_VIDEO) continue;
         if (u->filter == 3 && e->type != WP_HTML) continue;
         if (u->filter == 4 && !e->lastUsed) continue;
+        if (u->filter == 5 && !(e->flags & WPFLAG_FAV)) continue;
+        if (u->filter == 6 && !config_tag_has(e, u->coll)) continue;
         if (u->search[0] && !str_icontains(e->name, u->search) && !str_icontains(path_filename(e->path), u->search)) continue;
         u->view[u->viewCount++] = i;
     }
     if (u->filter == 4) qsort(u->view, (size_t)u->viewCount, sizeof(int), cmp_recent);
+    else if (g_app.cfg.s.librarySort != LIBSORT_CUSTOM && u->viewCount > 1) {
+        free(g_sizes);
+        g_sizes = NULL;
+        if (g_app.cfg.s.librarySort == LIBSORT_SIZE && (g_sizes = (int64_t *)calloc((size_t)g_app.cfg.count, sizeof(int64_t))))
+            for (int i = 0; i < u->viewCount; i++) g_sizes[u->view[i]] = entry_size(&g_app.cfg.items[u->view[i]]);
+        qsort(u->view, (size_t)u->viewCount, sizeof(int), cmp_sort);
+    }
     if (u->target >= g_app.monCount) u->target = -1;
 }
 
@@ -317,17 +362,85 @@ static float draw_hero(Ui *u, float x, float y, float w)
     return y + h;
 }
 
+static const wchar_t *const k_sortNames[LIBSORT_COUNT] = { L"Custom order", L"Name", L"Date added", L"Type", L"Size" };
+static void draw_choice(Ui *u, int id, D2D1_RECT_F r, const wchar_t *text);
+
+/* A new collection's name field (HK_COLL_TEXT, its own buffer): drawn while it is being typed into. */
+static wchar_t g_collName[64];
+static void draw_coll_field(Ui *u, D2D1_RECT_F r)
+{
+    Theme *t = &u->t;
+    float bh = r.bottom - r.top;
+    ui_rrect(r, 15, t->field);
+    ui_rrect_stroke(r, 15, 1.5f, t->accent);
+    D2D1_RECT_F tr = rectf(r.left + 14, r.top + (bh - 20) * 0.5f, r.right - r.left - 28, 20);
+    if (!g_collName[0]) ui_text(L"Collection name", u->fBody, tr, t->text3);
+    te_set_layout(u->fBody, tr);
+    te_draw(tr, t->text, col_a(t->accent, 0.35f), t->accent, u->caretOn && GetForegroundWindow() == u->hwnd);
+    ui_hit(HIT_ID(HK_COLL_TEXT, 0), r, 1, 2);
+}
+
+/* Filter chips (types, Recent, Favourites, then each collection), the sort menu and the count; while cards are
+ * selected, the selection bar instead. */
 static float draw_filters(Ui *u, float x, float y, float w)
 {
-    float cx = x;
-    for (int i = 0; i < (int)SP_COUNTOF(k_filters); i++) {
-        float cw = ui_text_width(k_filters[i], u->fCenter) + 30;
-        ui_chip(HIT_ID(HK_FILTER, i), rectf(cx, y, cw, 30), k_filters[i], u->filter == i);
+    int nsel = selected_count();
+    if (nsel) {
+        wchar_t n[48];
+        str_printf(n, SP_COUNTOF(n), L"%d selected", nsel);
+        ui_text(n, u->fBodyB, rectf(x + 4, y, 140, 30), u->t.text);
+        static const wchar_t *const labels[] = { L"Favourite", L"Collections", L"Remove", L"Select all" };
+        static const int kinds[] = { SEL_FAV, SEL_COLL, SEL_REMOVE, SEL_ALL };
+        static const wchar_t icons[] = { GL_STAR, GL_LIBRARY, GL_CLOSE, GL_CHECK };
+        float bx = x + 140;
+        for (int i = 0; i < 4; i++) {
+            float bw = ui_button_width(labels[i], icons[i]);
+            ui_button(HIT_ID(HK_SEL, kinds[i]), rectf(bx, y - 2, bw, 34), labels[i], icons[i], BTN_SECONDARY);
+            bx += bw + 8;
+        }
+        float cw = ui_button_width(L"Done", 0);
+        ui_button(HIT_ID(HK_SEL, SEL_CLEAR), rectf(x + w - cw, y - 2, cw, 34), L"Done", 0, BTN_PRIMARY);
+        return y + 30;
+    }
+    float sw = ui_button_width(k_sortNames[g_app.cfg.s.librarySort], GL_SORT), right = x + w - sw - 80;
+    float cx = x, rowY = y;
+    for (int i = 0; i < (int)SP_COUNTOF(k_filters) + 1; i++) {
+        const wchar_t *label = i < (int)SP_COUNTOF(k_filters) ? k_filters[i] : L"Favourites";
+        float cw = ui_text_width(label, u->fCenter) + 30;
+        if (cx + cw > right && cx > x) { cx = x; y += 38; }
+        ui_chip(HIT_ID(HK_FILTER, i), rectf(cx, y, cw, 30), label, u->filter == i);
         cx += cw + 8;
+    }
+    wchar_t names[64][64];
+    int nc = config_collections(&g_app.cfg, names, 64);
+    for (int k = 0; k < nc; k++) {
+        float cw = SP_MIN(ui_text_width(names[k], u->fCenter) + 30, 220.0f);
+        if (cx + cw > right && cx > x) { cx = x; y += 38; }
+        ui_chip(HIT_ID(HK_COLL, k), rectf(cx, y, cw, 30), names[k], u->filter == 6 && str_ieq(u->coll, names[k]));
+        cx += cw + 8;
+    }
+    if (u->textFocus == HIT_ID(HK_COLL_TEXT, 0)) {
+        if (cx + 200 > right && cx > x) { cx = x; y += 38; }
+        draw_coll_field(u, rectf(cx, y, 200, 30));
+    }
+    ui_button(HIT_ID(HK_SORT, 0), rectf(x + w - sw - 72, rowY - 2, sw, 34), k_sortNames[g_app.cfg.s.librarySort], GL_SORT,
+              BTN_GHOST);
+    if ((u->filter == 5 || u->filter == 6) && u->viewCount) {   /* a collection or the favourites: play them */
+        const wchar_t *src = u->filter == 5 ? L"*" : u->coll;
+        int playing = g_app.cfg.s.slideshow && !g_app.cfg.s.schedule && str_ieq(g_app.cfg.s.slideshowFrom, src);
+        wchar_t every[24];
+        str_printf(every, SP_COUNTOF(every), L"Every %d min", g_app.cfg.s.slideshowMin);
+        float pw = ui_button_width(playing ? L"Stop" : L"Play", playing ? GL_PAUSE : GL_PLAY);
+        float ew = ui_text_width(every, u->fBody) + 52;
+        y += 42;
+        ui_button(HIT_ID(HK_PLAY_SET, playing), rectf(x, y - 2, pw, 34), playing ? L"Stop" : L"Play",
+                  playing ? GL_PAUSE : GL_PLAY, playing ? BTN_SECONDARY : BTN_PRIMARY);
+        draw_choice(u, HIT_ID(HK_PLAY_EVERY, 0), rectf(x + pw + 8, y - 2, ew, 34), every);
+        if (playing) ui_text(L"Playing as a slideshow", u->fSmall, rectf(x + pw + ew + 22, y - 2, 260, 34), u->t.text2);
     }
     wchar_t n[48];
     str_printf(n, SP_COUNTOF(n), L"%d of %d", u->viewCount, g_app.cfg.count);
-    text_right(n, u->fSmall, x + w, y, 30, u->t.text3);
+    text_right(n, u->fSmall, x + w, rowY, 30, u->t.text3);
     return y + 30;
 }
 
@@ -345,7 +458,8 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
         ui_icon(GL_WARNING, u->fIcon, rectf(th.left, th.top, th.right - th.left, (th.bottom - th.top) - 14), col(0xFFFFFF, 1));
         ui_text(L"File not found", u->fCenter, rectf(th.left, (th.top + th.bottom) * 0.5f + 4, th.right - th.left, 20), col(0xFFFFFF, 0.9f));
     }
-    const wchar_t *tn = e->type == WP_VIDEO ? L"VIDEO" : e->type == WP_HTML ? L"HTML" : L"IMAGE";
+    int slides = (e->flags & WPFLAG_PPTX) != 0;
+    const wchar_t *tn = slides ? L"SLIDES" : e->type == WP_VIDEO ? L"VIDEO" : e->type == WP_HTML ? L"HTML" : L"IMAGE";
     float bw = ui_text_width(tn, u->fCenterS) + 34;
     D2D1_RECT_F b = { th.left + 8, th.bottom - 30, th.left + 8 + bw, th.bottom - 8 };
     ui_rrect(b, 11, col(0x000000, 0.48f));
@@ -356,6 +470,22 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
         ui_icon(GL_CHECK, u->fIconS, rectf(th.right - 30, th.top + 6, 24, 24), t->onAccent);
         ui_rrect_stroke(r, 14, 2, t->accent);
     }
+    if (e->uiMark & 1) {                           /* selected: tinted, ringed, a tick top-left */
+        ui_rrect(th, 10, col_a(t->accent, 0.28f));
+        ui_rrect_stroke(r, 14, 3, t->accent);
+        ui_circle(th.left + 18, th.top + 18, 12, t->accent);
+        ui_icon(GL_CHECK, u->fIconS, rectf(th.left + 6, th.top + 6, 24, 24), t->onAccent);
+    } else if (selected_count()) {
+        ui_circle(th.left + 18, th.top + 18, 11, col(0xFFFFFF, 0.9f));     /* an empty tick box */
+        ui_circle(th.left + 18, th.top + 18, 9.5f, col(0x000000, 0.45f));
+    }
+    int fav = (e->flags & WPFLAG_FAV) != 0, starId = HIT_ID(HK_FAV, vi);
+    if (fav || hot || ui_is_hot(starId)) {         /* the star: always when a favourite, else on hover */
+        D2D1_RECT_F sr = { th.right - 36, th.bottom - 34, th.right - 8, th.bottom - 6 };
+        ui_circle((sr.left + sr.right) * 0.5f, (sr.top + sr.bottom) * 0.5f, 14, col(0x000000, ui_is_hot(starId) ? 0.62f : 0.48f));
+        ui_icon(fav ? GL_STAR_ON : GL_STAR, u->fIconS, sr, fav ? col(0xFFC83D, 1.0f) : col(0xFFFFFF, 0.95f));
+        ui_hit(starId, sr, 0, 1);
+    }
     wchar_t meta[96], ext[16];
     str_copy(ext, SP_COUNTOF(ext), path_ext(e->path)[0] ? path_ext(e->path) + 1 : L"file");
     CharUpperW(ext);
@@ -364,7 +494,8 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
         if (str_istarts(host, L"www.")) host += 4;
         str_printf(meta, SP_COUNTOF(meta), L"%ls · %.*ls", e->type == WP_VIDEO ? L"Stream" : L"HTML",
                    (int)SP_MIN(wcscspn(host, L"/?#:"), 60), host);
-    } else if (e->type == WP_HTML) str_printf(meta, SP_COUNTOF(meta), L"HTML · %ls", path_filename(e->path));
+    } else if (slides) str_printf(meta, SP_COUNTOF(meta), L"PowerPoint · %d s a slide", entry_slide_sec(e));
+    else if (e->type == WP_HTML) str_printf(meta, SP_COUNTOF(meta), L"HTML · %ls", path_filename(e->path));
     else str_printf(meta, SP_COUNTOF(meta), L"%ls · %ls", wallpaper_type_name(e->type), ext);
     ui_text(meta, u->fSmall, rectf(r.left + 12, th.bottom + 28, r.right - r.left - 24, 16), t->text3);
     ui_hit(id, r, 1, 1);
@@ -887,6 +1018,8 @@ static void draw_displays(Ui *u, float cx, float cw)
 
 /* ================================================================ settings */
 
+static void draw_choice(Ui *u, int id, D2D1_RECT_F r, const wchar_t *text);
+
 static float section(Ui *u, float x, float y, const wchar_t *title)
 {
     ui_text(title, u->fCaption, rectf(x + 4, y, 300, 18), u->t.text3);
@@ -900,18 +1033,56 @@ static void row_label(Ui *u, float x, float y, float w, const wchar_t *label, co
     if (desc) ui_text(desc, u->fSmall, rectf(x + 18, y + 32, w, 18), u->t.text2);
 }
 
-/* descs (or any one of them) may be NULL */
+/* Settings search (u->setSearch): a row shows when the query is in its label or keywords, or in its section's
+   title; a section's title is drawn before its first shown row. */
+static struct { const wchar_t *title; int titleHit, drawn, any; } sf;
+
+static int sf_has(Ui *u, const wchar_t *text)
+{
+    return text && str_icontains(text, u->setSearch);
+}
+
+static void sf_section(Ui *u, const wchar_t *title, const wchar_t *keys)
+{
+    sf.title = title;
+    sf.drawn = 0;
+    sf.titleHit = u->setSearch[0] && (sf_has(u, title) || sf_has(u, keys));
+}
+
+static int sf_want(Ui *u, const wchar_t *label, const wchar_t *keys)
+{
+    return !u->setSearch[0] || sf.titleHit || sf_has(u, label) || sf_has(u, keys);
+}
+
+/* before a shown row: its section's title, with the gap after an earlier section */
+static float sf_place(Ui *u, float x, float y)
+{
+    if (!sf.drawn) {
+        if (sf.any) y += 16;
+        y = section(u, x, y, sf.title);
+        sf.drawn = sf.any = 1;
+    }
+    return y;
+}
+
+/* descs (or any one of them) may be NULL; only the rows the search wants, then the 10 DIP gap */
 static float toggle_group(Ui *u, float x, float y, float w, const int *idx, const wchar_t *const *labels,
                           const wchar_t *const *descs, const int *values, int n)
 {
-    ui_glass(rectf(x, y, w, 62.0f * n), 14, 0, 0);
-    for (int i = 0; i < n; i++) {
-        float ry = y + i * 62.0f;
-        if (i) ui_line(x + 16, ry, x + w - 16, ry, 1, u->t.separator);
+    int k[8], m = 0;
+    for (int i = 0; i < n && m < 8; i++)
+        if (sf_want(u, labels[i], NULL)) k[m++] = i;
+    if (!m) return y;
+    y = sf_place(u, x, y);
+    ui_glass(rectf(x, y, w, 62.0f * m), 14, 0, 0);
+    for (int j = 0; j < m; j++) {
+        int i = k[j];
+        float ry = y + j * 62.0f;
+        if (j) ui_line(x + 16, ry, x + w - 16, ry, 1, u->t.separator);
         row_label(u, x, ry, w - 120, labels[i], descs ? descs[i] : NULL);
         ui_toggle(HIT_ID(HK_TOGGLE, idx[i]), x + w - 62, ry + 19, idx[i], values[i]);
     }
-    return y + 62.0f * n;
+    return y + 62.0f * m + 10;
 }
 
 /* An app rule list: label and Add app, then its apps as chips that remove themselves on click. */
@@ -981,6 +1152,11 @@ static void draw_settings(Ui *u, float cx, float cw)
     Settings *s = &g_app.cfg.s;
     float x = cx + PAD, w = SP_MIN(cw - PAD * 2, 860.0f);
     draw_title(u, x, L"Settings", NULL);
+    {
+        float sw = SP_MIN(260.0f, w * 0.4f);
+        draw_search(u, rectf(x + w - sw, 24, sw, 34), HIT_ID(HK_SEARCH, 1), HIT_ID(HK_SEARCH_CLEAR, 2), u->setSearch,
+                    L"Search settings");
+    }
     float top = 88;
     top += draw_notice(u, x, top, cw - PAD * 2);
     D2D1_RECT_F view = { cx, top, cx + cw, u->h };
@@ -989,7 +1165,8 @@ static void draw_settings(Ui *u, float cx, float cw)
     ui_push_clip(view);
     float y = top + 6 - u->scroll[PAGE_SETTINGS];
 
-    y = section(u, x, y, L"GENERAL");
+    sf.any = 0;
+    sf_section(u, L"GENERAL", NULL);
     {
 #ifndef _WIN32
         int idxL[] = { TOG_STARTUP, TOG_TRAY };
@@ -1003,8 +1180,8 @@ static void draw_settings(Ui *u, float cx, float cw)
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 3);
 #endif
     }
-    y += 10;
-    {
+    if (sf_want(u, L"Auto update", L"version")) {
+        y = sf_place(u, x, y);
         UpdateState us;
         update_get(&us);
         float bw = ui_button_width(L"Check now", GL_REFRESH);
@@ -1012,9 +1189,10 @@ static void draw_settings(Ui *u, float cx, float cw)
         row_label(u, x, y, w - bw - 120, L"Auto update", us.text);
         ui_button(HIT_ID(HK_UPDATE_CHECK, 0), rectf(x + w - 82 - bw, y + 14, bw, 34), L"Check now", GL_REFRESH, BTN_SECONDARY);
         ui_toggle(HIT_ID(HK_TOGGLE, TOG_AUTO_UPDATE), x + w - 62, y + 19, TOG_AUTO_UPDATE, s->autoUpdate);
+        y += 62 + 10;
     }
-    y += 62 + 10;
-    {
+    if (sf_want(u, L"Sample wallpaper updates", NULL)) {
+        y = sf_place(u, x, y);
         SamplesState ss;                 /* Update once a check found changes; with the toggle on they update by themselves */
         samples_get(&ss);
         const wchar_t *label = ss.pending ? L"Update" : L"Check now";
@@ -1024,29 +1202,83 @@ static void draw_settings(Ui *u, float cx, float cw)
         ui_button(HIT_ID(HK_SAMPLES_CHECK, ss.pending), rectf(x + w - 82 - bw, y + 14, bw, 34), label, GL_REFRESH,
                   ss.pending ? BTN_PRIMARY : BTN_SECONDARY);
         ui_toggle(HIT_ID(HK_TOGGLE, TOG_AUTO_SAMPLES), x + w - 62, y + 19, TOG_AUTO_SAMPLES, s->autoUpdateSamples);
+        y += 62 + 10;
     }
-    y += 62 + 10;
-    ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-    row_label(u, x, y, w - 300, L"Appearance", NULL);
-    {
+    if (sf_want(u, L"Appearance", L"theme light dark system")) {
+        y = sf_place(u, x, y);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 300, L"Appearance", NULL);
         static const wchar_t *opts[] = { L"System", L"Light", L"Dark" };
         segmented(u, x + w - 18 - 78 * 3, y + 15, HK_THEME, opts, 3, (int)s->theme, 78, NULL);
+        y += 62 + 10;
     }
-    y += 62 + 26;
+
+    sf_section(u, L"SLIDESHOW", L"rotate change automatically");
+    {
+        int idx[] = { TOG_SLIDESHOW, TOG_SHUFFLE };
+        const wchar_t *l[] = { L"Change wallpaper automatically", L"Shuffle" };
+        int v[] = { s->slideshow, s->shuffle };
+        y = toggle_group(u, x, y, w, idx, l, NULL, v, 2);
+    }
+    if (sf_want(u, L"Change every (minutes)", L"interval")) {
+        y = sf_place(u, x, y);
+        static const wchar_t *mins[] = { L"5", L"15", L"30", L"60", L"180" };
+        static const int minv[] = { 5, 15, 30, 60, 180 };
+        int cur = -1;
+        for (int i = 0; i < 5; i++) if (s->slideshowMin == minv[i]) cur = i;
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 5 * 52 - 40, L"Change every (minutes)", NULL);
+        segmented(u, x + w - 18 - 5 * 52, y + 15, HK_SLIDE_MIN, mins, 5, cur, 52, minv);
+        y += 62 + 10;
+    }
+    if (sf_want(u, L"Wallpapers", L"favourites collection")) {
+        y = sf_place(u, x, y);
+        wchar_t from[80];
+        if (!s->slideshowFrom[0]) str_copy(from, SP_COUNTOF(from), L"All wallpapers");
+        else if (wcscmp(s->slideshowFrom, L"*") == 0) str_copy(from, SP_COUNTOF(from), L"Favourites");
+        else str_copy(from, SP_COUNTOF(from), s->slideshowFrom);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 280, L"Wallpapers", NULL);
+        draw_choice(u, HIT_ID(HK_SLIDE_FROM, 0), rectf(x + w - 18 - 230, y + 13, 230, 36), from);
+        y += 62 + 10;
+    }
+
+    sf_section(u, L"DAY AND NIGHT", L"schedule time");
+    {
+        int idx[] = { TOG_SCHEDULE };
+        const wchar_t *l[] = { L"Day and night wallpapers" };
+        int v[] = { s->schedule };
+        y = toggle_group(u, x, y, w, idx, l, NULL, v, 1);
+    }
+    for (int k = 0; k < 2; k++) {
+        const wchar_t *label = k ? L"Night wallpaper" : L"Day wallpaper";
+        if (!sf_want(u, label, L"schedule")) continue;
+        y = sf_place(u, x, y);
+        WallpaperEntry *we = config_find(&g_app.cfg, k ? s->nightWallpaper : s->dayWallpaper);
+        wchar_t from[24];
+        str_printf(from, SP_COUNTOF(from), L"From %02d:00", k ? s->nightStart : s->dayStart);
+        float bc = ui_button_width(L"Choose…", 0);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - bc - 210, label, we ? we->name : L"None");
+        draw_choice(u, HIT_ID(HK_SCHED_HOUR, k), rectf(x + w - 26 - bc - 150, y + 13, 150, 36), from);
+        ui_button(HIT_ID(HK_SCHED_PICK, k), rectf(x + w - 18 - bc, y + 14, bc, 34), L"Choose…", 0, BTN_SECONDARY);
+        y += 62 + 10;
+    }
 
 #ifdef _WIN32
-    y = section(u, x, y, L"SCREENSAVER");
+    sf_section(u, L"SCREENSAVER", NULL);
+    ScrState st;
+    scr_query(&st);
     {
-        ScrState st;
-        scr_query(&st);
         int on = st.ours && st.active;
         int idx[] = { TOG_SCR_ENABLE };
         const wchar_t *l[] = { L"Use Screen+ as the screensaver" };
         const wchar_t *d[] = { st.policy ? L"Managed by your organisation" : !on && st.active ? L"Another screensaver is in use" : NULL };
         int v[] = { on };
         y = toggle_group(u, x, y, w, idx, l, d, v, 1);
-        y += 10;
-
+    }
+    if (sf_want(u, L"Wallpaper", NULL)) {
+        y = sf_place(u, x, y);
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         WallpaperEntry *se = config_find(&g_app.cfg, config_screensaver(&g_app.cfg));
         const wchar_t *d1 = !se ? L"None" : g_app.cfg.screensaver[0] ? se->name : L"Same as the desktop";
@@ -1055,7 +1287,9 @@ static void draw_settings(Ui *u, float cx, float cw)
         ui_button(HIT_ID(HK_SCR_PREVIEW, 0), rectf(x + w - 18 - bp, y + 14, bp, 34), L"Preview", GL_PLAY, BTN_SECONDARY);
         ui_button(HIT_ID(HK_SCR_CHOOSE, 0), rectf(x + w - 26 - bp - bc, y + 14, bc, 34), L"Choose…", 0, BTN_SECONDARY);
         y += 62 + 10;
-
+    }
+    if (sf_want(u, L"Start after (minutes)", L"timeout")) {
+        y = sf_place(u, x, y);
         static const wchar_t *mins[] = { L"1", L"3", L"5", L"10", L"15", L"30" };
         static const int minv[] = { 1, 3, 5, 10, 15, 30 };
         int cur = -1;
@@ -1064,27 +1298,32 @@ static void draw_settings(Ui *u, float cx, float cw)
         row_label(u, x, y, w - 6 * 46 - 40, L"Start after (minutes)", NULL);
         segmented(u, x + w - 18 - 6 * 46, y + 15, HK_SCR_TIMEOUT, mins, 6, cur, 46, minv);
         y += 62 + 10;
-
+    }
+    if (sf_want(u, L"Displays", L"span primary monitor")) {
+        y = sf_place(u, x, y);
         static const wchar_t *dopts[] = { L"All", L"Span", L"Primary" };
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         row_label(u, x, y, w - 3 * 84 - 40, L"Displays", NULL);
         segmented(u, x + w - 18 - 3 * 84, y + 15, HK_SCR_DISPLAYS, dopts, 3, (int)s->scrDisplays, 84, NULL);
         y += 62 + 10;
-
+    }
+    {
         int idx2[] = { TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK };
         const wchar_t *l2[] = { L"Play sound", L"End on mouse movement", L"Show the sign-in screen on resume" };
         int v2[] = { s->scrAudio, s->scrExitOnMouse, st.secure };
         y = toggle_group(u, x, y, w, idx2, l2, NULL, v2, 3);
-        y += 10;
+    }
+    if (sf_want(u, L"Windows screensaver settings", NULL)) {
+        y = sf_place(u, x, y);
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         float bw = ui_button_width(L"Open", GL_OPEN);
         row_label(u, x, y, w - bw - 60, L"Windows screensaver settings", NULL);
         ui_button(HIT_ID(HK_SCR_WINDOWS, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Open", GL_OPEN, BTN_SECONDARY);
+        y += 62 + 10;
     }
-    y += 62 + 26;
 
 #endif
-    y = section(u, x, y, L"PERFORMANCE");
+    sf_section(u, L"PERFORMANCE", NULL);
     {
         int idx[] = { TOG_FULLSCREEN, TOG_COVERED, TOG_LOCK, TOG_BATTERY };
         const wchar_t *l[] = { L"Pause during fullscreen apps", L"Pause when covered by windows", L"Pause while locked",
@@ -1092,23 +1331,35 @@ static void draw_settings(Ui *u, float cx, float cw)
         int v[] = { s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock, s->pauseOnBattery };
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 4);
     }
-    y += 26;
 
-    y = section(u, x, y, L"APP RULES");
-    y = rule_row(u, x, y, w, 0, L"Pause while these apps are in front", s->pauseApps);
-    y += 10;
-    y = rule_row(u, x, y, w, 1, L"Mute while these apps use the microphone", s->muteApps);
-    y += 26;
+    sf_section(u, L"APP RULES", NULL);
+    if (sf_want(u, L"Pause while these apps are in front", s->pauseApps)) {
+        y = sf_place(u, x, y);
+        y = rule_row(u, x, y, w, 0, L"Pause while these apps are in front", s->pauseApps) + 10;
+    }
+    if (sf_want(u, L"Mute while these apps use the microphone", s->muteApps)) {
+        y = sf_place(u, x, y);
+        y = rule_row(u, x, y, w, 1, L"Mute while these apps use the microphone", s->muteApps) + 10;
+    }
 
-    y = section(u, x, y, L"AUDIO & RECOVERY");
+    sf_section(u, L"AUDIO & RECOVERY", NULL);
     {
         int idx[] = { TOG_AUDIO, TOG_RECOVER };
         const wchar_t *l[] = { L"Play wallpaper audio", L"Restart failed renderers automatically" };
         int v[] = { s->audio, s->autoRecover };
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 2);
     }
-    y += 10;
-    y = section(u, x, y, L"HTML WALLPAPERS");
+    if (sf_want(u, L"Volume", L"sound loud")) {
+        y = sf_place(u, x, y);
+        wchar_t pct[8];
+        str_printf(pct, SP_COUNTOF(pct), L"%d%%", s->volume);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 340, L"Volume", NULL);
+        ui_slider(HIT_ID(HK_VOLUME, 0), rectf(x + w - 18 - 56 - 240, y + 19, 240, 24), s->volume / 100.0f);
+        text_right(pct, u->fBody, x + w - 18, y, 62, u->t.text2);
+        y += 62 + 10;
+    }
+    sf_section(u, L"HTML WALLPAPERS", L"web");
     {
         DepthState ds;
         depth_get(&ds);
@@ -1129,18 +1380,18 @@ static void draw_settings(Ui *u, float cx, float cw)
         y = toggle_group(u, x, y, w, idx, l, d, v, 5);
 #endif
     }
-    y += 10;
-    ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-    row_label(u, x, y, w - 300, L"Frame-rate limit", NULL);
-    {
+    if (sf_want(u, L"Frame-rate limit", L"fps")) {
+        y = sf_place(u, x, y);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 300, L"Frame-rate limit", NULL);
         static const wchar_t *opts[] = { L"30", L"60", L"Off" };
         int sel = s->webFps == 30 ? 0 : s->webFps == 60 ? 1 : 2;
         segmented(u, x + w - 18 - 78 * 3, y + 15, HK_WEB_FPS, opts, 3, sel, 78, NULL);
+        y += 62 + 10;
     }
-    y += 62;
-    y += 26;
-    y = section(u, x, y, L"TROUBLESHOOTING");
-    {
+    sf_section(u, L"TROUBLESHOOTING", NULL);
+    if (sf_want(u, L"Renderer", L"restart engine")) {
+        y = sf_place(u, x, y);
         const wchar_t *state = g_app.engineGaveUp ? L"Stopped after repeated failures"
                              : !g_app.engineProcess ? L"Starting"
                              : g_app.safeMode ? L"Running in safe mode" : L"Running";
@@ -1150,14 +1401,16 @@ static void draw_settings(Ui *u, float cx, float cw)
         ui_button(HIT_ID(HK_RESTART_ENGINE, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Restart renderer", GL_REFRESH, BTN_SECONDARY);
         y += 62 + 10;
     }
-    if (g_app.haveStatus && !g_app.status.webviewVersion[0]) {    /* web wallpapers can't run without it */
+    if (g_app.haveStatus && !g_app.status.webviewVersion[0] && sf_want(u, L"WebView2 Runtime", NULL)) {
+        y = sf_place(u, x, y);                                     /* web wallpapers can't run without it */
         float bw = ui_button_width(L"Get WebView2", 0);
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         row_label(u, x, y, w - bw - 60, L"WebView2 Runtime", L"Not installed. Web wallpapers need it.");
         ui_button(HIT_ID(HK_GET_WEBVIEW, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Get WebView2", 0, BTN_SECONDARY);
         y += 62 + 10;
     }
-    {
+    if (sf_want(u, L"Logs and data", L"folder")) {
+        y = sf_place(u, x, y);
         float b1 = ui_button_width(L"Open logs", GL_DOC), b2 = ui_button_width(L"Open data folder", GL_FOLDER);
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         row_label(u, x, y, w - b1 - b2 - 60, L"Logs and data", NULL);
@@ -1165,22 +1418,30 @@ static void draw_settings(Ui *u, float cx, float cw)
         ui_button(HIT_ID(HK_OPEN_LOGS, 0), rectf(x + w - 26 - b2 - b1, y + 14, b1, 34), L"Open logs", GL_DOC, BTN_SECONDARY);
         y += 62 + 10;
     }
-    {
+    if (sf_want(u, L"Reset settings", NULL)) {
+        y = sf_place(u, x, y);
         float bw = ui_button_width(L"Reset settings", GL_REFRESH);
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
         row_label(u, x, y, w - bw - 60, L"Reset settings", NULL);
         ui_button(HIT_ID(HK_RESET_SETTINGS, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Reset settings", GL_REFRESH, BTN_SECONDARY);
+        y += 62 + 10;
     }
-    y += 62 + 26;
 
-    y = section(u, x, y, L"ABOUT");
-    ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-    row_label(u, x, y, w - 240, L"Screen+ " SP_VERSION_W, NULL);
-    {
+    sf_section(u, L"ABOUT", NULL);
+    if (sf_want(u, L"Screen+ " SP_VERSION_W, L"version third-party notices licenses")) {
+        y = sf_place(u, x, y);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 240, L"Screen+ " SP_VERSION_W, NULL);
         float bw = ui_button_width(L"Third-party notices", 0);
         ui_button(HIT_ID(HK_LICENSES, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Third-party notices", 0, BTN_GHOST);
+        y += 62 + 10;
     }
-    y += 62 + 32;
+    if (!sf.any) {
+        float tw = ui_text_width(L"No matching settings", u->fHeading);
+        ui_text(L"No matching settings", u->fHeading, rectf(x + (w - tw) * 0.5f, y + 40, tw + 4, 30), u->t.text3);
+        y += 100;
+    }
+    y += 22;
     ui_pop_clip();
     finish_scroll(u, PAGE_SETTINGS, y, top);
     draw_scrollbar(u, view, PAGE_SETTINGS);
@@ -1692,7 +1953,7 @@ static double prop_snap(const CustomProp *cp, double v)
 
 int pages_is_drag(int kind)
 {
-    return kind == HK_SLIDER || kind == HK_DISC || kind == HK_PSLIDER || kind == HK_REC_SPEED || kind == HK_REC_SMOOTH ||
+    return kind == HK_SLIDER || kind == HK_DISC || kind == HK_PSLIDER || kind == HK_REC_SPEED || kind == HK_REC_SMOOTH || kind == HK_VOLUME ||
            kind == HK_REC_GRAPH;
 }
 
@@ -1758,7 +2019,8 @@ int pages_card_drag(float x, float y)
 {
     Ui *u = g_ui;
     int from = HIT_DATA(u->pressed);
-    if (u->page != PAGE_LIBRARY || u->filter == 4 || from < 0 || from >= u->viewCount || u->cols < 1 ||
+    if (u->page != PAGE_LIBRARY || u->filter == 4 || g_app.cfg.s.librarySort != LIBSORT_CUSTOM || selected_count() ||
+        from < 0 || from >= u->viewCount || u->cols < 1 ||
         u->rowH <= 0 || u->colW <= 0)
         return 0;
     if (y < u->viewTop) y = u->viewTop;
@@ -1786,6 +2048,18 @@ void pages_drag(int id, float x, float y, int commit)
     if (rec_locked(id)) return;
     if (kind == HK_REC_SPEED || kind == HK_REC_SMOOTH || kind == HK_REC_GRAPH) {
         rec_drag(kind, data, r, x, y, commit);
+        return;
+    }
+    if (kind == HK_VOLUME) {                             /* saved (and heard) on release */
+        WallpaperEntry *e = data ? customise_entry() : NULL;
+        if (data && !e) return;
+        int v = (int)lroundf(100.0f * slider_norm_from_x(r, x));
+        int cur = e ? entry_volume(e) : g_app.cfg.s.volume;
+        if (v == cur && !commit) return;
+        if (e) e->volCut = 100 - v;
+        else g_app.cfg.s.volume = v;
+        if (commit) app_save_config();
+        ui_invalidate();
         return;
     }
     if (kind == HK_SLIDER) {
@@ -1921,6 +2195,18 @@ static void edit_commit(int id)
                 app_save_config();
             }
         }
+    } else if (kind == HK_COLL_TEXT) {                   /* the marked wallpapers go into the new collection */
+        int n = 0;
+        str_trim(g_collName);
+        for (int i = 0; i < g_app.cfg.count; i++) {
+            WallpaperEntry *e = &g_app.cfg.items[i];
+            if ((e->uiMark & 2) && g_collName[0]) n += config_tag_set(e, g_collName, TRUE);
+            e->uiMark &= ~2;
+        }
+        if (n) {
+            app_save_config();
+            ui_on_config_changed();
+        }
     } else if (kind == HK_REC_REPS) {
         if (parse_number(cus.edit, &v)) preset_reps_set(data, (int)lround(SP_CLAMP(v, 1.0, 1000.0)));   /* capped at RP_MAX_REPS there */
     } else if (kind == HK_LOOKVAL && data == SL_COUNT) {   /* tint: the colour's hue/saturation + its brightness */
@@ -1962,6 +2248,7 @@ int pages_text_char(wchar_t ch)
 static void url_go(void);
 
 static void search_notify(void);
+static void settings_search_notify(void);
 
 int pages_text_key(UINT vk, int ctrl, int shift)
 {
@@ -1976,9 +2263,11 @@ int pages_text_key(UINT vk, int ctrl, int shift)
             return 1;
         }
         if (search) {
-            if (u->search[0]) {
-                u->search[0] = 0;
-                search_notify();          /* empty it but keep the focus */
+            wchar_t *buf = HIT_DATA(u->textFocus) ? u->setSearch : u->search;
+            if (buf[0]) {
+                buf[0] = 0;
+                if (HIT_DATA(u->textFocus)) settings_search_notify();
+                else search_notify();     /* empty it but keep the focus */
                 return 1;
             }
             return 0;                    /* nothing to clear: the shell closes the search */
@@ -2030,17 +2319,27 @@ static void search_notify(void)
     pages_rebuild_view();
 }
 
+/* The Settings page's box (HK_SEARCH data 1) filters its rows as you type. */
+static void settings_search_notify(void)
+{
+    Ui *u = g_ui;
+    u->scrollTarget[PAGE_SETTINGS] = u->scroll[PAGE_SETTINGS] = 0.0f;
+    ui_invalidate();
+}
+
 void pages_search_open(void)
 {
     Ui *u = g_ui;
-    int id = HIT_ID(HK_SEARCH, 0);
+    int set = u->page == PAGE_SETTINGS;
+    int id = HIT_ID(HK_SEARCH, set);
     if (u->textFocus != id) {
         if (u->textFocus) pages_text_end(1);
         u->searchFocus = 1;
         u->textFocus = id;
         u->caretOn = 1;
         SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
-        te_open(u->search, SP_COUNTOF(u->search), (int)wcslen(u->search), 0, NULL, search_notify);
+        if (set) te_open(u->setSearch, SP_COUNTOF(u->setSearch), (int)wcslen(u->setSearch), 0, NULL, settings_search_notify);
+        else te_open(u->search, SP_COUNTOF(u->search), (int)wcslen(u->search), 0, NULL, search_notify);
     }
     ui_invalidate();
 }
@@ -2512,6 +2811,11 @@ static void rec_presets_open(int data)
 
 int pages_escape(void)
 {
+    if (g_ui->page == PAGE_LIBRARY && selected_count()) {
+        select_clear();
+        ui_invalidate();
+        return 1;
+    }
     if (!cus.presetOpen) return 0;
     cus.presetOpen = 0;
     ui_invalidate();
@@ -2922,6 +3226,30 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     return y + h + 26.0f;
 }
 
+/* A presentation's seconds per slide (PowerPoint renders it again), and the wallpaper's own volume. */
+static float draw_sound_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
+{
+    int pptx = (e->flags & WPFLAG_PPTX) != 0;
+    y = section(u, x, y, pptx ? L"SLIDES" : L"SOUND");
+    if (pptx) {
+        static const wchar_t *opts[] = { L"3", L"5", L"10", L"15", L"30", L"60" };
+        static const int vals[] = { 3, 5, 10, 15, 30, 60 };
+        int sec = entry_slide_sec(e), cur = -1;
+        for (int i = 0; i < 6; i++) if (vals[i] == sec) cur = i;
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 6 * 46 - 40, L"Seconds per slide", pptx_busy(e->id) ? L"PowerPoint is making the video" : NULL);
+        segmented(u, x + w - 18 - 6 * 46, y + 15, HK_SLIDE_SEC, opts, 6, cur, 46, vals);
+        y += 62 + 10;
+    }
+    wchar_t pct[8];
+    str_printf(pct, SP_COUNTOF(pct), L"%d%%", entry_volume(e));
+    ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+    row_label(u, x, y, w - 340, L"Volume", g_app.cfg.s.audio ? NULL : L"Sound is off");
+    ui_slider(HIT_ID(HK_VOLUME, 1), rectf(x + w - 18 - 56 - 240, y + 19, 240, 24), entry_volume(e) / 100.0f);
+    text_right(pct, u->fBody, x + w - 18, y, 62, u->t.text2);
+    return y + 62 + 26.0f;
+}
+
 static void draw_customise(Ui *u, float cx, float cw)
 {
     Theme *t = &u->t;
@@ -2957,6 +3285,7 @@ static void draw_customise(Ui *u, float cx, float cw)
         y = draw_look_section(u, x, y, w, e);
         cus.adj = own;
         if (upscale_applies(e)) y = draw_upscale_section(u, x, y, w, e);
+        if (e->type != WP_IMAGE) y = draw_sound_section(u, x, y, w, e);
         y = draw_props_section(u, x, y, w);
     }
     ui_pop_clip();
@@ -3034,6 +3363,9 @@ static void toggle_setting(int idx)
     case TOG_SCR_MOUSE:  s->scrExitOnMouse = !s->scrExitOnMouse; break;
     case TOG_AUTO_UPDATE: s->autoUpdate = !s->autoUpdate; break;
     case TOG_AUTO_SAMPLES: s->autoUpdateSamples = !s->autoUpdateSamples; break;
+    case TOG_SLIDESHOW:  s->slideshow = !s->slideshow; rotate_changed(); break;
+    case TOG_SHUFFLE:    s->shuffle = !s->shuffle; break;
+    case TOG_SCHEDULE:   s->schedule = !s->schedule; rotate_changed(); break;
     case TOG_SCR_ENABLE:
     case TOG_SCR_LOCK: {                 /* Windows settings: not in config.ini */
         ScrState st;
@@ -3077,6 +3409,214 @@ static void screensaver_menu(int id)
     ui_invalidate();
 }
 
+/* ---- library selection, favourites, collections, sort; slideshow and schedule menus */
+
+static UINT menu_below(HMENU m, int id)
+{
+    Ui *u = g_ui;
+    D2D1_RECT_F r = hit_rect(id);
+    POINT p = { (LONG)(r.left * u->scale), (LONG)((r.bottom + 4.0f) * u->scale) };
+    ClientToScreen(u->hwnd, &p);
+    UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_LEFTALIGN | TPM_TOPALIGN, p.x, p.y, u->hwnd, NULL);
+    DestroyMenu(m);
+    return cmd;
+}
+
+/* the wallpapers an action is for: the selected ones when `card` is one of them (or -1), else that card */
+static int is_target(const WallpaperEntry *e, int vi)
+{
+    Ui *u = g_ui;
+    int onSel = vi < 0 || (vi < u->viewCount && (g_app.cfg.items[u->view[vi]].uiMark & 1));
+    return onSel ? (e->uiMark & 1) != 0 : e == &g_app.cfg.items[u->view[vi]];
+}
+
+static void favourite_targets(int vi)
+{
+    int all = 1, any = 0;
+    for (int i = 0; i < g_app.cfg.count; i++)
+        if (is_target(&g_app.cfg.items[i], vi)) { any = 1; all &= (g_app.cfg.items[i].flags & WPFLAG_FAV) != 0; }
+    if (!any) return;
+    for (int i = 0; i < g_app.cfg.count; i++) {
+        WallpaperEntry *e = &g_app.cfg.items[i];
+        if (is_target(e, vi)) e->flags = all ? e->flags & ~WPFLAG_FAV : e->flags | WPFLAG_FAV;
+    }
+    app_save_config();
+    pages_rebuild_view();
+}
+
+static void coll_new_begin(void)
+{
+    Ui *u = g_ui;
+    int id = HIT_ID(HK_COLL_TEXT, 0);
+    if (u->textFocus) pages_text_end(1);
+    g_collName[0] = 0;
+    u->page = PAGE_LIBRARY;
+    u->textFocus = u->focus = id;
+    u->searchFocus = 0;
+    u->caretOn = 1;
+    SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL);
+    te_open(g_collName, SP_COUNTOF(g_collName), 0, 0, NULL, NULL);
+}
+
+/* Collections for the targets: a tick where all of them are in it; picking one puts them all in or takes them
+ * all out; New collection names one (HK_COLL_TEXT). sx, sy: screen point, or menu under hit id when sx < 0. */
+static void collections_menu(int vi, int id, int sx, int sy)
+{
+    Ui *u = g_ui;
+    wchar_t names[64][64];
+    int n = config_collections(&g_app.cfg, names, 64);
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    for (int k = 0; k < n; k++) {
+        int all = 1, any = 0;
+        for (int i = 0; i < g_app.cfg.count; i++)
+            if (is_target(&g_app.cfg.items[i], vi)) { any = 1; all &= config_tag_has(&g_app.cfg.items[i], names[k]); }
+        AppendMenuW(m, MF_STRING | (any && all ? MF_CHECKED : 0), 10 + (UINT)k, names[k]);
+    }
+    if (n) AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(m, MF_STRING, 1, L"New collection…");
+    UINT cmd;
+    if (sx < 0) cmd = menu_below(m, id);
+    else {
+        cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
+        DestroyMenu(m);
+    }
+    if (cmd == 1) {
+        for (int i = 0; i < g_app.cfg.count; i++) {
+            WallpaperEntry *e = &g_app.cfg.items[i];
+            e->uiMark = (e->uiMark & ~2) | (is_target(e, vi) ? 2 : 0);
+        }
+        coll_new_begin();
+    } else if (cmd >= 10 && (int)cmd - 10 < n) {
+        const wchar_t *nm = names[cmd - 10];
+        int all = 1;
+        for (int i = 0; i < g_app.cfg.count; i++)
+            if (is_target(&g_app.cfg.items[i], vi)) all &= config_tag_has(&g_app.cfg.items[i], nm);
+        for (int i = 0; i < g_app.cfg.count; i++)
+            if (is_target(&g_app.cfg.items[i], vi)) config_tag_set(&g_app.cfg.items[i], nm, !all);
+        app_save_config();
+        pages_rebuild_view();
+    }
+    ui_invalidate();
+}
+
+static void selection_action(int id, int what)
+{
+    Ui *u = g_ui;
+    switch (what) {
+    case SEL_FAV:  favourite_targets(-1); break;
+    case SEL_COLL: collections_menu(-1, id, -1, -1); break;
+    case SEL_CLEAR: select_clear(); break;
+    case SEL_ALL:
+        for (int i = 0; i < u->viewCount; i++) g_app.cfg.items[u->view[i]].uiMark |= 1;
+        break;
+    case SEL_REMOVE: {
+        int n = selected_count(), k = 0;
+        wchar_t (*ids)[SP_ID_LEN] = n ? (wchar_t (*)[SP_ID_LEN])malloc(sizeof *ids * (size_t)n) : NULL;
+        for (int i = 0; ids && i < g_app.cfg.count; i++)
+            if (g_app.cfg.items[i].uiMark & 1) str_copy(ids[k++], SP_ID_LEN, g_app.cfg.items[i].id);
+        select_clear();
+        for (int i = 0; i < k; i++) library_remove(ids[i]);
+        free(ids);
+        pages_rebuild_view();
+        break;
+    }
+    default: break;
+    }
+    ui_invalidate();
+}
+
+static void play_every_menu(int id)
+{
+    static const int mins[] = { 1, 5, 15, 30, 60, 180 };
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    for (int i = 0; i < (int)SP_COUNTOF(mins); i++) {
+        wchar_t l[24];
+        str_printf(l, SP_COUNTOF(l), L"Every %d min", mins[i]);
+        AppendMenuW(m, MF_STRING | (g_app.cfg.s.slideshowMin == mins[i] ? MF_CHECKED : 0), 1 + (UINT)i, l);
+    }
+    UINT cmd = menu_below(m, id);
+    if (cmd < 1 || cmd > SP_COUNTOF(mins)) return;
+    g_app.cfg.s.slideshowMin = mins[cmd - 1];
+    app_save_config();
+    rotate_changed();
+}
+
+static void sort_menu(int id)
+{
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    for (int i = 0; i < LIBSORT_COUNT; i++)
+        AppendMenuW(m, MF_STRING | (g_app.cfg.s.librarySort == i ? MF_CHECKED : 0), 1 + (UINT)i, k_sortNames[i]);
+    UINT cmd = menu_below(m, id);
+    if (cmd >= 1 && cmd <= LIBSORT_COUNT) {
+        g_app.cfg.s.librarySort = (int)cmd - 1;
+        app_save_config();
+        pages_rebuild_view();
+    }
+}
+
+static void slide_from_menu(int id)
+{
+    Settings *s = &g_app.cfg.s;
+    wchar_t names[64][64];
+    int n = config_collections(&g_app.cfg, names, 64);
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    AppendMenuW(m, MF_STRING | (!s->slideshowFrom[0] ? MF_CHECKED : 0), 1, L"All wallpapers");
+    AppendMenuW(m, MF_STRING | (wcscmp(s->slideshowFrom, L"*") == 0 ? MF_CHECKED : 0), 2, L"Favourites");
+    if (n) AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    for (int k = 0; k < n; k++)
+        AppendMenuW(m, MF_STRING | (str_ieq(s->slideshowFrom, names[k]) ? MF_CHECKED : 0), 10 + (UINT)k, names[k]);
+    UINT cmd = menu_below(m, id);
+    if (!cmd) return;
+    if (cmd == 1) s->slideshowFrom[0] = 0;
+    else if (cmd == 2) str_copy(s->slideshowFrom, SP_COUNTOF(s->slideshowFrom), L"*");
+    else if ((int)cmd - 10 < n) str_copy(s->slideshowFrom, SP_COUNTOF(s->slideshowFrom), names[cmd - 10]);
+    app_save_config();
+    rotate_changed();
+}
+
+static void sched_pick_menu(int id, int night)
+{
+    Settings *s = &g_app.cfg.s;
+    wchar_t *slot = night ? s->nightWallpaper : s->dayWallpaper;
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    AppendMenuW(m, MF_STRING | (!slot[0] ? MF_CHECKED : 0), 1, L"None");
+    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    for (int i = 0; i < g_app.cfg.count && i < 2000; i++) {
+        const WallpaperEntry *e = &g_app.cfg.items[i];
+        AppendMenuW(m, MF_STRING | (e->missing ? MF_GRAYED : 0) | (wcscmp(e->id, slot) == 0 ? MF_CHECKED : 0),
+                    (UINT_PTR)i + 2, e->name[0] ? e->name : L"(unnamed)");
+    }
+    UINT cmd = menu_below(m, id);
+    if (!cmd) return;
+    if (cmd == 1) slot[0] = 0;
+    else if ((int)cmd - 2 < g_app.cfg.count) str_copy(slot, SP_ID_LEN, g_app.cfg.items[cmd - 2].id);
+    app_save_config();
+    rotate_changed();
+}
+
+static void sched_hour_menu(int id, int night)
+{
+    Settings *s = &g_app.cfg.s;
+    int *h = night ? &s->nightStart : &s->dayStart;
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    for (int i = 0; i < 24; i++) {
+        wchar_t l[16];
+        str_printf(l, SP_COUNTOF(l), L"%02d:00", i);
+        AppendMenuW(m, MF_STRING | (*h == i ? MF_CHECKED : 0), 1 + (UINT)i, l);
+    }
+    UINT cmd = menu_below(m, id);
+    if (cmd < 1 || cmd > 24) return;
+    *h = (int)cmd - 1;
+    app_save_config();
+    rotate_changed();
+}
+
 void pages_activate(int id, int dbl)
 {
     Ui *u = g_ui;
@@ -3111,16 +3651,87 @@ void pages_activate(int id, int dbl)
     case HK_URL_GO:        url_go(); break;
     case HK_URL_CLOSE:     urlp.open = 0; break;
     case HK_SEARCH_CLEAR:
+        if (data == 2) {                 /* the Settings page's */
+            if (HIT_KIND(u->textFocus) == HK_SEARCH) pages_text_end(0);
+            u->setSearch[0] = 0;
+            settings_search_notify();
+            break;
+        }
         u->search[0] = 0;
         pages_rebuild_view();
         break;
     case HK_FILTER:
         u->filter = data;
+        u->coll[0] = 0;
         pages_rebuild_view();
         break;
+    case HK_COLL: {
+        wchar_t names[64][64];
+        int n = config_collections(&g_app.cfg, names, 64);
+        if (data < 0 || data >= n) break;
+        if (u->filter == 6 && str_ieq(u->coll, names[data])) {
+            u->filter = 0;
+            u->coll[0] = 0;
+        } else {
+            u->filter = 6;
+            str_copy(u->coll, SP_COUNTOF(u->coll), names[data]);
+        }
+        pages_rebuild_view();
+        break;
+    }
+    case HK_FAV:
+        if (data >= 0 && data < u->viewCount) {
+            g_app.cfg.items[u->view[data]].flags ^= WPFLAG_FAV;
+            app_save_config();
+            if (u->filter == 5) pages_rebuild_view();
+        }
+        break;
+    case HK_SORT:          sort_menu(id); break;
+    case HK_PLAY_EVERY:    play_every_menu(id); break;
+    case HK_PLAY_SET:
+        if (data) {
+            g_app.cfg.s.slideshow = 0;
+            app_save_config();
+            rotate_changed();
+        } else {
+            rotate_play(u->filter == 5 ? L"*" : u->coll, 0);
+            app_notice(NOTICE_INFO, L"Playing %ls, a new wallpaper every %d min.", u->filter == 5 ? L"your favourites" : u->coll,
+                       g_app.cfg.s.slideshowMin);
+        }
+        break;
+    case HK_SEL:           selection_action(id, data); break;
+    case HK_COLL_TEXT:     u->caretOn = 1; SetTimer(u->hwnd, TM_CARET, GetCaretBlinkTime(), NULL); break;
+    case HK_SLIDE_SEC: {
+        WallpaperEntry *e = customise_entry();
+        if (!e || data == entry_slide_sec(e)) break;
+        if (pptx_busy(e->id)) app_notice(NOTICE_INFO, L"PowerPoint is still working on '%ls'.", e->name);
+        else pptx_set_seconds(e->id, data);
+        break;
+    }
+    case HK_SLIDE_MIN:
+        g_app.cfg.s.slideshowMin = SP_CLAMP(data, 1, 1440);
+        app_save_config();
+        rotate_changed();
+        break;
+    case HK_SLIDE_FROM:    slide_from_menu(id); break;
+    case HK_SCHED_PICK:    sched_pick_menu(id, data); break;
+    case HK_SCHED_HOUR:    sched_hour_menu(id, data); break;
     case HK_CARD:
         if (data >= 0 && data < u->viewCount) {
-            const WallpaperEntry *e = &g_app.cfg.items[u->view[data]];
+            WallpaperEntry *e = &g_app.cfg.items[u->view[data]];
+            int ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0;
+            if (ctrl || shift || selected_count()) {     /* selecting: Ctrl toggles, Shift adds a range */
+                if (shift && u->selAnchor >= 0 && u->selAnchor < u->viewCount) {
+                    if (!ctrl) select_clear();
+                    int a = SP_MIN(u->selAnchor, data), b = SP_MAX(u->selAnchor, data);
+                    for (int i = a; i <= b; i++) g_app.cfg.items[u->view[i]].uiMark |= 1;
+                } else {
+                    e->uiMark ^= 1;
+                    u->selAnchor = data;
+                }
+                break;
+            }
+            u->selAnchor = data;
             if (e->missing) app_notice(NOTICE_WARN, L"'%ls' can't be shown because the file is missing.", e->name);
             else app_apply_wallpaper(e->id, target_id());
         }
@@ -3368,7 +3979,28 @@ void pages_context(int id, int sx, int sy)
         ui_invalidate();
         return;
     }
-    if (HIT_KIND(id) != HK_CARD && HIT_KIND(id) != HK_NAME) return;
+    if (HIT_KIND(id) == HK_COLL) {
+        wchar_t names[64][64];
+        int n = config_collections(&g_app.cfg, names, 64), k = HIT_DATA(id);
+        if (k < 0 || k >= n) return;
+        HMENU m = CreatePopupMenu();
+        if (!m) return;
+        AppendMenuW(m, MF_STRING, 2, L"Play as a slideshow");
+        AppendMenuW(m, MF_STRING, 1, L"Delete collection (keeps the wallpapers)");
+        UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
+        DestroyMenu(m);
+        if (cmd == 2) rotate_play(names[k], 0);
+        if (cmd == 1) {
+            for (int i = 0; i < g_app.cfg.count; i++) config_tag_set(&g_app.cfg.items[i], names[k], FALSE);
+            if (wcscmp(g_app.cfg.s.slideshowFrom, names[k]) == 0) g_app.cfg.s.slideshowFrom[0] = 0;
+            if (u->filter == 6 && str_ieq(u->coll, names[k])) { u->filter = 0; u->coll[0] = 0; }
+            app_save_config();
+            pages_rebuild_view();
+        }
+        ui_invalidate();
+        return;
+    }
+    if (HIT_KIND(id) != HK_CARD && HIT_KIND(id) != HK_NAME && HIT_KIND(id) != HK_FAV) return;
     int vi = HIT_DATA(id);
     if (vi < 0 || vi >= u->viewCount) return;
     WallpaperEntry e = g_app.cfg.items[u->view[vi]];   /* copy: the library may change */
@@ -3387,6 +4019,10 @@ void pages_context(int id, int sx, int sy)
                 L"Use as screensaver");
     AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, link ? L"Open link in browser" : L"Show in File Explorer");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(m, MF_STRING | ((e.flags & WPFLAG_FAV) ? MF_CHECKED : 0), 5, L"Favourite");
+    AppendMenuW(m, MF_STRING, 6, L"Collections…");
+    AppendMenuW(m, MF_STRING | ((e.uiMark & 1) ? MF_CHECKED : 0), 7, L"Select");
+    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, 3, link ? L"Remove from library" : download ? L"Remove from library and delete the download"
                                                                           : L"Remove from library (keeps the file)");
     UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
@@ -3397,6 +4033,12 @@ void pages_context(int id, int sx, int sy)
     else if (cmd == 2) shell_reveal(e.path);
     else if (cmd == 3) library_remove(e.id);
     else if (cmd == 4) app_set_screensaver(wcscmp(g_app.cfg.screensaver, e.id) == 0 ? L"" : e.id);
+    else if (cmd == 5) favourite_targets(vi);
+    else if (cmd == 6) collections_menu(vi, id, sx, sy);
+    else if (cmd == 7 && vi < u->viewCount) {
+        g_app.cfg.items[u->view[vi]].uiMark ^= 1;
+        u->selAnchor = vi;
+    }
     ui_invalidate();
 }
 
@@ -3427,6 +4069,14 @@ int pages_key(UINT vk, int ctrl, int shift)
     Ui *u = g_ui;
     (void)ctrl;
     if (u->page == PAGE_CUSTOMIZE && customise_key(vk, shift)) return 1;
+    if (u->page == PAGE_LIBRARY && ctrl && vk == 'A') {
+        selection_action(0, SEL_ALL);
+        return 1;
+    }
+    if (u->page == PAGE_LIBRARY && vk == VK_DELETE && selected_count()) {
+        selection_action(0, SEL_REMOVE);
+        return 1;
+    }
     if (HIT_KIND(u->focus) != HK_CARD || u->page != PAGE_LIBRARY) {
         if (vk == VK_DOWN || vk == VK_UP || vk == VK_NEXT || vk == VK_PRIOR) {
             float d = vk == VK_DOWN ? 60.0f : vk == VK_UP ? -60.0f : vk == VK_NEXT ? u->viewH * 0.9f : -u->viewH * 0.9f;
@@ -3463,6 +4113,7 @@ const wchar_t *pages_tooltip(int id)
     if (rec_locked(id)) return L"Pause the recording to change this";
     switch (HIT_KIND(id)) {
     case HK_URL:           return L"Import from a link";
+    case HK_FAV:           return L"Favourite";
     case HK_IMPORT_FOLDER: return HIT_DATA(id) == 0 ? L"Import a wallpaper folder" : NULL;
     case HK_STORE_CARD: {
         static wchar_t tip[80];

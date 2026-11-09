@@ -1236,13 +1236,15 @@ static unsigned __stdcall present_main(void *arg)
 
 static void source_update_flags(VideoSource *s)
 {
-    LONG play = 0, audio = 0;
+    LONG play = 0, audio = 0, vol = 0;
     EnterCriticalSection(&s->outLock);
     for (int i = 0; i < s->outputCount; i++) {
         if (s->outputs[i]->state == RS_ACTIVE) play = 1;
         if (s->outputs[i]->audio) audio = 1;
+        vol = SP_MAX(vol, (LONG)s->outputs[i]->audio);
     }
     LeaveCriticalSection(&s->outLock);
+    InterlockedExchange(&s->volume, vol);
     InterlockedExchange(&s->wantPlay, play);
     if (!play && s->playing && audio && s->audioThread && s->clockValid && !s->failed) {
         InterlockedExchange(&s->fadeOut, 1);  /* audible: audio_main fades the sound out, then pauses */
@@ -1364,7 +1366,7 @@ static void vo_resize(Renderer *base, int w, int h)
 static void vo_set_audio(Renderer *base, BOOL on)
 {
     VideoOutput *o = (VideoOutput *)base;
-    o->audio = on ? 1 : 0;
+    o->audio = SP_CLAMP(on, 0, 100);
     source_update_flags(o->src);
 }
 
@@ -1490,7 +1492,7 @@ Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     o->w = SP_MAX(ctx->width, 1);
     o->h = SP_MAX(ctx->height, 1);
     o->state = RS_ACTIVE;
-    o->audio = ctx->audio ? 1 : 0;
+    o->audio = SP_CLAMP(ctx->audio, 0, 100);
     o->layered = ctx->layered ? 1 : 0;
 
     AcquireSRWLockExclusive(&g.lock);

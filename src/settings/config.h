@@ -57,7 +57,11 @@ enum { WPFLAG_AUDIO   = 1,  /* audio-reactive (Lively "webaudio") */
        WPFLAG_YTDLP   = 8,  /* stream wallpaper (video, path is a page): yt-dlp finds the media address */
        WPFLAG_DEPTH   = 16, /* image made interactive (depth.c): path is the generated page, `thumb` the picture */
        WPFLAG_NOCOOL  = 32, /* image the user took back to plain: the "interactive images" setting skips it */
-       WPFLAG_DEPTHVIDEO = 64 }; /* with WPFLAG_DEPTH: `thumb` is a video (going back makes it WP_VIDEO again) */
+       WPFLAG_DEPTHVIDEO = 64,   /* with WPFLAG_DEPTH: `thumb` is a video (going back makes it WP_VIDEO again) */
+       WPFLAG_FAV     = 128,     /* a favourite (star) */
+       WPFLAG_PPTX    = 256 };   /* a presentation (pptx.c): `thumb` the .pptx, `path` PowerPoint's video of it */
+#define SP_TAGS_LEN 256            /* a wallpaper's collections: "Name;Other" */
+#define SP_SLIDE_SEC_DEFAULT 5
 
 typedef struct WallpaperEntry {
     wchar_t       id[SP_ID_LEN];
@@ -69,8 +73,15 @@ typedef struct WallpaperEntry {
     int           format;              /* WallpaperFormat */
     int           flags;               /* WPFLAG_* */
     wchar_t       thumb[SP_MAX_PATH];  /* optional preview image (package thumbnail) */
+    wchar_t       tags[SP_TAGS_LEN];   /* collections it is in, ';'-separated */
+    int           volCut;              /* 100 - its own volume (0..100): 0 = full; see entry_volume */
+    int           slideSec;            /* WPFLAG_PPTX: seconds per slide (0 = SP_SLIDE_SEC_DEFAULT) */
+    int           uiMark;              /* runtime only: 1 selected in the Library, 2 waiting for a new collection's name */
     int           missing;             /* runtime only: source not found at last check */
 } WallpaperEntry;
+
+static inline int entry_volume(const WallpaperEntry *e) { return 100 - SP_CLAMP(e->volCut, 0, 100); }
+static inline int entry_slide_sec(const WallpaperEntry *e) { return e->slideSec > 0 ? e->slideSec : SP_SLIDE_SEC_DEFAULT; }
 
 typedef struct MonitorAssignment {
     wchar_t monitorId[SP_MONID_LEN];
@@ -104,7 +115,18 @@ typedef struct Settings {
     int       autoUpdateSamples; /* update the downloaded sample wallpapers that changed (samples_update.c) */
     wchar_t   pauseApps[SP_RULES_LEN]; /* app rules: "a.exe;b.exe", pause while one is in front */
     wchar_t   muteApps[SP_RULES_LEN];  /* mute while one uses the microphone ("*": any app) */
+    int       volume;         /* wallpaper sound volume 0..100, times each wallpaper's own */
+    int       slideshow;      /* change the wallpaper by itself every slideshowMin minutes (rotate.c) */
+    int       slideshowMin;
+    int       shuffle;        /* slideshow and Next pick at random */
+    wchar_t   slideshowFrom[64]; /* "": every wallpaper, "*": favourites, else a collection's name */
+    int       schedule;       /* day and night wallpapers (rotate.c) */
+    int       dayStart, nightStart;   /* hours 0..23 */
+    wchar_t   dayWallpaper[SP_ID_LEN], nightWallpaper[SP_ID_LEN];
+    int       librarySort;    /* LIBSORT_* (the Library page's order) */
 } Settings;
+
+enum { LIBSORT_CUSTOM = 0, LIBSORT_NAME, LIBSORT_ADDED, LIBSORT_TYPE, LIBSORT_SIZE, LIBSORT_COUNT };
 
 typedef struct Config {
     int               schema;
@@ -130,6 +152,13 @@ BOOL            config_rule_has(const wchar_t *list, const wchar_t *app);
 BOOL            config_rule_add(wchar_t *list, size_t cap, const wchar_t *app);  /* FALSE: already there or full */
 BOOL            config_rule_remove(wchar_t *list, const wchar_t *app);
 int             config_rule_at(const wchar_t *list, int index, wchar_t *out, size_t cap);   /* 0: no such entry */
+
+/* Collections (WallpaperEntry.tags): names separated by ';', compared ignoring case. */
+BOOL            config_tag_has(const WallpaperEntry *e, const wchar_t *name);
+BOOL            config_tag_set(WallpaperEntry *e, const wchar_t *name, BOOL on);   /* FALSE: no change */
+int             config_collections(const Config *c, wchar_t (*out)[64], int max);  /* every name, in first-seen order */
+/* Is e one the slideshow may show? from: "" every wallpaper, "*" favourites, else a collection. */
+BOOL            config_in_source(const WallpaperEntry *e, const wchar_t *from);
 
 WallpaperEntry *config_find(Config *c, const wchar_t *id);
 int             config_index_of(const Config *c, const wchar_t *id);

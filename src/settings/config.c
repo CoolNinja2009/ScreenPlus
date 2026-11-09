@@ -93,6 +93,58 @@ BOOL config_rule_remove(wchar_t *list, const wchar_t *app)
     return found;
 }
 
+/* ---------------------------------------------------------------- collections */
+
+BOOL config_tag_has(const WallpaperEntry *e, const wchar_t *name)
+{
+    wchar_t it[64];
+    for (int i = 0; name && name[0] && config_rule_at(e->tags, i, it, SP_COUNTOF(it)); i++)
+        if (str_ieq(it, name)) return TRUE;
+    return FALSE;
+}
+
+BOOL config_tag_set(WallpaperEntry *e, const wchar_t *name, BOOL on)
+{
+    wchar_t nm[64], it[64], out[SP_TAGS_LEN] = L"";
+    str_copy(nm, SP_COUNTOF(nm), name ? name : L"");
+    for (wchar_t *p = nm; *p; p++) if (*p == L';' || *p < 32) *p = L' ';
+    str_trim(nm);
+    if (!nm[0] || str_ieq(nm, L"*") || config_tag_has(e, nm) == !!on) return FALSE;
+    if (on) {
+        if (wcslen(e->tags) + wcslen(nm) + 2 > SP_TAGS_LEN) return FALSE;
+        if (e->tags[0]) str_cat(e->tags, SP_TAGS_LEN, L";");
+        str_cat(e->tags, SP_TAGS_LEN, nm);
+        return TRUE;
+    }
+    for (int i = 0; config_rule_at(e->tags, i, it, SP_COUNTOF(it)); i++) {
+        if (str_ieq(it, nm)) continue;
+        if (out[0]) str_cat(out, SP_COUNTOF(out), L";");
+        str_cat(out, SP_COUNTOF(out), it);
+    }
+    str_copy(e->tags, SP_TAGS_LEN, out);
+    return TRUE;
+}
+
+int config_collections(const Config *c, wchar_t (*out)[64], int max)
+{
+    int n = 0;
+    wchar_t it[64];
+    for (int i = 0; i < c->count; i++)
+        for (int k = 0; config_rule_at(c->items[i].tags, k, it, SP_COUNTOF(it)); k++) {
+            int seen = 0;
+            for (int j = 0; j < n && !seen; j++) seen = str_ieq(out[j], it);
+            if (!seen && n < max) str_copy(out[n++], 64, it);
+        }
+    return n;
+}
+
+BOOL config_in_source(const WallpaperEntry *e, const wchar_t *from)
+{
+    if (!from || !from[0]) return TRUE;
+    if (wcscmp(from, L"*") == 0) return (e->flags & WPFLAG_FAV) != 0;
+    return config_tag_has(e, from);
+}
+
 int wallpaper_source_exists(const WallpaperEntry *e)
 {
     return wallpaper_is_url(e->path) || file_exists(e->path);
@@ -129,6 +181,10 @@ void config_defaults(Config *c)
     c->s.scrDisplays = SCRD_ALL;
     c->s.scrExitOnMouse = 1;
     c->s.autoUpdate = 1;
+    c->s.volume = 100;
+    c->s.slideshowMin = 30;
+    c->s.dayStart = 7;
+    c->s.nightStart = 19;
 }
 
 void config_free(Config *c)
@@ -420,6 +476,17 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"screensaver_exit_on_mouse")) s->scrExitOnMouse = parse_bool(val, s->scrExitOnMouse);
             else if (str_ieq(key, L"auto_update")) s->autoUpdate = parse_bool(val, s->autoUpdate);
             else if (str_ieq(key, L"auto_update_samples")) s->autoUpdateSamples = parse_bool(val, s->autoUpdateSamples);
+            else if (str_ieq(key, L"volume")) s->volume = SP_CLAMP(_wtoi(val), 0, 100);
+            else if (str_ieq(key, L"slideshow")) s->slideshow = parse_bool(val, s->slideshow);
+            else if (str_ieq(key, L"slideshow_minutes")) s->slideshowMin = SP_CLAMP(_wtoi(val), 1, 1440);
+            else if (str_ieq(key, L"shuffle")) s->shuffle = parse_bool(val, s->shuffle);
+            else if (str_ieq(key, L"slideshow_from")) str_copy(s->slideshowFrom, SP_COUNTOF(s->slideshowFrom), val);
+            else if (str_ieq(key, L"schedule")) s->schedule = parse_bool(val, s->schedule);
+            else if (str_ieq(key, L"day_start")) s->dayStart = SP_CLAMP(_wtoi(val), 0, 23);
+            else if (str_ieq(key, L"night_start")) s->nightStart = SP_CLAMP(_wtoi(val), 0, 23);
+            else if (str_ieq(key, L"day_wallpaper") && valid_id(val)) str_copy(s->dayWallpaper, SP_ID_LEN, val);
+            else if (str_ieq(key, L"night_wallpaper") && valid_id(val)) str_copy(s->nightWallpaper, SP_ID_LEN, val);
+            else if (str_ieq(key, L"library_sort")) s->librarySort = SP_CLAMP(_wtoi(val), 0, LIBSORT_COUNT - 1);
             else if (str_ieq(key, L"theme"))
                 s->theme = str_ieq(val, L"light") ? THEME_LIGHT : str_ieq(val, L"dark") ? THEME_DARK : THEME_SYSTEM;
             break;
@@ -445,8 +512,11 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"last_used")) cur.lastUsed = parse_i64(val);
             else if (str_ieq(key, L"format"))
                 cur.format = str_ieq(val, L"lively") ? WPF_LIVELY : str_ieq(val, L"we") ? WPF_WE : WPF_PLAIN;
-            else if (str_ieq(key, L"flags")) cur.flags = (int)(parse_i64(val) & 0xff);
+            else if (str_ieq(key, L"flags")) cur.flags = (int)(parse_i64(val) & 0xffff);
             else if (str_ieq(key, L"thumbnail")) str_copy(cur.thumb, SP_COUNTOF(cur.thumb), val);
+            else if (str_ieq(key, L"collections")) str_copy(cur.tags, SP_COUNTOF(cur.tags), val);
+            else if (str_ieq(key, L"volume")) cur.volCut = 100 - SP_CLAMP(_wtoi(val), 0, 100);
+            else if (str_ieq(key, L"slide_seconds")) cur.slideSec = SP_CLAMP(_wtoi(val), 1, 3600);
             break;
         default:
             break;
@@ -457,6 +527,8 @@ static int parse_text(Config *c, wchar_t *text)
     /* drop dangling references */
     if (config_index_of(c, c->defaultWallpaper) < 0) c->defaultWallpaper[0] = 0;
     if (config_index_of(c, c->screensaver) < 0) c->screensaver[0] = 0;
+    if (config_index_of(c, c->s.dayWallpaper) < 0) c->s.dayWallpaper[0] = 0;
+    if (config_index_of(c, c->s.nightWallpaper) < 0) c->s.nightWallpaper[0] = 0;
     for (int a = 0; a < c->assignCount;) {
         if (config_index_of(c, c->assign[a].wallpaperId) < 0) c->assign[a] = c->assign[--c->assignCount];
         else a++;
@@ -549,6 +621,14 @@ BOOL config_save(const Config *c, const wchar_t *path)
     sb_put_wide(&b, s->pauseApps);
     sb_puts(&b, "\r\nmute_apps=");
     sb_put_wide(&b, s->muteApps);
+    sb_printf(&b, "\r\nvolume=%d\r\nslideshow=%d\r\nslideshow_minutes=%d\r\nshuffle=%d\r\nschedule=%d\r\n"
+                  "day_start=%d\r\nnight_start=%d\r\nlibrary_sort=%d\r\nslideshow_from=",
+              s->volume, s->slideshow, s->slideshowMin, s->shuffle, s->schedule, s->dayStart, s->nightStart, s->librarySort);
+    sb_put_wide(&b, s->slideshowFrom);
+    sb_puts(&b, "\r\nday_wallpaper=");
+    sb_put_wide(&b, s->dayWallpaper);
+    sb_puts(&b, "\r\nnight_wallpaper=");
+    sb_put_wide(&b, s->nightWallpaper);
     sb_puts(&b, "\r\n\r\n[assignments]\r\n");
     if (c->defaultWallpaper[0]) {
         sb_puts(&b, "default=");
@@ -585,6 +665,13 @@ BOOL config_save(const Config *c, const wchar_t *path)
             sb_put_wide(&b, e->thumb);
             sb_puts(&b, "\r\n");
         }
+        if (e->tags[0]) {
+            sb_puts(&b, "collections=");
+            sb_put_wide(&b, e->tags);
+            sb_puts(&b, "\r\n");
+        }
+        if (e->volCut) sb_printf(&b, "volume=%d\r\n", entry_volume(e));
+        if (e->slideSec) sb_printf(&b, "slide_seconds=%d\r\n", e->slideSec);
     }
     if (b.failed) { sb_free(&b); return FALSE; }
 

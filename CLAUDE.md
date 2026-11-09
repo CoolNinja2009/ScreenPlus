@@ -115,6 +115,8 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 | `src/app/url_import.c` | Link button job on a worker thread: direct downloads, yt-dlp streams/downloads, live pages |
 | `src/app/depth.c`, `depth_infer.c` | "Make wallpaper cooler": the job (downloads, entry conversion, `WM_SP_DEPTH`) and the `--depth` child (ONNX Runtime + DirectML/CPU); `resources/depth.html` and `splat.html` (SHARP) are the page templates (RCDATA, WebGL2) |
 | `src/app/cli_server.c` | Every CLI command that needs the app; `k_settings` table of settings keys |
+| `src/app/rotate.c` | Shared (both platforms): Next (`rotate_next_id`: the slideshow's source `slideshow_from` "", "*" favourites or a collection; order or shuffle), slideshow timer and day/night schedule (`T_SHELL_ROTATE`, 20 s; the schedule applies on a period change and rests the slideshow), `rotate_play` (Library Play / `collection play`) |
+| `src/app/pptx.c` | PowerPoint files: a hidden PowerShell child drives PowerPoint's `CreateVideo` (every transition incl. Morph), result `WM_SP_PPTX`; `<data>\slides\<folder>\slides-<sec>.mp4` + `source.txt`; entry = WP_VIDEO + `WPFLAG_PPTX`, `slideSec`; Customise's seconds render again. Linux: a notice only |
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
 | `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
 | `src/app/startup.c`, `supervisor.c` | Start with Windows (`startup_sync` 3 s after start moves a Run entry to the logon task); engine process lifecycle |
@@ -177,7 +179,9 @@ Renderer details:
 - To add a control: add an `HK_*` kind in `ui_internal.h`, draw it in `ui_pages.c` and handle it in
   `pages_activate`.
 - Text fields use `u->textFocus` with `cus.edit` (`edit_begin`, `pages_text_char/key/end`, `edit_commit`). The
-  search box has its own buffer, `u->search`.
+  search box has its own buffer, `u->search` (`HK_SEARCH` 0); the Settings page's is `u->setSearch` (`HK_SEARCH` 1,
+  clear = `HK_SEARCH_CLEAR` 2). Settings rows show through `sf_want(label, keywords)` + `sf_place` (draws the section title
+  before its first shown row); `toggle_group` filters itself. A new Settings row needs both.
 - Glyphs are Segoe Fluent/MDL2 codepoints (`GL_*`), colours come from `u->t`, and units are DIPs.
 - Closing the window to the tray destroys it and its GPU resources. State that must survive lives in
   statics or `g_app`.
@@ -207,8 +211,13 @@ Renderer details:
   - `flags`: `WPFLAG_URL` (http(s) path), `WPFLAG_YTDLP` (a stream that yt-dlp resolves), `WPFLAG_AUDIO`,
     `WPFLAG_SYSINFO`, `WPFLAG_DEPTH` (an image converted by depth.c: `type` html, `path` its page, `thumb` the
     original picture or video), `WPFLAG_DEPTHVIDEO` (with DEPTH: `thumb` is a video), `WPFLAG_NOCOOL` (the user took it
-    back to plain; the "interactive images" setting skips it).
+    back to plain; the "interactive images" setting skips it), `WPFLAG_FAV` (star), `WPFLAG_PPTX` (pptx.c).
   - `thumb`.
+  - `tags` (collections, ';'-separated: `config_tag_*`, `config_collections`), `volCut` (100 - its volume; `entry_volume`),
+    `slideSec`, `uiMark` (runtime only: Library selection / waiting for a new collection's name).
+- Volume: `volume` setting × the entry's own. Windows renderers take it as `set_audio`'s value (0 silent, 1..100):
+  video scales samples in `copy_gain`, pages through `k_fadeJs`'s `__spVol`. Plasma: config `Volume` (VideoView
+  AudioOutput; WebView scales media elements). Hyprland: mpv `volume`, pages' media elements.
 - `display_mode` (independent/duplicate/span) is applied inside `config_assignment`/`config_has_override`:
   overrides only count in independent mode and are kept otherwise. Applying to one display switches to independent.
   `config_adopt_monitors` (shell, on monitor refresh) re-keys an override to a display of the same model on a new port.

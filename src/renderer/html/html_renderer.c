@@ -302,12 +302,19 @@ static void apply_adjustments(HtmlRenderer *r)
     sb_free(&b);
 }
 
+/* r->audio is the volume (0 muted); below 100 the page's sound goes through k_fadeJs's __spVol */
 static void apply_audio(HtmlRenderer *r)
 {
     ICoreWebView2_8 *w8 = NULL;
     if (r->wv && SUCCEEDED(ICoreWebView2_QueryInterface(r->wv, &IID_ICoreWebView2_8, (void **)&w8))) {
         ICoreWebView2_8_put_IsMuted(w8, r->audio ? FALSE : TRUE);
         ICoreWebView2_8_Release(w8);
+    }
+    if (r->audio) {
+        wchar_t js[64];
+        double v = r->audio / 100.0;
+        str_printf(js, SP_COUNTOF(js), L"window.__spVol&&__spVol(%.4f)", v * v);
+        run_js(r, js);
     }
 }
 
@@ -474,6 +481,7 @@ static HRESULT on_nav_completed(HtmlRenderer *r, void *sender, void *argsv)
     if (!r->readyPosted) {
         r->readyPosted = 1;
         LOGI(L"html: page loaded");
+        if (r->audio && r->audio < 100) apply_audio(r);     /* the volume, now the page's scripts exist */
         renderer_post(r->notify, r->base.rid, REV_READY, S_OK, NULL);
         apply_state(r);
     }
@@ -557,25 +565,26 @@ static const wchar_t k_fpsJs[] =
  * are redirected; ctx.destination itself is untouched), and media elements are ramped by volume. __spFade(to, ms)
  * ramps both; apply_state fades out before a page stops and back in when it shows again. */
 static const wchar_t k_fadeJs[] =
-    L"(function(){var w=window;if(w.__spFade)return;var lvl=1,gains=[],media=new Set(),timer=0;"
+    L"(function(){var w=window;if(w.__spFade)return;var lvl=1,vol=1,gains=[],media=new Set(),timer=0;"
     L"var N=w.AudioNode,D=w.AudioDestinationNode,O=w.OfflineAudioContext;"
     L"if(N&&D&&w.WeakRef){var oc=N.prototype.connect,od=N.prototype.disconnect;"
     L"var tap=function(n){if(!(n instanceof D)||(O&&n.context instanceof O))return n;var c=n.context,g=c.__spG;"
-    L"if(!g){g=c.createGain();g.gain.value=lvl;oc.call(g,n);Object.defineProperty(c,'__spG',{value:g});gains.push(new WeakRef(g));}return g;};"
+    L"if(!g){g=c.createGain();g.gain.value=lvl*vol;oc.call(g,n);Object.defineProperty(c,'__spG',{value:g});gains.push(new WeakRef(g));}return g;};"
     L"N.prototype.connect=function(n){var a=Array.prototype.slice.call(arguments);a[0]=tap(n);var r=oc.apply(this,a);return n instanceof N?n:r;};"
     L"N.prototype.disconnect=function(n){if(!arguments.length)return od.call(this);var a=Array.prototype.slice.call(arguments);a[0]=tap(n);return od.apply(this,a);};}"
     L"var M=w.HTMLMediaElement;if(M&&w.WeakRef){var op=M.prototype.play;M.prototype.play=function(){media.add(new WeakRef(this));"
-    L"if(lvl<1&&this.__spV===undefined){this.__spV=this.volume;this.volume=this.__spV*lvl;}return op.apply(this,arguments);};}"
+    L"if(lvl*vol<1&&this.__spV===undefined){this.__spV=this.volume;this.volume=this.__spV*lvl*vol;}return op.apply(this,arguments);};}"
     L"var els=function(){var s=[];document.querySelectorAll('audio,video').forEach(function(e){s.push(e);});"
     L"media.forEach(function(r){var e=r.deref();if(!e)media.delete(r);else if(s.indexOf(e)<0)s.push(e);});return s;};"
     L"Object.defineProperty(w,'__spFade',{value:function(to,ms){var from=lvl;lvl=to;"
     L"gains=gains.filter(function(r){var g=r.deref();if(!g)return false;var t=g.context.currentTime;"
-    L"try{g.gain.cancelScheduledValues(t);g.gain.setValueAtTime(g.gain.value,t);g.gain.linearRampToValueAtTime(to,t+ms/1000);}catch(e){}return true;});"
+    L"try{g.gain.cancelScheduledValues(t);g.gain.setValueAtTime(g.gain.value,t);g.gain.linearRampToValueAtTime(to*vol,t+ms/1000);}catch(e){}return true;});"
     L"var list=els();list.forEach(function(e){if(e.__spV===undefined)e.__spV=e.volume;});"
     L"clearInterval(timer);var t0=performance.now();"
-    L"timer=setInterval(function(){var k=Math.min(1,(performance.now()-t0)/ms),v=from+(to-from)*k;"
+    L"timer=setInterval(function(){var k=Math.min(1,(performance.now()-t0)/ms),v=(from+(to-from)*k)*vol;"
     L"list.forEach(function(e){try{e.volume=Math.max(0,Math.min(1,e.__spV*v));}catch(x){}});"
-    L"if(k>=1){clearInterval(timer);if(to>=1)list.forEach(function(e){try{e.volume=e.__spV;}catch(x){}delete e.__spV;});}},30);}});})();";
+    L"if(k>=1){clearInterval(timer);if(to*vol>=1)list.forEach(function(e){try{e.volume=e.__spV;}catch(x){}delete e.__spV;});}},30);}});"
+    L"Object.defineProperty(w,'__spVol',{value:function(v){if(v===vol)return;vol=v;w.__spFade(lvl,1);}});})();";
 
 void html_set_fps_cap(int fps)
 {
@@ -847,7 +856,7 @@ static void hr_resize(Renderer *base, int w, int h)
 static void hr_set_audio(Renderer *base, BOOL on)
 {
     HtmlRenderer *r = (HtmlRenderer *)base;
-    r->audio = on ? 1 : 0;
+    r->audio = SP_CLAMP(on, 0, 100);
     apply_audio(r);
 }
 
@@ -1056,7 +1065,7 @@ Renderer *html_renderer_create(const RendererContext *ctx, wchar_t *err, size_t 
     r->notify = ctx->notify;
     r->w = ctx->width;
     r->h = ctx->height;
-    r->audio = ctx->audio ? 1 : 0;
+    r->audio = SP_CLAMP(ctx->audio, 0, 100);
     r->state = RS_ACTIVE;
     r->wp = *ctx->wp;
     r->isUrl = isUrl;

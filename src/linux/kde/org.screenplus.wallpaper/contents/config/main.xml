@@ -7,6 +7,7 @@
     <entry name="Source" type="String"><default></default></entry>
     <entry name="Kind" type="String"><default>none</default></entry>
     <entry name="Muted" type="Bool"><default>true</default></entry>
+    <entry name="Volume" type="Int"><default>100</default></entry>
     <entry name="Paused" type="Bool"><default>false</default></entry>
     <entry name="PauseOnFullscreen" type="Bool"><default>true</default></entry>
     <entry name="PauseApps" type="String"><default></default></entry>

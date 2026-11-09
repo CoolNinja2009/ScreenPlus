@@ -27,6 +27,10 @@ and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpap
 - A store that searches seven wallpaper sites at once
 - Per-monitor wallpapers, or one wallpaper duplicated or spanned across monitors
 - Screensaver mode
+- Slideshow (in order or shuffled, from every wallpaper, your favourites or a collection) and day/night wallpapers
+- Favourites, collections, sorting and multi-select in the library
+- Volume, overall and per wallpaper
+- PowerPoint presentations as wallpapers, with their transitions and animations (Windows, needs PowerPoint)
 - Make wallpaper cooler: turns a picture or video into a 3D wallpaper that follows the mouse, and makes the sky,
   water and plants in a picture move
 - Colour grading and wallpaper properties, and recordings of your changes that play on a loop
@@ -88,7 +92,10 @@ input but not keyboard input.
 screenplus status | list [filter] | displays
 screenplus apply <wallpaper> [--display N]
 screenplus import <path|link>... | remove <wallpaper>
-screenplus pause | resume | next | restart | audio [on|off]
+screenplus pause | resume | next | restart | audio [on|off] | volume [0-100]
+screenplus slideshow [on|off] [every N] [shuffle on|off] [from all|favourites|<collection>]
+screenplus schedule [on|off | day|night <wallpaper> | times <day hour> <night hour>]
+screenplus favourite <wallpaper> | collection [add|remove|play] ... | slides <wallpaper> <seconds>
 screenplus look | props | settings [set <key> <value>]
 screenplus rules [pause|mute add|remove <app>]
 screenplus screensaver | update | tools | vcredist

@@ -130,7 +130,7 @@ static void add_window(const MonitorInfo *m, const RECT *rc, int content)
     ctx.height = SP_MAX(cy, 1);
     ctx.dpi = m ? m->dpi : 96;
     ctx.refreshHz = m ? m->refreshHz : 60;
-    ctx.audio = S.run && S.cfg.s.scrAudio && m && m->primary;
+    ctx.audio = S.run && S.cfg.s.scrAudio && m && m->primary ? SP_MAX(S.cfg.s.volume, 1) : 0;   /* the volume (renderer.h) */
     if (!S.run && S.wp.type == WP_HTML) ctx.rasterScale = SP_MAX(0.1, cx / 1920.0);   /* lay out like a desktop */
     wchar_t err[SP_ERR_LEN] = L"";
     switch (S.wp.type) {

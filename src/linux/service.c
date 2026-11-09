@@ -242,19 +242,6 @@ void app_set_screensaver(const wchar_t *wallpaperId)
     app_save_config();
 }
 
-void app_next_wallpaper(void)
-{
-    Config *c = &g_app.cfg;
-    if (!c->count) return;
-    int cur = config_index_of(c, app_wallpaper_for(NULL));
-    for (int k = 1; k <= c->count; k++) {
-        WallpaperEntry *e = &c->items[(cur + k + c->count) % c->count];
-        if (!e->missing) {
-            app_apply_wallpaper(e->id, NULL);
-            return;
-        }
-    }
-}
 
 void app_restart_renderer(void)
 {
@@ -509,6 +496,7 @@ static void run_messages(void)
         if (g_timers[i].fn) g_timers[i].fn(NULL, 0, id, 0);
         else if (id == T_SHELL_UPDATE) update_on_timer();
         else if (id == T_SHELL_SAMPLES) samples_on_timer();
+        else if (id == T_SHELL_ROTATE) rotate_on_timer();
     }
 }
 
@@ -608,6 +596,7 @@ int service_main(void)
     depth_auto_all(FALSE);
     update_init();
     samples_init();
+    rotate_init();
     double nextPoll = time_ms() + (g_app.monCount ? 5000 : 200);
     int windowDue = g_startupLaunch && !g_app.cfg.s.launchToTray;
     while (!g_quit) {

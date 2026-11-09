@@ -87,6 +87,7 @@ struct VideoSource {
     volatile LONG     fadeOut;              /* the audio thread fades out, then clears playing */
     volatile LONG     redraw;
     volatile LONG     audioWanted;
+    volatile LONG     volume;        /* 0..100: the loudest output's (VideoOutput.audio) */
 
     CRITICAL_SECTION  outLock;
     VideoOutput      *outputs[SP_MAX_MONITORS];

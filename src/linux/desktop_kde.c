@@ -261,6 +261,7 @@ static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int pau
     sb_printf(b, ",\"Kind\":\"%s\"", !e ? "none" : e->type == WP_HTML ? "html" : e->type == WP_IMAGE ? "image" : "video");
     sb_printf(b, ",\"Muted\":%s,\"Paused\":%s,\"PauseOnFullscreen\":%s", c->s.audio && !g_micBusy ? "false" : "true",
               paused ? "true" : "false", c->s.pauseOnFullscreen ? "true" : "false");
+    sb_printf(b, ",\"Volume\":%d", SP_CLAMP(c->s.volume, 0, 100) * (e ? entry_volume(e) : 100) / 100);
     char *apps = utf8_from_wide(c->s.pauseApps, NULL);
     sb_puts(b, ",\"PauseApps\":");
     json_write_string(b, apps ? apps : "");

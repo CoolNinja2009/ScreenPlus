@@ -33,6 +33,9 @@ static inline uint32_t ui_icon_map(uint32_t c)
     case 0xE2B1: return 0xF2F6;   /* COLOR: color */
     case 0xE719: return 0xE22F;   /* STORE: building_shop */
     case 0xE896: return 0xF151;   /* DOWNLOAD: arrow_download */
+    case 0xE734: return 0xF710;   /* STAR: star */
+    case 0xE735: return 0xF710;   /* STAR_ON: star (no filled font) */
+    case 0xE8CB: return 0xF18B;   /* SORT: arrow_sort */
     case 0xE70D: return 0xF2A4;   /* chevron down, drawn as a literal in ui_pages.c */
     default: return c;
     }

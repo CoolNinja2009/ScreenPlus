@@ -18,7 +18,9 @@
 #define T_SHELL_STARTUP     3               /* shell window timer: the Start with Windows check, once after start */
 #define WM_SP_SAMPLES       (WM_APP + 67)   /* wParam 0: progress, 1: check finished (lParam: the job) */
 #define T_SHELL_SAMPLES     4               /* shell window timer: the next sample wallpaper update check */
+#define T_SHELL_ROTATE      5               /* shell window timer: slideshow and schedule check (rotate.c) */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
+#define WM_SP_PPTX          (WM_APP + 68)   /* wParam 1: a PowerPoint job finished (lParam: the job; pptx.c) */
 #define WM_SP_ENGINE_RESYNC (WM_APP + 71)   /* the engine connected after commands went unsent */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
@@ -113,6 +115,7 @@ int  library_auto_import_lively(void); /* silent startup discovery; returns newl
 int  library_add_samples(void);        /* the bundled samples\ wallpapers, silently; returns newly-added entries */
 void library_import_wallpaper_engine(void);
 void library_remove(const wchar_t *id);
+extern int library_slides_started;     /* presentations the last library_import handed to PowerPoint (pptx.c) */
 BOOL library_move(const wchar_t *id, int to);   /* to: 0-based place in the library order; saves */
 void library_check_missing(void);
 void library_discard(const wchar_t *path, BOOL folder);   /* a removed entry's file or folder: now, or at the next start */
@@ -298,6 +301,20 @@ void samples_schedule(BOOL soon);                      /* the setting changed */
 BOOL samples_check(BOOL install);                      /* now; install: the changed samples are updated */
 void samples_get(SamplesState *out);
 void samples_on_timer(void);                           /* T_SHELL_SAMPLES */
+
+/* rotate.c: slideshow, shuffle, day/night schedule; app_next_wallpaper lives there too */
+const wchar_t *rotate_next_id(void);                   /* what Next would apply, NULL: nothing */
+void rotate_init(void);
+void rotate_on_timer(void);                            /* T_SHELL_ROTATE */
+void rotate_changed(void);                             /* a slideshow or schedule setting changed */
+void rotate_play(const wchar_t *from, int minutes);    /* slideshow of a collection ("*" favourites); minutes 0: keep */
+
+/* pptx.c: presentations rendered to a video by PowerPoint (Windows) */
+BOOL pptx_is_file(const wchar_t *path);
+BOOL pptx_import(const wchar_t *path, BOOL apply);     /* starts the job (TRUE); the entry is added when it's done */
+BOOL pptx_set_seconds(const wchar_t *id, int sec);     /* seconds per slide: renders again (or reuses a video) */
+BOOL pptx_busy(const wchar_t *id);                     /* PowerPoint is working on this entry */
+void pptx_on_event(WPARAM wp, LPARAM lp);              /* WM_SP_PPTX */
 void samples_on_event(WPARAM wp, LPARAM lp);           /* WM_SP_SAMPLES */
 void samples_shutdown(void);
 enum { DEPTH_AUTO = 0, DEPTH_CPU = 1, DEPTH_BENCH = 2, DEPTH_CRASHED = 3 };   /* which processor: see depth_infer.c */

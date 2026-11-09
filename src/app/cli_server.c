@@ -92,7 +92,12 @@ static void j_wallpaper(StrBuf *b, const WallpaperEntry *e)
     jstr(b, format_key(e->format));
     sb_puts(b, ",\"path\":");
     jstr(b, e->path);
-    sb_printf(b, ",\"missing\":%s}", e->missing ? "true" : "false");
+    sb_printf(b, ",\"missing\":%s,\"favourite\":%s,\"volume\":%d", e->missing ? "true" : "false",
+              (e->flags & WPFLAG_FAV) ? "true" : "false", entry_volume(e));
+    if (e->flags & WPFLAG_PPTX) sb_printf(b, ",\"slideSeconds\":%d", entry_slide_sec(e));
+    sb_puts(b, ",\"collections\":");
+    jstr(b, e->tags);
+    sb_puts(b, "}");
 }
 
 static int has_flag(const Req *q, const wchar_t *flag)
@@ -299,7 +304,9 @@ static int list_match(const WallpaperEntry *e, const wchar_t *f, int onScreen)
     if (str_ieq(f, L"we")) return e->format == WPF_WE;
     if (str_ieq(f, L"missing")) return e->missing;
     if (str_ieq(f, L"active")) return onScreen;
-    return str_icontains(e->name, f);
+    if (str_ieq(f, L"favourites") || str_ieq(f, L"favorites") || str_ieq(f, L"fav")) return (e->flags & WPFLAG_FAV) != 0;
+    if (str_ieq(f, L"slides") || str_ieq(f, L"pptx")) return (e->flags & WPFLAG_PPTX) != 0;
+    return str_icontains(e->name, f) || config_tag_has(e, f);
 }
 
 static void cmd_list(Reply *r, const Req *q)
@@ -444,7 +451,14 @@ static void cmd_import(Reply *r, const Req *q)
         j_wallpaper(&r->data, &c->items[i]);
     }
     sb_puts(&r->data, "]}");
-    if (!added) say(r, L"Nothing new: already in the library, or no supported files found.\n");
+    if (library_slides_started)
+        say(r, L"%d presentation%ls in PowerPoint; added when the video is made (see: screenplus list slides).\n",
+            library_slides_started, library_slides_started == 1 ? L" is" : L"s are");
+#ifndef _WIN32
+    else if (!added && q->argc > 1 && pptx_is_file(q->argv[q->argc - 1]))
+        say(r, L"PowerPoint files need Windows with PowerPoint. Export the presentation as a video instead.\n");
+#endif
+    else if (!added) say(r, L"Nothing new: already in the library, or no supported files found.\n");
 }
 
 static void cmd_remove(Reply *r, const Req *q)
@@ -456,8 +470,10 @@ static void cmd_remove(Reply *r, const Req *q)
     wchar_t id[SP_ID_LEN], name[SP_NAME_LEN];
     str_copy(id, SP_COUNTOF(id), e->id);
     str_copy(name, SP_COUNTOF(name), e->name);
+    int slides = (e->flags & WPFLAG_PPTX) != 0;
     library_remove(id);
-    say(r, L"Removed \"%ls\" from the library (the file itself was not touched).\n", name);
+    say(r, slides ? L"Removed \"%ls\" and its video (the presentation itself was not touched).\n"
+                  : L"Removed \"%ls\" from the library (the file itself was not touched).\n", name);
     sb_puts(&r->data, "{\"removed\":");
     jstr(&r->data, id);
     sb_puts(&r->data, "}");
@@ -500,6 +516,257 @@ static void cmd_next(Reply *r)
     sb_puts(&r->data, "{\"wallpaper\":");
     j_wallpaper(&r->data, e);
     sb_puts(&r->data, "}");
+}
+
+/* ------------------------------------------------------------------ favourites, collections, volume, rotation */
+
+static int parse_int(const wchar_t *v, int lo, int hi, int *out);
+
+static void cmd_favourite(Reply *r, const Req *q)
+{
+    WallpaperEntry *e = q->argc > 1 ? find_wallpaper(r, q->argv[1]) : NULL;
+    if (q->argc < 2) {
+        fail(r, L"Usage: screenplus favourite <wallpaper> [on | off | toggle]");
+        return;
+    }
+    if (!e) return;
+    int on = (e->flags & WPFLAG_FAV) != 0;
+    if (!parse_on_off(q->argc > 2 ? q->argv[2] : L"on", on, &on)) {
+        fail(r, L"Usage: screenplus favourite <wallpaper> [on | off | toggle]");
+        return;
+    }
+    e->flags = on ? e->flags | WPFLAG_FAV : e->flags & ~WPFLAG_FAV;
+    app_save_config();
+    ui_on_config_changed();
+    say(r, L"\"%ls\" is %ls favourite.\n", e->name, on ? L"a" : L"not a");
+    sb_printf(&r->data, "{\"favourite\":%s}", on ? "true" : "false");
+}
+
+/* collection: list; collection add|remove <name> <wallpaper>... */
+static void cmd_collection(Reply *r, const Req *q)
+{
+    const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
+    if (!sub[0] || str_ieq(sub, L"list")) {
+        wchar_t names[64][64];
+        int n = config_collections(&g_app.cfg, names, 64);
+        sb_puts(&r->data, "[");
+        for (int k = 0; k < n; k++) {
+            int count = 0;
+            for (int i = 0; i < g_app.cfg.count; i++) count += config_tag_has(&g_app.cfg.items[i], names[k]);
+            say(r, L"  %-30ls %d wallpaper%ls\n", names[k], count, count == 1 ? L"" : L"s");
+            if (k) sb_puts(&r->data, ",");
+            sb_puts(&r->data, "{\"name\":");
+            jstr(&r->data, names[k]);
+            sb_printf(&r->data, ",\"count\":%d}", count);
+        }
+        sb_puts(&r->data, "]");
+        if (!n) say(r, L"No collections. Make one: screenplus collection add <name> <wallpaper>\n");
+        return;
+    }
+    if (str_ieq(sub, L"play")) {                         /* collection play <name|favourites> [every <minutes>] */
+        int mins = 0;
+        if (q->argc < 3 || (q->argc > 3 && (q->argc < 5 || !str_ieq(q->argv[3], L"every") || !parse_int(q->argv[4], 1, 1440, &mins)))) {
+            fail(r, L"Usage: screenplus collection play <name | favourites> [every <minutes>]");
+            return;
+        }
+        const wchar_t *nm = q->argv[2];
+        int fav = str_ieq(nm, L"favourites") || str_ieq(nm, L"favorites");
+        int n = 0;
+        for (int i = 0; i < g_app.cfg.count; i++)
+            n += fav ? (g_app.cfg.items[i].flags & WPFLAG_FAV) != 0 : config_tag_has(&g_app.cfg.items[i], nm);
+        if (!n) {
+            fail(r, L"\"%ls\" has no wallpapers. See: screenplus collection", nm);
+            return;
+        }
+        rotate_play(fav ? L"*" : nm, mins);
+        ui_on_config_changed();
+        say(r, L"Playing \"%ls\" (%d wallpaper%ls), a new one every %d minute%ls.\n", nm, n, n == 1 ? L"" : L"s",
+            g_app.cfg.s.slideshowMin, g_app.cfg.s.slideshowMin == 1 ? L"" : L"s");
+        sb_printf(&r->data, "{\"playing\":true,\"count\":%d,\"minutes\":%d}", n, g_app.cfg.s.slideshowMin);
+        return;
+    }
+    int add = str_ieq(sub, L"add");
+    if ((!add && !str_ieq(sub, L"remove")) || q->argc < 4) {
+        fail(r, L"Usage: screenplus collection [list | add <name> <wallpaper>... | remove <name> <wallpaper>... | play <name>]");
+        return;
+    }
+    int changed = 0;
+    for (int i = 3; i < q->argc; i++) {
+        WallpaperEntry *e = find_wallpaper(r, q->argv[i]);
+        if (!e) return;
+        changed += config_tag_set(e, q->argv[2], add);
+    }
+    if (changed) {
+        app_save_config();
+        ui_on_config_changed();
+    }
+    say(r, L"%d wallpaper%ls %ls \"%ls\".\n", changed, changed == 1 ? L"" : L"s", add ? L"added to" : L"taken out of", q->argv[2]);
+    sb_printf(&r->data, "{\"changed\":%d}", changed);
+}
+
+static int parse_int(const wchar_t *v, int lo, int hi, int *out)
+{
+    wchar_t *end = NULL;
+    long n = v ? wcstol(v, &end, 10) : 0;
+    if (!v || !v[0] || (end && *end && *end != L'%') || n < lo || n > hi) return 0;
+    *out = (int)n;
+    return 1;
+}
+
+/* volume [0-100]: every wallpaper; volume <wallpaper> <0-100>: that wallpaper's own */
+static void cmd_volume(Reply *r, const Req *q)
+{
+    int v = 0;
+    if (q->argc == 2 && !parse_int(q->argv[1], 0, 100, &v)) {
+        fail(r, L"Usage: screenplus volume [0-100] | volume <wallpaper> <0-100>");
+        return;
+    }
+    if (q->argc > 2) {
+        WallpaperEntry *e = find_wallpaper(r, q->argv[1]);
+        if (!e) return;
+        if (!parse_int(q->argv[2], 0, 100, &v)) {
+            fail(r, L"The volume is 0 to 100.");
+            return;
+        }
+        e->volCut = 100 - v;
+        app_save_config();
+        ui_on_config_changed();
+        say(r, L"\"%ls\" plays at %d%%.\n", e->name, v);
+        sb_printf(&r->data, "{\"volume\":%d}", v);
+        return;
+    }
+    if (q->argc == 2) {
+        g_app.cfg.s.volume = v;
+        app_save_config();
+        ui_on_config_changed();
+    }
+    say(r, L"Volume %d%%, sound %ls.\n", g_app.cfg.s.volume, g_app.cfg.s.audio ? L"on" : L"off");
+    sb_printf(&r->data, "{\"volume\":%d,\"audio\":%s}", g_app.cfg.s.volume, g_app.cfg.s.audio ? "true" : "false");
+}
+
+static void from_text(const wchar_t *from, wchar_t *out, size_t cap)
+{
+    if (!from[0]) str_copy(out, cap, L"every wallpaper");
+    else if (wcscmp(from, L"*") == 0) str_copy(out, cap, L"favourites");
+    else str_printf(out, cap, L"collection \"%ls\"", from);
+}
+
+/* slideshow [on|off] [every <minutes>] [shuffle on|off] [from all|favourites|<collection>] */
+static void cmd_slideshow(Reply *r, const Req *q)
+{
+    Settings *s = &g_app.cfg.s;
+    static const wchar_t usage[] =
+        L"Usage: screenplus slideshow [on | off] [every <minutes>] [shuffle on|off] [from all | favourites | <collection>]";
+    int changed = 0;
+    for (int i = 1; i < q->argc; i++) {
+        const wchar_t *a = q->argv[i];
+        int v;
+        if (parse_on_off(a, s->slideshow, &v)) { s->slideshow = v; changed = 1; }
+        else if ((str_ieq(a, L"every") || str_ieq(a, L"minutes")) && i + 1 < q->argc && parse_int(q->argv[i + 1], 1, 1440, &v)) {
+            s->slideshowMin = v;
+            changed = 1;
+            i++;
+        } else if (str_ieq(a, L"shuffle") && i + 1 < q->argc && parse_on_off(q->argv[i + 1], s->shuffle, &v)) {
+            s->shuffle = v;
+            changed = 1;
+            i++;
+        } else if (str_ieq(a, L"from") && i + 1 < q->argc) {
+            const wchar_t *f = q->argv[++i];
+            if (str_ieq(f, L"all") || str_ieq(f, L"everything")) s->slideshowFrom[0] = 0;
+            else if (str_ieq(f, L"favourites") || str_ieq(f, L"favorites") || str_ieq(f, L"fav")) str_copy(s->slideshowFrom, 64, L"*");
+            else str_copy(s->slideshowFrom, SP_COUNTOF(s->slideshowFrom), f);
+            changed = 1;
+        } else {
+            fail(r, L"%ls", usage);
+            return;
+        }
+    }
+    if (changed) {
+        app_save_config();
+        rotate_changed();
+        ui_on_config_changed();
+    }
+    wchar_t from[96];
+    from_text(s->slideshowFrom, from, SP_COUNTOF(from));
+    say(r, L"Slideshow %ls: every %d minute%ls, %ls, from %ls.\n", s->slideshow ? L"on" : L"off", s->slideshowMin,
+        s->slideshowMin == 1 ? L"" : L"s", s->shuffle ? L"shuffled" : L"in library order", from);
+    sb_printf(&r->data, "{\"slideshow\":%s,\"minutes\":%d,\"shuffle\":%s,\"from\":", s->slideshow ? "true" : "false",
+              s->slideshowMin, s->shuffle ? "true" : "false");
+    jstr(&r->data, s->slideshowFrom);
+    sb_puts(&r->data, "}");
+}
+
+/* schedule [on|off] | day <wallpaper> | night <wallpaper> | times <day hour> <night hour> */
+static void cmd_schedule(Reply *r, const Req *q)
+{
+    Settings *s = &g_app.cfg.s;
+    const wchar_t *sub = q->argc > 1 ? q->argv[1] : L"";
+    int v, changed = 1;
+    if (!sub[0]) changed = 0;
+    else if (parse_on_off(sub, s->schedule, &v)) s->schedule = v;
+    else if ((str_ieq(sub, L"day") || str_ieq(sub, L"night")) && q->argc > 2) {
+        WallpaperEntry *e = find_wallpaper(r, q->argv[2]);
+        if (!e) return;
+        str_copy(str_ieq(sub, L"day") ? s->dayWallpaper : s->nightWallpaper, SP_ID_LEN, e->id);
+    } else if (str_ieq(sub, L"times") && q->argc > 3 && parse_int(q->argv[2], 0, 23, &v)) {
+        int n;
+        if (!parse_int(q->argv[3], 0, 23, &n)) {
+            fail(r, L"Hours are 0 to 23.");
+            return;
+        }
+        s->dayStart = v;
+        s->nightStart = n;
+    } else {
+        fail(r, L"Usage: screenplus schedule [on | off | day <wallpaper> | night <wallpaper> | times <day hour> <night hour>]");
+        return;
+    }
+    if (changed) {
+        app_save_config();
+        rotate_changed();
+        ui_on_config_changed();
+    }
+    WallpaperEntry *d = config_find(&g_app.cfg, s->dayWallpaper), *n = config_find(&g_app.cfg, s->nightWallpaper);
+    say(r, L"Schedule %ls.\n  day   from %02d:00  %ls\n  night from %02d:00  %ls\n", s->schedule ? L"on" : L"off",
+        s->dayStart, d ? d->name : L"(none)", s->nightStart, n ? n->name : L"(none)");
+    sb_printf(&r->data, "{\"schedule\":%s,\"dayStart\":%d,\"nightStart\":%d,\"day\":", s->schedule ? "true" : "false",
+              s->dayStart, s->nightStart);
+    j_wallpaper(&r->data, d);
+    sb_puts(&r->data, ",\"night\":");
+    j_wallpaper(&r->data, n);
+    sb_puts(&r->data, "}");
+}
+
+/* slides <wallpaper> [seconds]: a presentation's time per slide (PowerPoint renders it again) */
+static void cmd_slides(Reply *r, const Req *q)
+{
+    WallpaperEntry *e = q->argc > 1 ? find_wallpaper(r, q->argv[1]) : NULL;
+    if (q->argc < 2) {
+        fail(r, L"Usage: screenplus slides <wallpaper> [seconds]");
+        return;
+    }
+    if (!e) return;
+    if (!(e->flags & WPFLAG_PPTX)) {
+        fail(r, L"\"%ls\" isn't a presentation.", e->name);
+        return;
+    }
+    int v;
+    if (q->argc > 2) {
+        if (!parse_int(q->argv[2], 1, 3600, &v)) {
+            fail(r, L"Seconds are 1 to 3600.");
+            return;
+        }
+        if (pptx_busy(e->id)) {
+            fail(r, L"PowerPoint is still working on \"%ls\".", e->name);
+            return;
+        }
+        if (v != entry_slide_sec(e) && !pptx_set_seconds(e->id, v)) {
+            fail(r, L"Could not time the slides again (see: screenplus logs).");
+            return;
+        }
+        ui_on_config_changed();
+    }
+    say(r, L"\"%ls\": %d s a slide%ls.\n", e->name, entry_slide_sec(e), pptx_busy(e->id) ? L" (PowerPoint is working on it)" : L"");
+    sb_printf(&r->data, "{\"seconds\":%d,\"busy\":%s}", entry_slide_sec(e), pptx_busy(e->id) ? "true" : "false");
 }
 
 /* ------------------------------------------------------------------ look (colour grading) */
@@ -1012,8 +1279,8 @@ static const wchar_t *const k_themeNames[] = { L"system", L"light", L"dark", NUL
 static const wchar_t *const k_modeNames[] = { L"independent", L"duplicate", L"span", NULL };
 static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary", NULL };
 static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
-enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS };
-static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames };
+enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM };
+static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames, NULL };
 #ifdef _WIN32
 #define SP_LAUNCH_DESC L"Keep the window closed when it starts with Windows"
 #else
@@ -1032,6 +1299,13 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"suspend_on_lock",     offsetof(Settings, suspendOnLock),     SK_BOOL,  L"Suspend while the PC is locked" },
     { L"pause_on_battery",    offsetof(Settings, pauseOnBattery),    SK_BOOL,  L"Pause on battery or energy saver" },
     { L"audio",               offsetof(Settings, audio),             SK_BOOL,  L"Play wallpaper sound" },
+    { L"volume",              offsetof(Settings, volume),            SK_NUM,   L"Wallpaper sound volume, 0-100" },
+    { L"slideshow",           offsetof(Settings, slideshow),         SK_BOOL,  L"Change the wallpaper by itself (screenplus slideshow)" },
+    { L"slideshow_minutes",   offsetof(Settings, slideshowMin),      SK_NUM,   L"Minutes between slideshow changes, 1-1440" },
+    { L"shuffle",             offsetof(Settings, shuffle),           SK_BOOL,  L"Slideshow and next pick at random" },
+    { L"schedule",            offsetof(Settings, schedule),          SK_BOOL,  L"Day and night wallpapers (screenplus schedule)" },
+    { L"day_start",           offsetof(Settings, dayStart),          SK_NUM,   L"Hour the day wallpaper starts, 0-23" },
+    { L"night_start",         offsetof(Settings, nightStart),        SK_NUM,   L"Hour the night wallpaper starts, 0-23" },
     { L"auto_recover",        offsetof(Settings, autoRecover),       SK_BOOL,  L"Restart failed renderers automatically" },
     { L"paused",              offsetof(Settings, paused),            SK_BOOL,  L"Wallpapers paused" },
     { L"html_mouse",          offsetof(Settings, htmlMouse),         SK_BOOL,  L"Mouse input for web wallpapers" },
@@ -1052,6 +1326,13 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
 static const wchar_t *setting_text(int kind, int v)
 {
     const wchar_t *const *names = k_enumNames[kind];
+    if (kind == SK_NUM) {
+        static wchar_t num[4][16];                       /* a few in flight in one reply */
+        static int slot;
+        wchar_t *b = num[slot++ & 3];
+        str_printf(b, 16, L"%d", v);
+        return b;
+    }
     if (!names) return v ? L"on" : L"off";
     if (kind == SK_FPS) v = v == 30 ? 1 : v == 60 ? 2 : 0;
     for (int i = 0; names[i]; i++) if (i == v) return names[i];
@@ -1086,7 +1367,8 @@ static void settings_print(Reply *r)
         first = 0;
         jstr(&r->data, k_settings[i].key);
         sb_puts(&r->data, ":");
-        if (k_settings[i].kind != SK_BOOL) jstr(&r->data, shown);
+        if (k_settings[i].kind == SK_NUM) sb_printf(&r->data, "%d", v);
+        else if (k_settings[i].kind != SK_BOOL) jstr(&r->data, shown);
         else sb_puts(&r->data, v ? "true" : "false");
     }
     sb_puts(&r->data, "}");
@@ -1138,7 +1420,8 @@ static void setting_reply(Reply *r, size_t i, int v)
     sb_puts(&r->data, "{");
     jstr(&r->data, k_settings[i].key);
     sb_puts(&r->data, ":");
-    if (k_settings[i].kind != SK_BOOL) jstr(&r->data, setting_text(k_settings[i].kind, v));
+    if (k_settings[i].kind == SK_NUM) sb_printf(&r->data, "%d", v);
+    else if (k_settings[i].kind != SK_BOOL) jstr(&r->data, setting_text(k_settings[i].kind, v));
     else sb_puts(&r->data, v ? "true" : "false");
     sb_puts(&r->data, "}");
 }
@@ -1192,7 +1475,18 @@ static void cmd_settings(Reply *r, const Req *q)
         int *field = (int *)((char *)s + k_settings[i].off);
         const wchar_t *v = q->argv[3];
         const wchar_t *const *names = k_enumNames[k_settings[i].kind];
-        if (names) {
+        if (k_settings[i].kind == SK_NUM) {
+            int lo = 0, hi = 100, n;
+            if (field == &s->slideshowMin) { lo = 1; hi = 1440; }
+            else if (field == &s->dayStart || field == &s->nightStart) hi = 23;
+            if (!parse_int(v, lo, hi, &n)) {
+                fail(r, L"%ls is %d to %d.", k_settings[i].key, lo, hi);
+                return;
+            }
+            *field = n;
+            app_save_config();
+            if (field != &s->volume) rotate_changed();
+        } else if (names) {
             int idx = -1;
             for (int k = 0; names[k]; k++) if (str_ieq(v, names[k])) idx = k;
             if (idx < 0) {
@@ -1227,6 +1521,7 @@ static void cmd_settings(Reply *r, const Req *q)
                 if (field == &s->depthAll) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download */
                 if (field == &s->autoUpdate) update_schedule(TRUE);
                 if (field == &s->autoUpdateSamples) samples_schedule(TRUE);
+                if (field == &s->slideshow || field == &s->schedule) rotate_changed();
             }
         }
         ui_on_config_changed();
@@ -1307,6 +1602,18 @@ static void run(Reply *r, const Req *q)
         cmd_move(r, q);
     } else if (str_ieq(c, L"next")) {
         cmd_next(r);
+    } else if (str_ieq(c, L"favourite") || str_ieq(c, L"favorite") || str_ieq(c, L"fav")) {
+        cmd_favourite(r, q);
+    } else if (str_ieq(c, L"collection") || str_ieq(c, L"collections")) {
+        cmd_collection(r, q);
+    } else if (str_ieq(c, L"volume") || str_ieq(c, L"vol")) {
+        cmd_volume(r, q);
+    } else if (str_ieq(c, L"slideshow")) {
+        cmd_slideshow(r, q);
+    } else if (str_ieq(c, L"schedule")) {
+        cmd_schedule(r, q);
+    } else if (str_ieq(c, L"slides")) {
+        cmd_slides(r, q);
     } else if (str_ieq(c, L"pause") || str_ieq(c, L"resume") || str_ieq(c, L"toggle")) {
         int on = str_ieq(c, L"pause") ? 1 : str_ieq(c, L"resume") ? 0 : !g_app.cfg.s.paused;
         app_set_paused(on);

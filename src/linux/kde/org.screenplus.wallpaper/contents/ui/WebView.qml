@@ -9,6 +9,14 @@ Item {
     property string script     /* hands the page its property values */
     property bool paused
     property bool muted: true
+    property real volume: 1
+    /* Qt WebEngine has no volume: the page's audio and video elements are scaled */
+    function applyVolume() {
+        var v = view.volume * view.volume
+        web.runJavaScript("(function(v){document.querySelectorAll('audio,video').forEach(function(e){" +
+                          "if(e.__spBase===undefined)e.__spBase=e.volume;e.volume=e.__spBase*v;});})(" + v + ")")
+    }
+    onVolumeChanged: applyVolume()
 
     onPausedChanged: {
         if (paused) {
@@ -67,6 +75,7 @@ Item {
         Component.onCompleted: addScripts()
         onLoadingChanged: (info) => {
             if (info.status === WebEngineView.LoadSucceededStatus && view.script) runJavaScript(view.script)
+            if (info.status === WebEngineView.LoadSucceededStatus && view.volume < 1) view.applyVolume()
             if (info.status === WebEngineView.LoadFailedStatus) retry.start()
         }
     }

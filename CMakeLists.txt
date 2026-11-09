@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "2.1.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
+set(SCREENPLUS_VERSION "2.2.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
 project(ScreenPlus VERSION ${SCREENPLUS_VERSION} LANGUAGES C)
 
 if(NOT WIN32)
@@ -111,7 +111,7 @@ set(SOURCES
     src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
-    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c src/app/samples_update.c
+    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c src/app/samples_update.c src/app/rotate.c src/app/pptx.c
     src/app/store_sources.c
     src/tray/tray.c
     src/ui/ui_core.c src/ui/ui_pages.c src/ui/textedit.c src/ui/thumbs.c src/ui/identify.c
