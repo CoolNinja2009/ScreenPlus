@@ -903,7 +903,7 @@ static const Hit *hit_find(Ui *u, int id)
 static int is_text_kind(int kind)
 {
     return kind == HK_SEARCH || kind == HK_URL_TEXT || kind == HK_NAME || kind == HK_STORE_TEXT ||
-           kind == HK_PTEXT || kind == HK_PVAL || kind == HK_LOOKVAL;
+           kind == HK_PTEXT || kind == HK_PVAL || kind == HK_LOOKVAL || kind == HK_REC_REPS;
 }
 
 /* Click streak on the same spot: 1 caret, 2 word, 3+ the whole text. */
@@ -990,6 +990,7 @@ static void on_key(Ui *u, WPARAM vk)
         move_focus(u, shift ? -1 : 1);
         return;
     case VK_ESCAPE:
+        if (pages_escape()) return;
         if (u->searchFocus) set_search_focus(u, 0);   /* the engine cleared the text; an empty box closes */
         return;
     case VK_RETURN:
@@ -1197,6 +1198,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (u->hot) {
             int k = HIT_KIND(u->hot);
             if (k == HK_CARD) pages_activate(u->hot, 1);
+            else if (k == HK_REC_PRESET) pages_activate(u->hot, 0);   /* quick - / + clicks: every one counts */
             else if (is_text_kind(k)) text_press(u, u->hot, u->mx, u->my);   /* 2nd click: word selection */
         }
         return 0;

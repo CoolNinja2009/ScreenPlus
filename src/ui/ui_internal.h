@@ -42,7 +42,9 @@ enum HitKind {
     HK_REC, HK_REC_EDIT, HK_REC_DEL,  /* Customise recordings; data: section (REC_LOOK, REC_PROPS) */
     HK_REC_PAUSE,                     /* pause / play a recording; data: section */
     HK_REC_SPEED, HK_REC_SMOOTH,      /* the graph view's sliders; data: section */
-    HK_REC_GRAPH                      /* a track's graph (draw over it); data: section | track << 1 */
+    HK_REC_GRAPH,                     /* a track's graph (draw over it); data: section | track << 1 */
+    HK_REC_PRESET,                    /* the graph presets (right-click a graph); data: preset, -1 closes, -2 the panel */
+    HK_REC_REPS                       /* a preset's repeat count, typed; data: preset */
 };
 
 #define HIT_ID(kind, data) ((int)(((kind) << 16) | ((unsigned)(data) & 0xffff)))
@@ -189,6 +191,7 @@ void pages_store_search_open(void);                        /* the same for the S
 void pages_store_timer(void);                              /* TM_STORE: typing paused, search the Store */
 int  pages_text_char(wchar_t ch);                           /* 1 consumed: the Customise text field */
 int  pages_text_key(UINT vk, int ctrl, int shift);
+int  pages_escape(void);                   /* closes an open popup; 1 if there was one */
 void pages_text_end(int commit);                            /* focus left the field (0: cancel) */
 const wchar_t *pages_tooltip(int id);                       /* tooltip text for a hit id, or NULL */
 

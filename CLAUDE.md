@@ -168,7 +168,8 @@ Renderer details:
   `wpapi_properties_js` prefer, then calls `vt->apply`; properties every third tick. Hyprland: `rec_tick` in
   engine_gtk.c. Plasma: the service saves the smoothed recording to `cache/rec/<id>.json` and writes its web-host address (`webhost_recording`, `http://127.0.0.1:<port>/<token>-rec/...`; never inline: kde_apply's script is one dbus-send argument, capped at 128 KB) as `Recording`, `Recording.qml` fetches and plays it (the
   plugin grades brightness/contrast/saturation only). Graph view: speed (epoch kept so the playhead stays), smooth
-  (circular box filter), draw over a track (not colours).
+  (circular box filter), draw over a track (not colours); right-click a graph for presets (LFO/easing shapes filling the loop, `preset_eval`),
+  right-click a preset for its repeat count, kept in `graph-presets.txt`.
 
 ## UI model (immediate mode)
 - `ui_invalidate` redraws on demand; there are no retained widgets. Drawing registers hit rects with
@@ -194,6 +195,7 @@ Renderer details:
   | `WebView2-Screensaver\` | The screensaver process's WebView2 profile |
   | `downloads\` | Link and Store downloads; deleted with their entry (`library_discard`, never while another entry uses one, e.g. as a depth wallpaper's `thumb`) |
   | `pending-delete.txt` | A removed entry's download or depth folder that was open then; `library_purge` retries it at the next start |
+  | `graph-presets.txt` | Customise graph presets' repeat counts, one per preset |
   | `store-blocked.txt` | Store cards blocked from their right-click menu (`store_block`: key + preview hash, near hashes hide copies on other sites); deleted by Settings' Reset settings (`store_unblock_all`) |
   | `updates\` | Auto update's verified installer; cleared at the next check |
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |

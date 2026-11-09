@@ -1223,6 +1223,10 @@ static struct {
     WallpaperAdjust takeAdj, takeLast; /* the look when recording began; as last noted */
     JVal          **takeProps;         /* the property values when recording began */
     int             takePropCount;
+    int             presetOpen;        /* the graph presets are showing (right-click a graph) */
+    int             presetFor;         /* for that graph: section | track << 1 */
+    float           presetX, presetY, presetScroll;   /* where it was opened; scrolling closes it */
+    int             presetEdit;        /* 1 + the preset whose repeat count is showing (right-click it); 0: none */
 } cus;
 
 /* The card's name line: plain text, or the rename editor while typing (double-click starts one). */
@@ -1692,6 +1696,18 @@ int pages_is_drag(int kind)
            kind == HK_REC_GRAPH;
 }
 
+/* A drawn or preset sample: v is 0..1 up the graph, stored as the track's value (rounded to its step or choice). */
+static void rec_set(RecTrack *t, int k, float v)
+{
+    if (t->kind == RT_NUM) {
+        double val = t->lo + v * (t->hi - t->lo), step = t->step > 0 ? t->step : 1.0;
+        t->v[k] = (float)(round(val / step) * step);
+    } else {
+        int levels = t->kind == RT_CHOICE && t->opts ? SP_MAX(t->opts->n - 1, 1) : 1;
+        t->v[k] = t->kind == RT_BOOL ? (v >= 0.5f) : (float)lroundf(v * levels);
+    }
+}
+
 /* The graph view: speed and smoothing, and drawing over a track (the stroke sets every sample it passes). */
 static void rec_drag(int kind, int data, D2D1_RECT_F r, float x, float y, int commit)
 {
@@ -1722,15 +1738,10 @@ static void rec_drag(int kind, int data, D2D1_RECT_F r, float x, float y, int co
             lastY = fy;
         }
         int a = SP_CLAMP((int)(lastX * rec->n), 0, rec->n - 1), b = SP_CLAMP((int)(fx * rec->n), 0, rec->n - 1);
-        int lo = SP_MIN(a, b), hi = SP_MAX(a, b), levels = t->kind == RT_CHOICE && t->opts ? SP_MAX(t->opts->n - 1, 1) : 1;
+        int lo = SP_MIN(a, b), hi = SP_MAX(a, b);
         for (int k = lo; k <= hi; k++) {
-            float f = hi > lo ? (float)(k - a) / (float)(b - a) : 1.0f, v = lastY + (fy - lastY) * f;
-            if (t->kind == RT_NUM) {
-                double val = t->lo + v * (t->hi - t->lo), step = t->step > 0 ? t->step : 1.0;
-                t->v[k] = (float)(round(val / step) * step);
-            } else {
-                t->v[k] = t->kind == RT_BOOL ? (v >= 0.5f) : (float)lroundf(v * levels);
-            }
+            float f = hi > lo ? (float)(k - a) / (float)(b - a) : 1.0f;
+            rec_set(t, k, lastY + (fy - lastY) * f);
         }
         lastX = fx;
         lastY = fy;
@@ -1887,6 +1898,8 @@ static int parse_number(const wchar_t *s, double *v)
     return end && end != s && !*end;
 }
 
+static void preset_reps_set(int p, int n);
+
 /* Applies what was typed; anything that isn't a number (or colour) leaves the value as it was. */
 static void edit_commit(int id)
 {
@@ -1908,6 +1921,8 @@ static void edit_commit(int id)
                 app_save_config();
             }
         }
+    } else if (kind == HK_REC_REPS) {
+        if (parse_number(cus.edit, &v)) preset_reps_set(data, (int)lround(SP_CLAMP(v, 1.0, 1000.0)));   /* capped at RP_MAX_REPS there */
     } else if (kind == HK_LOOKVAL && data == SL_COUNT) {   /* tint: the colour's hue/saturation + its brightness */
         if (!wpapi_parse_rgb(cus.edit, &rgb)) return;
         float h, s, val;
@@ -2352,6 +2367,231 @@ static float draw_rec_graphs(Ui *u, float x, float y, float w, int sec)
     return y + card + 26.0f;
 }
 
+/* ---- graph presets: right-click a track's graph for a shape that fills its loop (LFO shapes and easing curves).
+ * They become the recording's samples, so Speed and Smooth work on them as on anything recorded. */
+
+enum { RP_SINE, RP_TRIANGLE, RP_SAW_UP, RP_SAW_DOWN, RP_SQUARE, RP_PULSE, RP_STEPS, RP_BOUNCE,
+       RP_BREATHE, RP_HEARTBEAT, RP_EASE, RP_SPIKE, RP_WANDER, RP_RANDOM, RP_COUNT };
+#define RP_MAX_REPS 20
+static const wchar_t *const k_presetNames[RP_COUNT] = {
+    L"Sine", L"Triangle", L"Ramp up", L"Ramp down", L"Square", L"Pulse", L"Steps", L"Bounce",
+    L"Breathe", L"Heartbeat", L"Ease in-out", L"Spike", L"Wander", L"Random" };
+static int g_presetReps[RP_COUNT];                   /* how many times each shape repeats in the loop; 0: not read yet */
+
+/* The repeat counts live in <data>/graph-presets.txt, one number per preset, so the last ones chosen come back. */
+static void preset_reps_file(wchar_t *out, size_t cap) { path_join(out, cap, paths_root(), L"graph-presets.txt"); }
+
+static int preset_reps(int p)
+{
+    if (!g_presetReps[0]) {
+        for (int i = 0; i < RP_COUNT; i++) g_presetReps[i] = 1;
+        wchar_t path[SP_MAX_PATH];
+        preset_reps_file(path, SP_COUNTOF(path));
+        FILE *f = _wfopen(path, L"r");
+        if (f) {
+            for (int i = 0, v; i < RP_COUNT && fscanf(f, "%d", &v) == 1; i++) g_presetReps[i] = SP_CLAMP(v, 1, RP_MAX_REPS);
+            fclose(f);
+        }
+    }
+    return g_presetReps[p];
+}
+
+static void preset_reps_set(int p, int n)
+{
+    if (p < 0 || p >= RP_COUNT) return;
+    preset_reps(p);
+    g_presetReps[p] = SP_CLAMP(n, 1, RP_MAX_REPS);
+    wchar_t path[SP_MAX_PATH];
+    preset_reps_file(path, SP_COUNTOF(path));
+    FILE *f = _wfopen(path, L"w");
+    if (!f) return;
+    for (int i = 0; i < RP_COUNT; i++) fprintf(f, "%d%c", g_presetReps[i], i + 1 < RP_COUNT ? ' ' : '\n');
+    fclose(f);
+}
+
+static float preset_hash(unsigned seed, int i)
+{
+    unsigned h = seed * 2654435761u ^ (unsigned)i * 2246822519u;
+    h ^= h >> 15; h *= 2246822519u; h ^= h >> 13; h *= 3266489917u; h ^= h >> 16;
+    return (float)(h & 0xFFFFFF) / 16777215.0f;
+}
+
+/* Periodic value noise: cells points round the loop, smoothly joined, so the end meets the start. */
+static float preset_noise(unsigned seed, float f, int cells)
+{
+    float x = f * (float)cells, s = x - floorf(x);
+    int i = (int)floorf(x) % cells;
+    s = s * s * (3.0f - 2.0f * s);
+    return preset_hash(seed, i) + (preset_hash(seed, (i + 1) % cells) - preset_hash(seed, i)) * s;
+}
+
+static float preset_bump(float f, float c, float w)
+{
+    float d = (f - c) / w;
+    return expf(-d * d);
+}
+
+/* A preset's height (0..1) at phase f (0..1 through the loop). */
+static float preset_eval(int p, float f, unsigned seed)
+{
+    const float tau = 6.2831853f;
+    float s;
+    switch (p) {
+    case RP_SINE:      return 0.5f + 0.5f * sinf(tau * f);
+    case RP_TRIANGLE:  return 1.0f - fabsf(2.0f * f - 1.0f);
+    case RP_SAW_UP:    return f;
+    case RP_SAW_DOWN:  return 1.0f - f;
+    case RP_SQUARE:    return f < 0.5f ? 1.0f : 0.0f;
+    case RP_PULSE:     return f < 0.2f ? 1.0f : 0.0f;
+    case RP_STEPS:     return SP_MIN(floorf(f * 4.0f), 3.0f) / 3.0f;
+    case RP_BOUNCE:    return fabsf(sinf(tau * f));
+    case RP_BREATHE:   return (expf(sinf(tau * f - 1.5707963f)) - 0.36787944f) / 2.35040239f;   /* the "breathing light" curve */
+    case RP_HEARTBEAT: return SP_MIN(0.12f + 0.88f * preset_bump(f, 0.14f, 0.035f) + 0.6f * preset_bump(f, 0.3f, 0.04f), 1.0f);
+    case RP_EASE:                                    /* ease up, hold, ease down, hold */
+        s = f < 0.25f ? f / 0.25f : f < 0.5f ? 1.0f : f < 0.75f ? 1.0f - (f - 0.5f) / 0.25f : 0.0f;
+        return s * s * (3.0f - 2.0f * s);
+    case RP_SPIKE:     return f < 0.04f ? f / 0.04f : expf(-(f - 0.04f) * 7.0f);
+    case RP_WANDER:    return 0.72f * preset_noise(seed, f, 5) + 0.28f * preset_noise(seed + 1, f, 13);
+    case RP_RANDOM:    return preset_hash(seed, SP_MIN((int)(f * 8.0f), 7));
+    default:           return 0.5f;
+    }
+}
+
+/* preset_eval repeated reps times across the loop. */
+static float preset_at(int p, float f, unsigned seed)
+{
+    float x = f * (float)preset_reps(p);
+    return SP_CLAMP(preset_eval(p, x - floorf(x), seed), 0.0f, 1.0f);
+}
+
+/* Fill the whole loop of a track with preset p. Numbers keep the band they were recorded over (a track that hardly
+ * moved gets a quarter of its range either side of its value); on/off and choices use every level. */
+static void rec_apply_preset(int sec, int ti, int p)
+{
+    Rec *rec = &cus.rec[sec];
+    if (!rec->n || ti < 0 || ti >= rec->count || rec->t[ti].kind == RT_COLOR || p < 0 || p >= RP_COUNT) return;
+    RecTrack *t = &rec->t[ti];
+    float lo = 0.0f, hi = 1.0f;
+    if (t->kind == RT_NUM) {
+        float mn = 1.0f, mx = 0.0f;
+        for (int k = 0; k < rec->n; k++) {
+            float v = SP_CLAMP(rec_norm(t, t->v[k], 0), 0.0f, 1.0f);
+            mn = SP_MIN(mn, v);
+            mx = SP_MAX(mx, v);
+        }
+        if (mx - mn >= 0.02f) {
+            lo = mn;
+            hi = mx;
+        } else {
+            lo = mn - 0.25f;
+            hi = mn + 0.25f;
+            if (lo < 0.0f) { hi -= lo; lo = 0.0f; }
+            if (hi > 1.0f) { lo -= hi - 1.0f; hi = 1.0f; }
+        }
+    }
+    unsigned seed = (unsigned)time_ms() | 1u;        /* Wander and Random: a new one each time */
+    for (int k = 0; k < rec->n; k++)
+        rec_set(t, k, lo + (hi - lo) * preset_at(p, (float)k / (float)rec->n, seed));
+    wprec_prepare(rec);
+    rec_save_edit(sec);
+}
+
+static void rec_presets_open(int data)
+{
+    Ui *u = g_ui;
+    int sec = data & 1, ti = data >> 1;
+    if (!cus.rec[sec].n || ti < 0 || ti >= cus.rec[sec].count || cus.rec[sec].t[ti].kind == RT_COLOR) return;
+    cus.presetOpen = 1;
+    cus.presetEdit = 0;
+    cus.presetFor = data;
+    cus.presetX = u->mx;
+    cus.presetY = u->my;
+    cus.presetScroll = u->scroll[PAGE_CUSTOMIZE];
+    ui_invalidate();
+}
+
+int pages_escape(void)
+{
+    if (!cus.presetOpen) return 0;
+    cus.presetOpen = 0;
+    ui_invalidate();
+    return 1;
+}
+
+/* The presets over everything: a picture of each shape; a click outside closes it. Right-click one for its repeat
+ * count: - and + at its foot (hits data RP_COUNT + i and 2 * RP_COUNT + i). */
+static void draw_rec_presets(Ui *u)
+{
+    if (!cus.presetOpen) return;
+    int sec = cus.presetFor & 1, ti = cus.presetFor >> 1;
+    Rec *rec = &cus.rec[sec];
+    if (u->page != PAGE_CUSTOMIZE || !cus.graphs[sec] || !rec->n || ti >= rec->count ||
+        fabsf(u->scroll[PAGE_CUSTOMIZE] - cus.presetScroll) > 0.5f) {
+        cus.presetOpen = 0;
+        return;
+    }
+    Theme *t = &u->t;
+    const int cols = 4, rows = (RP_COUNT + cols - 1) / cols;
+    const float tw = 112.0f, th = 84.0f, gap = 8.0f, pad = 14.0f, head = 46.0f;
+    float pw = pad * 2 + cols * tw + (cols - 1) * gap, ph = head + rows * th + (rows - 1) * gap + pad;
+    float px = SP_MAX(SP_MIN(cus.presetX, u->w - pw - 8.0f), SIDEBAR_W + 8.0f);
+    float py = SP_MAX(SP_MIN(cus.presetY, u->h - ph - 8.0f), 8.0f);
+
+    ui_fill(rectf(0, 0, u->w, u->h), col_a(t->scrim, t->scrim.a * 0.5f));
+    ui_hit(HIT_ID(HK_REC_PRESET, -1), rectf(0, 0, u->w, u->h), 0, 0);
+    D2D1_RECT_F pr = rectf(px, py, pw, ph);
+    ui_rrect(pr, 14, t->bg);
+    ui_glass(pr, 14, 0, 1);
+    ui_hit(HIT_ID(HK_REC_PRESET, -2), pr, 0, 0);
+    wchar_t label[80], title[120];
+    rec_track_label(&rec->t[ti], sec, label, SP_COUNTOF(label));
+    str_printf(title, SP_COUNTOF(title), L"Presets \u00b7 %ls", label);
+    ui_text(title, u->fBodyB, rectf(px + pad + 2, py + 6, pw - pad * 2, head - 8), t->text);
+
+    for (int i = 0; i < RP_COUNT; i++) {
+        float tx = px + pad + (i % cols) * (tw + gap), ty = py + head + (i / cols) * (th + gap);
+        int id = HIT_ID(HK_REC_PRESET, i), hot = ui_is_hot(id);
+        D2D1_RECT_F tr = rectf(tx, ty, tw, th);
+        ui_rrect(tr, 10, hot ? t->panelHover : t->field);
+        if (hot) ui_rrect_stroke(tr, 10, 1, t->accent);
+        float gx = tx + 12, gw = tw - 24, gy = ty + 12, gh = th - 40;
+        ui_line(gx, gy + gh, gx + gw, gy + gh, 1.0f, col_a(t->text3, 0.35f));   /* baseline */
+        float lx = gx, ly = 0;
+        for (float dx = 0; dx <= gw + 0.01f; dx += 1.5f) {
+            float ny = gy + gh - preset_at(i, dx / gw, 7u) * gh;
+            if (dx > 0) ui_line(lx, ly, gx + dx, ny, 1.8f, hot ? t->accent : col_a(t->accent, 0.85f));
+            lx = gx + dx;
+            ly = ny;
+        }
+        ui_hit(id, tr, 1, 1);
+        ui_focus_ring(tr, 10, id);
+        wchar_t name[48];
+        int reps = preset_reps(i);
+        if (cus.presetEdit == i + 1) {                 /* - ×n + */
+            float by = ty + th - 28, bs = 24;
+            int idm = HIT_ID(HK_REC_PRESET, RP_COUNT + i), idp = HIT_ID(HK_REC_PRESET, 2 * RP_COUNT + i);
+            D2D1_RECT_F rm = rectf(tx + 6, by, bs, bs), rp = rectf(tx + tw - 6 - bs, by, bs, bs);
+            ui_rrect(rm, 6, ui_is_hot(idm) ? t->accent : t->chip);
+            ui_rrect(rp, 6, ui_is_hot(idp) ? t->accent : t->chip);
+            ui_text(L"\u2212", u->fCenterS, rm, reps > 1 ? (ui_is_hot(idm) ? t->onAccent : t->text) : t->text3);
+            ui_text(L"+", u->fCenterS, rp, reps < RP_MAX_REPS ? (ui_is_hot(idp) ? t->onAccent : t->text) : t->text3);
+            ui_hit(idm, rm, 0, 1);
+            ui_hit(idp, rp, 0, 1);
+            int idv = HIT_ID(HK_REC_REPS, i);          /* the number: click to type one */
+            str_printf(name, SP_COUNTOF(name), L"%d", reps);
+            /* "×" and the number centred together between - and + */
+            float nw = SP_MAX(ui_text_width(u->textFocus == idv ? cus.edit : name, u->fBody), ui_text_width(name, u->fBody));
+            float xw = ui_text_width(L"\u00d7", u->fBody), gx0 = tx + (tw - (xw + 3.0f + nw)) * 0.5f;
+            ui_text(L"\u00d7", u->fBody, rectf(gx0, ty + th - 30, xw + 1.0f, 28), t->text2);
+            value_field(u, idv, name, gx0 + xw + 3.0f, 1, ty + th - 30, 28, t->text);
+        } else {
+            if (reps > 1) str_printf(name, SP_COUNTOF(name), L"%ls \u00d7%d", k_presetNames[i], reps);
+            else str_copy(name, SP_COUNTOF(name), k_presetNames[i]);
+            ui_text(name, u->fCenterS, rectf(tx, ty + th - 26, tw, 20), hot ? t->text : t->text2);
+        }
+    }
+}
+
 static float draw_look_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
 {
     Theme *t = &u->t;
@@ -2722,6 +2962,7 @@ static void draw_customise(Ui *u, float cx, float cw)
     ui_pop_clip();
     finish_scroll(u, PAGE_CUSTOMIZE, y + 8, top);
     draw_scrollbar(u, view, PAGE_CUSTOMIZE);
+    draw_rec_presets(u);
 }
 
 /* ================================================================ dispatch */
@@ -2913,7 +3154,28 @@ void pages_activate(int id, int dbl)
         app_save_config();
         break;
     case HK_REC:           if (cus.take && cus.takeSec == (data & 1)) rec_stop(); else rec_start(data & 1); break;
-    case HK_REC_EDIT:      cus.graphs[data & 1] = !cus.graphs[data & 1]; ui_invalidate(); break;
+    case HK_REC_EDIT:      cus.graphs[data & 1] = !cus.graphs[data & 1]; cus.presetOpen = 0; ui_invalidate(); break;
+    case HK_REC_REPS:
+        if (u->textFocus != id && data >= 0 && data < RP_COUNT) {
+            str_printf(cus.edit, SP_COUNTOF(cus.edit), L"%d", preset_reps(data));
+            edit_begin(id, 1);
+        }
+        break;
+    case HK_REC_PRESET:
+        if (!cus.presetOpen) break;
+        if (data >= RP_COUNT && data < 3 * RP_COUNT) {   /* the repeat count's - or + */
+            int pi = data % RP_COUNT;
+            preset_reps_set(pi, preset_reps(pi) + (data < 2 * RP_COUNT ? -1 : 1));
+        } else if (data >= 0) {
+            rec_apply_preset(cus.presetFor & 1, cus.presetFor >> 1, data);
+            cus.presetOpen = 0;
+        } else if (data == -1) {
+            cus.presetOpen = 0;
+        } else {
+            cus.presetEdit = 0;
+        }
+        ui_invalidate();
+        break;
     case HK_REC_DEL:       rec_delete(data & 1); break;
     case HK_REC_PAUSE:     rec_pause(data & 1); break;
     case HK_RULE_ADD:      pick_rule_app(data & 1); break;
@@ -3083,6 +3345,16 @@ void pages_activate(int id, int dbl)
 void pages_context(int id, int sx, int sy)
 {
     Ui *u = g_ui;
+    if (HIT_KIND(id) == HK_REC_GRAPH) {
+        rec_presets_open(HIT_DATA(id));
+        return;
+    }
+    if (HIT_KIND(id) == HK_REC_PRESET) {             /* a preset: show (or hide) its repeat count */
+        int d = HIT_DATA(id);
+        if (d >= 0 && d < 3 * RP_COUNT) cus.presetEdit = cus.presetEdit == d % RP_COUNT + 1 ? 0 : d % RP_COUNT + 1;
+        ui_invalidate();
+        return;
+    }
     if (HIT_KIND(id) == HK_STORE_CARD || HIT_KIND(id) == HK_STORE_DL) {
         HMENU m = CreatePopupMenu();
         if (!m) return;
@@ -3205,7 +3477,9 @@ const wchar_t *pages_tooltip(int id)
     case HK_REC_EDIT:      return L"Edit the recording";
     case HK_REC_PAUSE:     return cus.rec[HIT_DATA(id) & 1].paused > 0 ? L"Play the recording" : L"Pause the recording";
     case HK_REC_DEL:       return L"Delete the recording";
-    case HK_REC_GRAPH:     return L"Draw over the line to change it";
+    case HK_REC_GRAPH:     return L"Draw over the line to change it; right-click for presets";
+    case HK_REC_REPS:      return L"Type how many times it repeats";
+    case HK_REC_PRESET:    return HIT_DATA(id) >= 0 && HIT_DATA(id) < RP_COUNT ? L"Right-click to change how many times it repeats" : NULL;
     default:               return NULL;
     }
 }
