@@ -98,7 +98,7 @@ endforeach()
 set(SOURCES
     src/main.c
     src/common/util.c src/common/log.c src/common/paths.c src/common/json.c src/common/webfetch.c
-    src/common/ytdlp.c src/common/scrnsave.c src/common/autostart.c
+    src/common/ytdlp.c src/common/scrnsave.c src/common/autostart.c src/common/edid.c
     src/screensaver/screensaver.c
     src/settings/config.c
     src/monitor/monitor.c

@@ -175,6 +175,14 @@ BOOL desktop_host_restack(DesktopHost *h, HWND w, const RECT *screenRect)
     return TRUE;
 }
 
+BOOL desktop_host_fit(const DesktopHost *h, HWND w, const RECT *screenRect)
+{
+    RECT now;
+    if (!w || !GetWindowRect(w, &now) || EqualRect(&now, screenRect)) return FALSE;
+    desktop_host_position(h, w, screenRect);
+    return TRUE;
+}
+
 void desktop_host_refresh(const DesktopHost *h)
 {
     HWND target = h->workerw ? h->workerw : h->parent;

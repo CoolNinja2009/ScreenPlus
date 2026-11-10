@@ -186,12 +186,17 @@ void app_refresh_monitors(void)
     g_desktopGone = 0;
     memcpy(g_app.mons, m, sizeof(MonitorInfo) * (size_t)n);
     g_app.monCount = n;
+    if (config_adopt_monitors(&g_app.cfg, g_app.mons, n)) {
+        LOGI(L"displays: each display's own wallpaper saved");
+        if (!config_save(&g_app.cfg, paths_config())) LOGE(L"config: could not save");
+    }
 }
 
 /* ------------------------------------------------------------------ the shell's API (app.h) */
 
 void app_save_config(void)
 {
+    config_adopt_monitors(&g_app.cfg, g_app.mons, g_app.monCount);   /* a removed wallpaper's displays get their next */
     if (!config_save(&g_app.cfg, paths_config())) LOGE(L"config: could not save");
     push_to_desktop();
 }

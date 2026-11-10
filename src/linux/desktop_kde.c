@@ -9,6 +9,7 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/util.h"
+#include "../common/edid.h"
 #include "../renderer/html/wallpaper_api.h"
 
 #define PLUGIN_ID "org.screenplus.wallpaper"
@@ -41,7 +42,7 @@ static int plasma_script(const char *script, char *out, size_t cap)
 
 /* Plasma's scripting has no refresh rate; kscreen-doctor (part of Plasma) does. It is only asked when the layout
  * changes, since this runs on every poll. */
-typedef struct { LONG x, y; UINT hz; } OutputHz;
+typedef struct { LONG x, y; UINT hz; char name[32]; } OutputHz;   /* name: the connector, DP-1 */
 
 static int read_output_hz(OutputHz *out, int max)
 {
@@ -58,6 +59,7 @@ static int read_output_hz(OutputHz *out, int max)
         for (int k = 0; modes && modes->t == J_ARR && k < modes->n; k++) {
             const JVal *m = &modes->kids[k];
             if (strcmp(json_str(json_get(m, "id"), ""), now)) continue;
+            snprintf(out[n].name, sizeof out[n].name, "%s", json_str(json_get(o, "name"), ""));
             out[n].x = (LONG)json_num(json_get(pos, "x"), 0);
             out[n].y = (LONG)json_num(json_get(pos, "y"), 0);
             out[n++].hz = (UINT)(json_num(json_get(m, "refreshRate"), 0) + 0.5);
@@ -105,7 +107,12 @@ int kde_monitors(MonitorInfo *out, int max)
     }
     for (int i = 0; i < n; i++)
         for (int k = 0; k < hzCount; k++)
-            if (hz[k].x == out[i].rect.left && hz[k].y == out[i].rect.top) out[i].refreshHz = hz[k].hz;
+            if (hz[k].x == out[i].rect.left && hz[k].y == out[i].rect.top) {
+                out[i].refreshHz = hz[k].hz;
+                str_copy(out[i].oldId, SP_COUNTOF(out[i].oldId), out[i].id);     /* screen-N: the id before 2.3 */
+                edid_id_for_connector(hz[k].name, out[i].id, SP_COUNTOF(out[i].id));
+            }
+    edid_dedupe(out, n);
     return n;
 }
 

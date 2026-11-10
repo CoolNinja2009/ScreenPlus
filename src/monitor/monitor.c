@@ -1,5 +1,6 @@
 #include "monitor.h"
 #include "../common/util.h"
+#include "../common/edid.h"
 #include <shellscalingapi.h>
 #include <stdlib.h>
 
@@ -99,12 +100,35 @@ static int cmp_monitor(const void *a, const void *b)
     return 0;
 }
 
+/* \\?\DISPLAY#ACR0B46#5&1a57feca&0&UID4352#{...}: the EDID Windows read from that display is under
+ * HKLM\SYSTEM\CurrentControlSet\Enum\DISPLAY\ACR0B46\5&1a57feca&0&UID4352\Device Parameters. */
+static int read_edid_id(const wchar_t *path, wchar_t *out, size_t cap)
+{
+    const wchar_t *p = path ? wcsstr(path, L"DISPLAY#") : NULL;
+    const wchar_t *a = p ? wcschr(p + 8, L'#') : NULL;
+    const wchar_t *b = a ? wcschr(a + 1, L'#') : NULL;
+    if (!b) return 0;
+    wchar_t key[256];
+    str_printf(key, SP_COUNTOF(key), L"SYSTEM\\CurrentControlSet\\Enum\\DISPLAY\\%.*ls\\%.*ls\\Device Parameters",
+               (int)(a - p - 8), p + 8, (int)(b - a - 1), a + 1);
+    unsigned char edid[512];
+    DWORD n = sizeof edid;
+    if (RegGetValueW(HKEY_LOCAL_MACHINE, key, L"EDID", RRF_RT_REG_BINARY, NULL, edid, &n) != ERROR_SUCCESS) return 0;
+    return edid_id(edid, n, out, cap);
+}
+
 int monitor_enumerate(MonitorInfo *out, int max)
 {
     EnumCtx ctx = { out, max, 0 };
     EnumDisplayMonitors(NULL, NULL, enum_proc, (LPARAM)&ctx);
     apply_friendly_names(out, ctx.count);
     qsort(out, (size_t)ctx.count, sizeof *out, cmp_monitor);
+    for (int i = 0; i < ctx.count; i++) {
+        str_copy(out[i].oldId, SP_COUNTOF(out[i].oldId), out[i].id);
+        wchar_t own[SP_MONID_LEN];
+        if (read_edid_id(out[i].id, own, SP_COUNTOF(own))) str_copy(out[i].id, SP_COUNTOF(out[i].id), own);
+    }
+    edid_dedupe(out, ctx.count);
     for (int i = 0; i < ctx.count; i++) {
         out[i].index = i + 1;
         if (!out[i].name[0] || str_ieq(out[i].name, L"Generic PnP Monitor"))

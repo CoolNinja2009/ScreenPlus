@@ -431,9 +431,23 @@ static void teardown_slots(void)
         if (E.slots[i].used) slot_release(&E.slots[i]);
 }
 
-static void rehost(void)
+/* A display added, removed or moved: Explorer re-lays the desktop out, so a window attached now can end up
+ * outside it (only a restart used to bring it back). Attach everything afresh, as at start. */
+static BOOL displays_changed(void)
 {
-    LOGW(L"desktop host changed (Explorer restart or wallpaper reset); re-attaching wallpapers");
+    MonitorInfo now[SP_MAX_MONITORS];
+    int n = monitor_enumerate(now, SP_MAX_MONITORS);
+    if (n != E.monCount) return TRUE;
+    for (int i = 0; i < n; i++) {
+        const MonitorInfo *was = monitor_find(E.mons, E.monCount, now[i].id);
+        if (!was || !EqualRect(&was->rect, &now[i].rect)) return TRUE;
+    }
+    return FALSE;
+}
+
+static void rehost(const wchar_t *why)
+{
+    LOGW(L"%ls; re-attaching wallpapers", why);
     teardown_slots();
     if (!desktop_host_discover(&E.host) && ++E.rehostAttempts < 8) {
         SetTimer(E.ctl, T_REHOST, 2000, NULL);      /* wait for Explorer to come back */
@@ -449,8 +463,11 @@ static void restack(void)
 {
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &E.slots[i];
-        if (s->used && s->hwnd && desktop_host_restack(&E.host, s->hwnd, &s->mon.rect))
+        if (!s->used || !s->hwnd) continue;
+        if (desktop_host_restack(&E.host, s->hwnd, &s->mon.rect))
             LOGI(L"display %d: the Windows wallpaper covered the wallpaper; moved back on top", i + 1);
+        else if (desktop_host_fit(&E.host, s->hwnd, &s->mon.rect))
+            LOGI(L"display %d: the desktop moved under the wallpaper; placed it back on its display", i + 1);
     }
 }
 
@@ -1228,9 +1245,12 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case T_DISPLAY:
             KillTimer(h, T_DISPLAY);
-            if (!desktop_host_valid(&E.host)) rehost();
+            if (!desktop_host_valid(&E.host)) rehost(L"desktop host changed (Explorer restart or wallpaper reset)");
+            else if (displays_changed()) rehost(L"displays changed");
             else reconcile_slots();
             update_occlusion();
+            E.restackTicks = 80;                     /* Explorer re-lays the desktop out after us */
+            SetTimer(h, T_RESTACK, 100, NULL);
             break;
         case T_RESTACK:
             if (--E.restackTicks <= 0) KillTimer(h, T_RESTACK);
@@ -1238,7 +1258,7 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             break;
         case T_REHOST:
             KillTimer(h, T_REHOST);
-            rehost();
+            rehost(L"desktop host changed (Explorer restart or wallpaper reset)");
             update_occlusion();
             break;
         case T_RETRY: {

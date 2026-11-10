@@ -217,7 +217,7 @@ static LPWSTR find_monitor(IDesktopWallpaper *dw, const MonitorInfo *mon)
         LPWSTR id = NULL;
         RECT rc;
         if (FAILED(IDesktopWallpaper_GetMonitorDevicePathAt(dw, i, &id)) || !id) continue;
-        if (str_ieq(id, mon->id) || (SUCCEEDED(IDesktopWallpaper_GetMonitorRECT(dw, id, &rc)) && EqualRect(&rc, &mon->rect)))
+        if (str_ieq(id, mon->oldId) || (SUCCEEDED(IDesktopWallpaper_GetMonitorRECT(dw, id, &rc)) && EqualRect(&rc, &mon->rect)))
             return id;
         CoTaskMemFree(id);
     }

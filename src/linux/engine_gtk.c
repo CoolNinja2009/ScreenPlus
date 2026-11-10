@@ -17,6 +17,7 @@
 #include "../common/paths.h"
 #include "../common/util.h"
 #include "../common/json.h"
+#include "../common/edid.h"
 #include "../renderer/html/wallpaper_api.h"
 
 /* A fixed table: mpv's update callback can outlive a teardown, so a slot's address must stay valid. */
@@ -524,7 +525,9 @@ static void sync_slots(void)
         if (s) {
             snprintf(seen[seenCount++], sizeof seen[0], "%s", name);
             wchar_t *id = wide_from_utf8(name, -1);
-            const wchar_t *wp = id ? config_assignment(&g_cfg, id) : L"";
+            wchar_t own[SP_MONID_LEN];                  /* the service saves each display under its EDID id */
+            const wchar_t *key = id && edid_id_for_connector(name, own, SP_COUNTOF(own)) && config_saved_for(&g_cfg, own) ? own : id;
+            const wchar_t *wp = key ? config_assignment(&g_cfg, key) : L"";
             WallpaperEntry *e = wp[0] ? config_find(&g_cfg, wp) : NULL;
             int web = e && e->type == WP_HTML;
             int useSpan = span && e && !web;            /* a page can't be cut: it repeats on each display */

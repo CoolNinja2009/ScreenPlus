@@ -340,9 +340,7 @@ static void cmd_displays(Reply *r)
     sb_puts(&r->data, "[");
     for (int i = 0; i < g_app.monCount; i++) {
         const MonitorInfo *m = &g_app.mons[i];
-        const wchar_t *own = NULL;
-        for (int a = 0; a < g_app.cfg.assignCount; a++)
-            if (str_ieq(g_app.cfg.assign[a].monitorId, m->id)) own = g_app.cfg.assign[a].wallpaperId;
+        int own = config_has_override(&g_app.cfg, m->id);
         WallpaperEntry *e = config_find(&g_app.cfg, app_wallpaper_for(m->id));
         say(r, L"Display %d  %ls, %ldx%ld @ %u Hz, %u dpi%ls\n", m->index, m->name, m->rect.right - m->rect.left,
             m->rect.bottom - m->rect.top, m->refreshHz, m->dpi, m->primary ? L", primary" : L"");
@@ -353,9 +351,26 @@ static void cmd_displays(Reply *r)
         jstr(&r->data, m->name);
         sb_puts(&r->data, ",\"id\":");
         jstr(&r->data, m->id);
-        sb_printf(&r->data, ",\"width\":%ld,\"height\":%ld,\"hz\":%u,\"dpi\":%u,\"primary\":%s,\"ownWallpaper\":%s,\"wallpaper\":",
+        sb_printf(&r->data, ",\"width\":%ld,\"height\":%ld,\"hz\":%u,\"dpi\":%u,\"primary\":%s,\"connected\":true,\"ownWallpaper\":%s,\"wallpaper\":",
                   m->rect.right - m->rect.left, m->rect.bottom - m->rect.top, m->refreshHz, m->dpi,
                   m->primary ? "true" : "false", own ? "true" : "false");
+        j_wallpaper(&r->data, e);
+        sb_puts(&r->data, "}");
+    }
+    /* displays not connected now keep their wallpaper for when they are */
+    int saved = 0;
+    for (int a = 0; a < g_app.cfg.assignCount; a++) {
+        const MonitorAssignment *s = &g_app.cfg.assign[a];
+        if (monitor_find(g_app.mons, g_app.monCount, s->monitorId)) continue;
+        WallpaperEntry *e = config_find(&g_app.cfg, s->wallpaperId);
+        if (!saved++) say(r, L"Saved for displays not connected now:\n");
+        say(r, L"  %ls: %ls\n           id: %ls\n", s->details[0] ? s->details : L"(unknown display)", e ? e->name : L"(none)", s->monitorId);
+        if (g_app.monCount || saved > 1) sb_puts(&r->data, ",");
+        sb_puts(&r->data, "{\"index\":0,\"name\":");
+        jstr(&r->data, s->details);
+        sb_puts(&r->data, ",\"id\":");
+        jstr(&r->data, s->monitorId);
+        sb_puts(&r->data, ",\"connected\":false,\"ownWallpaper\":true,\"wallpaper\":");
         j_wallpaper(&r->data, e);
         sb_puts(&r->data, "}");
     }

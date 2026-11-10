@@ -33,10 +33,10 @@ void app_notice(int kind, const wchar_t *fmt, ...)
 void app_refresh_monitors(void)
 {
     g_app.monCount = monitor_enumerate(g_app.mons, SP_MAX_MONITORS);
-    const wchar_t *ids[SP_MAX_MONITORS];
-    for (int i = 0; i < g_app.monCount; i++) ids[i] = g_app.mons[i].id;
-    if (config_adopt_monitors(&g_app.cfg, ids, g_app.monCount)) {
-        LOGI(L"a display came back on another port or dock: its wallpaper follows it");
+    for (int i = 0; i < g_app.monCount; i++)
+        LOGD(L"display %d: %ls (%ls)", g_app.mons[i].index, g_app.mons[i].name, g_app.mons[i].id);
+    if (config_adopt_monitors(&g_app.cfg, g_app.mons, g_app.monCount)) {
+        LOGI(L"displays: each display's own wallpaper saved");
         if (g_app.shellWnd) app_save_config();          /* the engine reloads */
         else config_save(&g_app.cfg, paths_config());   /* startup: the engine isn't running yet */
     }
@@ -85,6 +85,7 @@ const wchar_t *app_engine_state_text(int *severity)
 
 void app_save_config(void)
 {
+    config_adopt_monitors(&g_app.cfg, g_app.mons, g_app.monCount);   /* a removed wallpaper's displays get their next */
     if (!config_save(&g_app.cfg, paths_config()))
         app_notice(NOTICE_ERROR, L"Settings could not be saved. Check that %ls is writable.", paths_root());
     supervisor_send(CMD_RELOAD_CONFIG, 0);

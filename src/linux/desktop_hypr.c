@@ -2,6 +2,7 @@
 #include "desktop.h"
 #include "../common/json.h"
 #include "../common/util.h"
+#include "../common/edid.h"
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -51,6 +52,8 @@ int hypr_monitors(MonitorInfo *out, int max)
         memset(o, 0, sizeof *o);
         json_str_w(json_get(m, "name"), o->id, SP_COUNTOF(o->id));
         if (!o->id[0]) continue;
+        str_copy(o->oldId, SP_COUNTOF(o->oldId), o->id);               /* the connector, DP-1 */
+        edid_id_for_connector(json_str(json_get(m, "name"), ""), o->id, SP_COUNTOF(o->id));
         json_str_w(json_get(m, "description"), o->name, SP_COUNTOF(o->name));
         if (!o->name[0]) str_copy(o->name, SP_COUNTOF(o->name), o->id);
         o->rect.left = (LONG)json_num(json_get(m, "x"), 0);
@@ -65,6 +68,7 @@ int hypr_monitors(MonitorInfo *out, int max)
         n++;
     }
     json_free(j);
+    edid_dedupe(out, n);
     return n;
 }
 

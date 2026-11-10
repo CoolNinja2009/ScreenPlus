@@ -9,7 +9,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(ROOT ${CMAKE_SOURCE_DIR}/src)
 set(SHARED
     compat.c winobj.c run.c desktop_hypr.c apprules.c
-    ${ROOT}/common/util.c ${ROOT}/common/paths.c ${ROOT}/common/log.c ${ROOT}/common/json.c
+    ${ROOT}/common/util.c ${ROOT}/common/paths.c ${ROOT}/common/log.c ${ROOT}/common/json.c ${ROOT}/common/edid.c
     ${ROOT}/settings/config.c ${ROOT}/renderer/html/wallpaper_api.c)
 
 add_executable(screenplus cli.c service.c desktop_kde.c url_import.c http_linux.c preview.c feed.c webhost.c ${SHARED}

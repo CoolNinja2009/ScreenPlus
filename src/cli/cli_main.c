@@ -302,7 +302,7 @@ static const wchar_t k_help[] =
     L"  collection add|remove <name> <wallpaper>...   put wallpapers in a collection or take them out\n"
     L"  collection play <name | favourites> [every <minutes>]   a slideshow of just that collection\n"
     L"  slides <wallpaper> [seconds]           a PowerPoint wallpaper's time per slide (imported .pptx files)\n"
-    L"  displays                               monitors and what they show\n"
+    L"  displays                               monitors, what they show, saved ones not connected\n"
     L"\n"
     L"Customise (the wallpaper on screen, or the one on --display N)\n"
     L"  mode [independent|duplicate|span]      how wallpapers spread over the displays\n"

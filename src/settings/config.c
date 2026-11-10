@@ -1,9 +1,11 @@
 #include "config.h"
 #include "../common/util.h"
 #include "../common/log.h"
+#include "../monitor/monitor.h"
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
+#include <wctype.h>
 
 #define CONFIG_MAX_FILE (8 * 1024 * 1024)
 
@@ -304,22 +306,53 @@ static int find_assign(const Config *c, const wchar_t *monitorId)
 
 const wchar_t *config_assignment(const Config *c, const wchar_t *monitorId)
 {
-    int a = monitorId && c->s.displayMode == DM_INDEPENDENT ? find_assign(c, monitorId) : -1;
+    int own = monitorId && c->s.displayMode == DM_INDEPENDENT;
+    int a = own ? find_assign(c, monitorId) : -1;
     if (a >= 0 && config_index_of(c, c->assign[a].wallpaperId) >= 0) return c->assign[a].wallpaperId;
-    if (config_index_of(c, c->defaultWallpaper) >= 0) return c->defaultWallpaper;
-    return L"";
+    /* a display with nothing saved (or whose wallpaper was removed) gets the first by name; before the
+     * shell has saved one per display (an update from 2.2), the default it was showing */
+    if ((!own || !c->perDisplay) && config_index_of(c, c->defaultWallpaper) >= 0) return c->defaultWallpaper;
+    return config_first_by_name(c);
+}
+
+static int name_cmp(const wchar_t *x, const wchar_t *y)
+{
+    for (;; x++, y++) {
+        wint_t p = towlower(*x), q = towlower(*y);
+        if (p != q || !p) return p < q ? -1 : p > q;
+    }
+}
+
+const wchar_t *config_first_by_name(const Config *c)
+{
+    const WallpaperEntry *best = NULL;
+    for (int pass = 0; pass < 2 && !best; pass++)          /* a wallpaper whose file is there, if any is */
+        for (int i = 0; i < c->count; i++) {
+            const WallpaperEntry *e = &c->items[i];
+            if ((!pass && e->missing) || !e->id[0]) continue;
+            int d = best ? name_cmp(e->name, best->name) : -1;
+            if (d < 0 || (d == 0 && wcscmp(e->id, best->id) < 0)) best = e;
+        }
+    return best ? best->id : L"";
+}
+
+BOOL config_saved_for(const Config *c, const wchar_t *monitorId)
+{
+    return monitorId && find_assign(c, monitorId) >= 0;
 }
 
 BOOL config_has_override(const Config *c, const wchar_t *monitorId)
 {
-    return monitorId && c->s.displayMode == DM_INDEPENDENT && find_assign(c, monitorId) >= 0;
+    int a = monitorId && c->s.displayMode == DM_INDEPENDENT ? find_assign(c, monitorId) : -1;
+    return a >= 0 && !str_ieq(c->assign[a].wallpaperId, c->defaultWallpaper);
 }
 
 void config_assign(Config *c, const wchar_t *monitorId, const wchar_t *wallpaperId)
 {
     if (!monitorId) {
         str_copy(c->defaultWallpaper, SP_ID_LEN, wallpaperId);
-        c->assignCount = 0;   /* "all displays" replaces every override */
+        for (int a = 0; a < c->assignCount && c->s.displayMode == DM_INDEPENDENT; a++)
+            str_copy(c->assign[a].wallpaperId, SP_ID_LEN, wallpaperId);   /* every display keeps it as its own */
         return;
     }
     int a = find_assign(c, monitorId);
@@ -338,37 +371,81 @@ void config_assign(Config *c, const wchar_t *monitorId, const wchar_t *wallpaper
 void config_clear_override(Config *c, const wchar_t *monitorId)
 {
     int a = find_assign(c, monitorId);
-    if (a >= 0) c->assign[a] = c->assign[--c->assignCount];
+    if (a < 0) return;
+    /* back to the all-displays wallpaper, still saved as its own so it stays with the display */
+    if (config_index_of(c, c->defaultWallpaper) >= 0) str_copy(c->assign[a].wallpaperId, SP_ID_LEN, c->defaultWallpaper);
+    else c->assign[a] = c->assign[--c->assignCount];
 }
 
-/* \\?\DISPLAY#DEL40F3#5&2b1c&0&UID4352#{...} -> DEL40F3 (the monitor model). */
+/* The monitor model: \\?\DISPLAY#DEL40F3#5&2b1c&0&UID4352#{...} or EDID:DEL40F3:serial -> DEL40F3. */
 static int monitor_model(const wchar_t *id, wchar_t *out, size_t cap)
 {
-    const wchar_t *p = id ? wcsstr(id, L"DISPLAY#") : NULL;
-    const wchar_t *e = p ? wcschr(p + 8, L'#') : NULL;
-    if (!e || e == p + 8 || (size_t)(e - p - 8) >= cap) return 0;
-    wmemcpy(out, p + 8, (size_t)(e - p - 8));
-    out[e - p - 8] = 0;
+    const wchar_t *p = NULL, *e = NULL;
+    if (id && str_istarts(id, L"EDID:")) p = id + 5, e = wcschr(p, L':');
+    else if (id && (p = wcsstr(id, L"DISPLAY#")) != NULL) p += 8, e = wcschr(p, L'#');
+    if (!e || e == p || (size_t)(e - p) >= cap) return 0;
+    wmemcpy(out, p, (size_t)(e - p));
+    out[e - p] = 0;
     return 1;
 }
 
-int config_adopt_monitors(Config *c, const wchar_t *const *ids, int n)
+static int connected_id(const MonitorInfo *mons, int n, const wchar_t *id)
+{
+    for (int k = 0; k < n; k++)
+        if (str_ieq(mons[k].id, id)) return 1;
+    return 0;
+}
+
+int config_adopt_monitors(Config *c, const MonitorInfo *mons, int n)
 {
     int changed = 0;
     for (int m = 0; m < n; m++) {
-        wchar_t model[64], other[64];
-        if (find_assign(c, ids[m]) >= 0 || !monitor_model(ids[m], model, SP_COUNTOF(model))) continue;
-        int found = -1, count = 0;
-        for (int a = 0; a < c->assignCount; a++) {
-            if (!monitor_model(c->assign[a].monitorId, other, SP_COUNTOF(other)) || !str_ieq(model, other)) continue;
-            int connected = 0;
-            for (int k = 0; k < n && !connected; k++) connected = str_ieq(ids[k], c->assign[a].monitorId);
-            if (!connected) { found = a; count++; }
-        }
-        if (count == 1) {
-            str_copy(c->assign[found].monitorId, SP_MONID_LEN, ids[m]);
+        const MonitorInfo *mon = &mons[m];
+        int a = find_assign(c, mon->id);
+        if (a < 0 && mon->oldId[0] && !str_ieq(mon->oldId, mon->id) && (a = find_assign(c, mon->oldId)) >= 0) {
+            str_copy(c->assign[a].monitorId, SP_MONID_LEN, mon->id);     /* saved by 2.2 under its port */
             changed++;
         }
+        wchar_t model[64], other[64];
+        if (a < 0 && monitor_model(mon->id, model, SP_COUNTOF(model))) {
+            /* the same model on a port now empty: that display moved. Only port ids: a saved serial is
+             * another display's, however alike. */
+            int found = -1, count = 0;
+            for (int k = 0; k < c->assignCount; k++) {
+                if (str_istarts(c->assign[k].monitorId, L"EDID:") && str_istarts(mon->id, L"EDID:")) continue;
+                if (!monitor_model(c->assign[k].monitorId, other, SP_COUNTOF(other)) || !str_ieq(model, other)) continue;
+                if (!connected_id(mons, n, c->assign[k].monitorId)) { found = k; count++; }
+            }
+            if (count == 1) {
+                str_copy(c->assign[found].monitorId, SP_MONID_LEN, mon->id);
+                a = found;
+                changed++;
+            }
+        }
+        if (a < 0 || config_index_of(c, c->assign[a].wallpaperId) < 0) {
+            const wchar_t *wp = !c->perDisplay && config_index_of(c, c->defaultWallpaper) >= 0 ? c->defaultWallpaper
+                                                                                               : config_first_by_name(c);
+            if (wp[0]) {
+                config_assign(c, mon->id, wp);
+                a = find_assign(c, mon->id);
+                changed++;
+            }
+        }
+        if (a >= 0) {
+            wchar_t det[96];
+            str_printf(det, SP_COUNTOF(det), L"%ls, %ldx%ld @ %u Hz", mon->name, mon->rect.right - mon->rect.left,
+                       mon->rect.bottom - mon->rect.top, mon->refreshHz);
+            for (wchar_t *q = det; *q; q++)
+                if (*q == L'\r' || *q == L'\n') *q = L' ';
+            if (wcscmp(det, c->assign[a].details) != 0) {
+                str_copy(c->assign[a].details, SP_COUNTOF(c->assign[a].details), det);
+                changed++;
+            }
+        }
+    }
+    if (n > 0 && !c->perDisplay) {
+        c->perDisplay = 1;
+        changed++;
     }
     return changed;
 }
@@ -376,7 +453,7 @@ int config_adopt_monitors(Config *c, const wchar_t *const *ids, int n)
 const wchar_t *config_screensaver(const Config *c)
 {
     if (config_index_of(c, c->screensaver) >= 0) return c->screensaver;
-    return config_index_of(c, c->defaultWallpaper) >= 0 ? c->defaultWallpaper : L"";
+    return config_index_of(c, c->defaultWallpaper) >= 0 ? c->defaultWallpaper : config_first_by_name(c);
 }
 
 /* ---------------------------------------------------------------- parsing */
@@ -394,7 +471,7 @@ static int64_t parse_i64(const wchar_t *v)
     return n < 0 ? 0 : n;
 }
 
-typedef enum { SEC_NONE, SEC_APP, SEC_SETTINGS, SEC_ASSIGN, SEC_WALLPAPER, SEC_UNKNOWN } Section;
+typedef enum { SEC_NONE, SEC_APP, SEC_SETTINGS, SEC_ASSIGN, SEC_DISPLAYS, SEC_WALLPAPER, SEC_UNKNOWN } Section;
 
 static void finish_entry(Config *c, WallpaperEntry *e, int *open)
 {
@@ -430,6 +507,7 @@ static int parse_text(Config *c, wchar_t *text)
             if (str_ieq(name, L"screenplus")) { sec = SEC_APP; sawHeader = 1; }
             else if (str_ieq(name, L"settings")) sec = SEC_SETTINGS;
             else if (str_ieq(name, L"assignments")) sec = SEC_ASSIGN;
+            else if (str_ieq(name, L"displays")) sec = SEC_DISPLAYS;
             else if (str_ieq(name, L"wallpaper")) {
                 sec = SEC_WALLPAPER;
                 memset(&cur, 0, sizeof cur);
@@ -491,7 +569,13 @@ static int parse_text(Config *c, wchar_t *text)
                 s->theme = str_ieq(val, L"light") ? THEME_LIGHT : str_ieq(val, L"dark") ? THEME_DARK : THEME_SYSTEM;
             break;
         }
+        case SEC_DISPLAYS: {
+            int a = find_assign(c, key);
+            if (a >= 0) str_copy(c->assign[a].details, SP_COUNTOF(c->assign[a].details), val);
+            break;
+        }
         case SEC_ASSIGN:
+            if (str_ieq(key, L"per_display")) { c->perDisplay = _wtoi(val) != 0; break; }
             if (!valid_id(val)) break;
             if (str_ieq(key, L"default")) str_copy(c->defaultWallpaper, SP_ID_LEN, val);
             else if (str_ieq(key, L"screensaver")) str_copy(c->screensaver, SP_ID_LEN, val);
@@ -640,10 +724,19 @@ BOOL config_save(const Config *c, const wchar_t *path)
         sb_put_wide(&b, c->screensaver);
         sb_puts(&b, "\r\n");
     }
+    if (c->perDisplay) sb_puts(&b, "per_display=1\r\n");
     for (int a = 0; a < c->assignCount; a++) {
         sb_put_wide(&b, c->assign[a].monitorId);
         sb_puts(&b, "=");
         sb_put_wide(&b, c->assign[a].wallpaperId);
+        sb_puts(&b, "\r\n");
+    }
+    sb_puts(&b, "\r\n[displays]\r\n");        /* which display each saved id is */
+    for (int a = 0; a < c->assignCount; a++) {
+        if (!c->assign[a].details[0]) continue;
+        sb_put_wide(&b, c->assign[a].monitorId);
+        sb_puts(&b, "=");
+        sb_put_wide(&b, c->assign[a].details);
         sb_puts(&b, "\r\n");
     }
     for (int i = 0; i < c->count; i++) {

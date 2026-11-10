@@ -86,6 +86,7 @@ static inline int entry_slide_sec(const WallpaperEntry *e) { return e->slideSec 
 typedef struct MonitorAssignment {
     wchar_t monitorId[SP_MONID_LEN];
     wchar_t wallpaperId[SP_ID_LEN];
+    wchar_t details[96];                 /* "XV272U X1, 2560x1440 @ 200 Hz": which display, for people reading config.ini */
 } MonitorAssignment;
 
 typedef struct Settings {
@@ -135,6 +136,7 @@ typedef struct Config {
     wchar_t           screensaver[SP_ID_LEN];   /* screensaver wallpaper, "": the desktop's default */
     MonitorAssignment assign[CONFIG_MAX_ASSIGN];
     int               assignCount;
+    int               perDisplay;               /* displays have their own saved wallpaper (2.3+) */
     WallpaperEntry   *items;
     int               count;
     int               cap;
@@ -167,15 +169,21 @@ WallpaperEntry *config_add(Config *c, WallpaperType type, const wchar_t *path, c
 BOOL            config_remove(Config *c, const wchar_t *id);
 BOOL            config_move(Config *c, int from, int to);   /* library order: the entry at from goes to index to */
 
-/* Effective wallpaper id for a monitor: per-monitor override (independent mode only), else the
- * default ("" if none). */
+/* Effective wallpaper id for a monitor: the one saved for that display (independent mode), or the default
+ * (duplicate/span); when none is saved or it was removed, the first wallpaper by name ("" for an empty library). */
 const wchar_t  *config_assignment(const Config *c, const wchar_t *monitorId);
-BOOL            config_has_override(const Config *c, const wchar_t *monitorId);
+const wchar_t  *config_first_by_name(const Config *c);
+BOOL            config_has_override(const Config *c, const wchar_t *monitorId);   /* its own, not the default */
+BOOL            config_saved_for(const Config *c, const wchar_t *monitorId);      /* anything saved under that id */
+/* NULL monitor = all displays: the default and every saved display's wallpaper. */
 void            config_assign(Config *c, const wchar_t *monitorIdOrNull, const wchar_t *wallpaperId);
 void            config_clear_override(Config *c, const wchar_t *monitorId);
-/* A display moved to another port or dock gets a new id: re-key the one override stored for the same
- * model whose display isn't connected. ids: the connected displays. Returns how many changed. */
-int             config_adopt_monitors(Config *c, const wchar_t *const *ids, int n);
+/* Every display keeps its own wallpaper under its EDID id (monitor.h), with its details (name, size, rate) in
+ * [displays]. On each refresh of the connected displays: an override saved under a display's old port id, or for the
+ * same model on a port now empty, moves to its id; a display with nothing saved gets the first wallpaper by name
+ * (the first time, after an update from 2.2, the default it was showing). Returns how many changed. */
+struct MonitorInfo;
+int             config_adopt_monitors(Config *c, const struct MonitorInfo *mons, int n);
 /* Screensaver wallpaper id: the chosen one, else the desktop's default ("" if none). */
 const wchar_t  *config_screensaver(const Config *c);
 

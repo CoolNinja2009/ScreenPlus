@@ -42,7 +42,7 @@ static const char k_help[] =
     "  next                   The next wallpaper\n"
     "  remove <wallpaper>     Remove it from the library\n"
     "  move <wallpaper> <n>   Put it at place n in the library (first, last)\n"
-    "  displays               Connected displays\n"
+    "  displays               Displays, and saved ones not connected\n"
     "  mode [independent|duplicate|span]\n"
     "  store [search <words> | more | get <n>]   The Store: list, search, download\n"
     "  sharp [file.onnx]      Your own SHARP model for Make wallpaper cooler (not included)\n"
