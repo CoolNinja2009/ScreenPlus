@@ -12,20 +12,48 @@ echo "Building Screen+ $ver ($kind)"
 # One .rpm for every Fedora and one Ubuntu .deb for 24.04 (KDE neon's base) and newer: the depth module carries its own
 # FFmpeg (the system's sonames differ per release). Ubuntu 24.04 has no SDL3 or gtk4-layer-shell, so that .deb carries
 # them too (beside the program, the RUNPATH of screenplus-ui.so and screenplus-engine).
+# They come from the CI cache (.gitlab-ci.yml, keyed on their build scripts) and are compiled again only when the cache
+# has none for this script, REBUILD_LIBS=1 is set, or Screen+ fails to build against them.
 own=
 if [ "$kind" = rpm ] || [ "$distro" = ubuntu ]; then
     own=1
-    bash scripts/build-ffmpeg-linux.sh "$PWD/ffmpeg-own"
     export PKG_CONFIG_PATH=$PWD/ffmpeg-own/lib/pkgconfig
 fi
 if [ "$distro" = ubuntu ]; then
-    bash scripts/build-libs-linux.sh "$PWD/libs-own"
     export PKG_CONFIG_PATH=$PWD/libs-own/lib/pkgconfig:$PKG_CONFIG_PATH
 fi
-cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSCREENPLUS_VERSION="$VERSION"
-cmake --build build-linux
-build-linux/src/linux/screenplus version
-build-linux/src/linux/screenplus help > /dev/null
+
+own_lib() {         # prefix script [force]: the cached build when it matches the script, else build it
+    local stamp
+    stamp=$(sha256sum "$2" | cut -d' ' -f1)
+    if [ -z "${3:-}" ] && [ "${REBUILD_LIBS:-}" != 1 ] && [ "$(cat "$1/.built" 2>/dev/null)" = "$stamp" ]; then
+        echo "Using the cached $1"
+        return
+    fi
+    echo "Building $1"
+    rm -rf "$1" "$1.src"
+    bash "$2" "$PWD/$1"
+    echo "$stamp" > "$1/.built"
+    rm -rf "$1.src"
+}
+own_libs() {
+    if [ -n "$own" ]; then own_lib ffmpeg-own scripts/build-ffmpeg-linux.sh "${1:-}"; fi
+    if [ "$distro" = ubuntu ]; then own_lib libs-own scripts/build-libs-linux.sh "${1:-}"; fi
+}
+build_app() {
+    rm -rf build-linux
+    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSCREENPLUS_VERSION="$VERSION" &&
+        cmake --build build-linux &&
+        build-linux/src/linux/screenplus version &&
+        build-linux/src/linux/screenplus help > /dev/null
+}
+own_libs
+if ! build_app; then
+    [ -n "$own" ] || exit 1
+    echo "Screen+ didn't build against the cached libraries: compiling them again"
+    own_libs force
+    build_app
+fi
 mkdir -p release
 
 pack_tar() {        # after stage: the installed tree, whose RUNPATHs are $ORIGIN

@@ -26,7 +26,8 @@ workflow:
 stages: [version, build, release]
 
 # The Windows build runs on the runner on the developer's PC. For GitLab's own Windows machines instead,
-# start a pipeline by hand with BUILD_RUNNER set to saas-windows-medium-amd64.
+# start a pipeline by hand with BUILD_RUNNER set to saas-windows-medium-amd64. REBUILD_LIBS=1 compiles the Linux
+# packages' own FFmpeg, SDL3 and gtk4-layer-shell again instead of taking them from the cache.
 variables:
   BUILD_RUNNER: screenplus-pc
 
@@ -112,6 +113,11 @@ ubuntu:
     - *apt
     - apt-get install -y --no-install-recommends meson patchelf curl xz-utils nasm libdav1d-dev zlib1g-dev libwayland-dev wayland-protocols libxkbcommon-dev libegl-dev libgl-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libdecor-0-dev libdbus-1-dev
     - bash scripts/gitlab-linux.sh deb ubuntu
+  cache:                        # FFmpeg, SDL3 and gtk4-layer-shell, compiled again only when their script changes
+    - key: { prefix: ffmpeg-ubuntu, files: [scripts/build-ffmpeg-linux.sh] }
+      paths: [ffmpeg-own/]
+    - key: { prefix: libs-ubuntu, files: [scripts/build-libs-linux.sh] }
+      paths: [libs-own/]
 
 # The same .deb on the newest Ubuntu
 ubuntu-newest:
@@ -156,6 +162,9 @@ fedora:
     - if [ "$SKIP" = 1 ]; then exit 0; fi
     - dnf install -y gcc cmake ninja-build pkgconf-pkg-config rpm-build make nasm xz patchelf 'pkgconfig(dav1d)' 'pkgconfig(zlib)' 'pkgconfig(sdl3)' 'pkgconfig(cairo)' 'pkgconfig(pangocairo)' 'pkgconfig(fontconfig)' 'pkgconfig(gtk4)' 'pkgconfig(gtk4-layer-shell-0)' 'pkgconfig(webkitgtk-6.0)' 'pkgconfig(mpv)' 'pkgconfig(epoxy)'
     - bash scripts/gitlab-linux.sh rpm
+  cache:
+    - key: { prefix: ffmpeg-fedora, files: [scripts/build-ffmpeg-linux.sh] }
+      paths: [ffmpeg-own/]
 
 release:
   stage: release

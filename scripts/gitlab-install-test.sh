@@ -17,7 +17,17 @@ retry() {
         sleep 30
     done
 }
-suse_ready() { zypper --non-interactive refresh && zypper --non-interactive install tar gzip gawk grep findutils; }
+# download.opensuse.org sends each file to a mirror, and one behind the index fails every retry the same way: then
+# take everything from openSUSE's own server, which is never behind.
+suse_ready() {
+    if ! zypper --non-interactive refresh; then
+        echo "A mirror is behind: using downloadcontent.opensuse.org"
+        sed -i 's#://download\.opensuse\.org#://downloadcontent.opensuse.org#' /etc/zypp/repos.d/*.repo
+        zypper --non-interactive clean --all
+        zypper --non-interactive refresh || return 1
+    fi
+    zypper --non-interactive install tar gzip gawk grep findutils
+}
 
 case $distro in
     arch) retry pacman -Syu --noconfirm --needed tar gzip gawk grep ;;
