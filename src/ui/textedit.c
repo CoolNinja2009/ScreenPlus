@@ -510,9 +510,7 @@ int te_char(wchar_t ch)
         return 1;
     case 3: te_copy_sel(); return 1;          /* Ctrl+C through WM_CHAR, when the key wasn't handled */
     case 24: te_cut_sel(); return 1;
-    case 22:
-        te_paste();
-        return 1;
+    case 22: return 1;                       /* Ctrl+V was handled on keydown; swallow its WM_CHAR */
     default:
         if (ch < 32) return 0;
         {

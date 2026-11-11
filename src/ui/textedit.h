@@ -22,7 +22,7 @@ void    te_sel_all(void);
 wchar_t te_char_at(int i);                            /* watcher/debug aid: the character under caret */
 
 int  te_key(UINT vk, int ctrl, int shift);            /* 1 consumed */
-int  te_char(wchar_t ch);                             /* 1 consumed (printable, backspace, Ctrl+V via WM_CHAR) */
+int  te_char(wchar_t ch);                             /* 1 consumed (printable, backspace, Ctrl+V's WM_CHAR) */
 
 void te_set_layout(IDWriteTextFormat *f, D2D1_RECT_F r);      /* geometry of the text being drawn, each paint */
 void te_click(int clicks, float x);                   /* 1 caret, 2 word, 3+ all; x is window-relative */
