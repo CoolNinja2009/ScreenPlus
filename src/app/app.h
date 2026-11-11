@@ -242,7 +242,41 @@ void              depth_model_dir(int i, wchar_t *out, size_t cap);    /* its fo
 BOOL              depth_choose_model(int i, HWND owner);               /* a user model: asks for its .onnx; FALSE: cancelled */
 BOOL              depth_set_model_file(int i, const wchar_t *path);    /* a user model: remembers its .onnx */
 BOOL              depth_model_has_weights(const wchar_t *onnx);        /* FALSE: a small graph with no weights file beside it */
+void              depth_model_delete(int i);
 void              depth_motion_model(wchar_t *out, size_t cap);        /* SegFormer (motion regions): its model.onnx */
+BOOL              depth_motion_model_ready(void);
+void              depth_motion_model_delete(void);
+void              depth_upscale_model(wchar_t *out, size_t cap);       /* Real-ESRGAN Compact ONNX model */
+BOOL              upscale_model_ready(void);
+void              upscale_model_delete(void);
+BOOL              depth_runtime_ready(void);
+BOOL              depth_upscale_video_path(const WallpaperEntry *entry, wchar_t *out, size_t cap);
+BOOL              depth_upscale_video_ready(const WallpaperEntry *entry);
+BOOL              depth_upscale_video_start(const WallpaperEntry *entry);
+void              depth_upscale_video_auto(void);
+typedef struct RealEsrganSession RealEsrganSession;
+RealEsrganSession *realesrgan_open(int inputWidth, int inputHeight);
+BOOL               realesrgan_run(RealEsrganSession *session, const uint8_t *rgb, uint8_t **bgra, int *outputWidth, int *outputHeight);
+void               realesrgan_close(RealEsrganSession *session);
+int                realesrgan_video_main(const wchar_t *source, const wchar_t *output, HWND notify);
+
+typedef struct AppModelInfo {
+    int            index;       /* 0..7 */
+    const wchar_t *key;         /* "da2-small", "da2-base", etc. */
+    const wchar_t *name;        /* display name */
+    const wchar_t *desc;        /* description */
+    int64_t        size;        /* total download size */
+    BOOL           ready;       /* downloaded and ready */
+    BOOL           downloading; /* currently downloading */
+} AppModelInfo;
+
+int               model_mgr_count(void);
+BOOL              model_mgr_get(int index, AppModelInfo *out);
+BOOL              model_mgr_ready(int index);
+BOOL              model_mgr_in_use(int index);
+BOOL              model_mgr_download(int index);
+BOOL              model_mgr_delete(int index);
+int               model_mgr_downloading_index(void);
 /* How well this PC runs a model: level 5 very good .. 1 very hard, 0 can't run; seconds: the estimated time
  * for one picture, or for `videoSeconds` of video when that is > 0. */
 typedef struct DepthEstimate { int level; double seconds; int gpu; } DepthEstimate;

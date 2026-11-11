@@ -34,12 +34,14 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdLine, int show)
     int scr = str_ieq(path_ext(paths_exe()), L".scr");    /* 1: started as the .scr, 2: --screensaver */
     HWND shell = NULL, depthNotify = NULL;
     const wchar_t *capture = NULL, *depthImage = NULL, *depthDir = NULL, *depthModel = L"";
+    const wchar_t *upscaleVideo = NULL, *upscaleOutput = NULL;
     for (int i = 1; i < argc; i++) {
         if (str_ieq(argv[i], L"--engine")) engine = 1;
         else if (str_ieq(argv[i], L"--safe-mode")) safeMode = 1;
         else if (str_istarts(argv[i], L"--shell=")) shell = (HWND)(uintptr_t)wcstoull(argv[i] + 8, NULL, 16);
         else if (str_ieq(argv[i], L"--capture-preview") && i + 1 < argc) capture = argv[++i];
         else if (str_ieq(argv[i], L"--depth") && i + 2 < argc) { depthImage = argv[i + 1]; depthDir = argv[i + 2]; i += 2; }
+        else if (str_ieq(argv[i], L"--upscale-video") && i + 2 < argc) { upscaleVideo = argv[++i]; upscaleOutput = argv[++i]; }
         else if (str_ieq(argv[i], L"--cpu")) depthMode = DEPTH_CPU;
         else if (str_ieq(argv[i], L"--bench")) depthMode = DEPTH_BENCH;
         else if (str_ieq(argv[i], L"--crashed")) depthMode = DEPTH_CRASHED;
@@ -49,7 +51,8 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE prev, PWSTR cmdLine, int show)
         else if (str_ieq(argv[i], L"--notify") && i + 1 < argc) depthNotify = (HWND)(uintptr_t)wcstoull(argv[++i], NULL, 16);
         else if (str_ieq(argv[i], L"--screensaver") && !scr) scr = 2;
     }
-    int rc = scr ? screensaver_main(inst, argc, argv, scr == 1) : depthImage ? depth_infer_main(depthImage, depthDir, depthMode, wantPng, depthModel, depthVideo, depthNotify)
+    int rc = scr ? screensaver_main(inst, argc, argv, scr == 1) : upscaleVideo ? realesrgan_video_main(upscaleVideo, upscaleOutput, depthNotify)
+           : depthImage ? depth_infer_main(depthImage, depthDir, depthMode, wantPng, depthModel, depthVideo, depthNotify)
            : capture ? preview_capture_main(capture) : engine ? engine_main(inst, shell, safeMode) : app_main(inst, argc, argv);
     LocalFree(argv);
     return rc;

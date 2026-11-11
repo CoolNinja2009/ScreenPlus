@@ -1,4 +1,5 @@
 #include "wallpaper_api.h"
+#include "../../app/app.h"
 #include "../../common/util.h"
 #include "../../common/json.h"
 #include "../../common/paths.h"
@@ -172,7 +173,7 @@ static JVal *property_values(const WallpaperEntry *wp, const JVal *over)
     }
     if (wp->flags & WPFLAG_DEPTH)      /* the Upscaling card reaches depth.html as a property of its own */
         sb_printf(&b, "%s\"upscale\":%d", count++ ? "," : "",
-                  SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_SHARP));
+                  SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_REALESRGAN));
     sb_puts(&b, "}");
     JVal *vals = b.failed ? NULL : json_parse(b.p, b.len);
     sb_free(&b);
@@ -502,7 +503,7 @@ void wpapi_clear_properties(const wchar_t *wallpaperId)
     wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
     JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
     const JVal *a = json_geti(over, "_screenplus_adjust");
-    int up = (int)json_num(json_geti(over, "_screenplus_upscale"), 0);
+    int up = SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_REALESRGAN);
     StrBuf b = { 0 };
     if (a) json_write(&b, a);
     DeleteFileW(p);
@@ -519,15 +520,16 @@ int wpapi_load_upscale(const wchar_t *wallpaperId)
     wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
     if (!file_exists(p)) return UPSCALE_OFF;
     JVal *over = json_parse_file(p);
-    int m = SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_SHARP);
+    int m = SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_REALESRGAN);
     json_free(over);
+    if (m == UPSCALE_REALESRGAN && !upscale_model_ready()) return UPSCALE_OFF;
     return m;
 }
 
 void wpapi_save_upscale(const wchar_t *wallpaperId, int mode)
 {
     if (!wallpaperId || !wallpaperId[0]) return;
-    mode = SP_CLAMP(mode, UPSCALE_OFF, UPSCALE_SHARP);
+    mode = SP_CLAMP(mode, UPSCALE_OFF, UPSCALE_REALESRGAN);
     char v[8];
     snprintf(v, sizeof v, "%d", mode);
     save_override_file(wallpaperId, "_screenplus_upscale", mode ? v : NULL);
@@ -772,7 +774,7 @@ void wpapi_props_free(CustomProp *list, int count)
 
 /* ================================================================ recordings */
 
-static const char *const k_recSection[REC_SECTIONS] = { "look", "props" };
+static const char *const k_recSection[REC_SECTIONS] = { "look", "props", "volume" };
 
 double wprec_now(void) { return (double)(filetime_now() / 10000ULL) - 11644473600000.0; }
 

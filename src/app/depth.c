@@ -28,6 +28,7 @@
 #include "../common/webfetch.h"
 #include "../common/json.h"
 #include "../renderer/renderer.h"
+#include "../renderer/html/wallpaper_api.h"
 #include "../../resources/resource.h"
 #ifdef _WIN32
 #include <dxgi.h>
@@ -63,6 +64,9 @@
 #define SEG_URL      L"https://huggingface.co/JElvis/upernet-convnext-tiny-ade-onnx/resolve/main/model.onnx"
 #define SEG_SIZE     ((int64_t)238434293)
 #define SEG_SHA      "fea729ab6c5d338bc79ad3d986b073e6faa12c97255eafd78a1f7145326e534e"
+#define UPS_URL      L"https://huggingface.co/Heliosoph/realesrgan-onnx/resolve/main/realesr-general-x4v3.onnx"
+#define UPS_SIZE     ((int64_t)4871181)
+#define UPS_SHA      "09b757accd747d7e423c1d352b3e8f23e77cc5742d04bae958d4eb8082b76fa4"
 #define INFER_MS     (15 * 60 * 1000)          /* a picture */
 #define VIDEO_MS     (6 * 60 * 60 * 1000)      /* a whole video on a slow machine */
 
@@ -113,6 +117,7 @@ typedef struct DepthJob {
     wchar_t id[SP_ID_LEN];          /* wallpaper to convert; empty: only fetch the files */
     wchar_t source[SP_MAX_PATH];    /* its picture or video */
     int     model;                  /* k_models */
+    int     fetchKind;              /* 0: depth model, 1: motion model, 2: upscale model */
     int     video;
     wchar_t dir[SP_MAX_PATH];       /* <data>\depth\<id> */
     HANDLE  cancel;                 /* manual-reset event */
@@ -493,13 +498,20 @@ static void keep_user_model(int i, BOOL copy)
     free(files);
 }
 
-static BOOL ensure_assets(DepthJob *j)
+BOOL depth_runtime_ready(void)
 {
-    wchar_t ortDir[SP_MAX_PATH], dll[SP_MAX_PATH], dir[SP_MAX_PATH], file[SP_MAX_PATH], what[160];
-    const DepthModel *m = depth_model(j->model);
+    wchar_t ortDir[SP_MAX_PATH], dll[SP_MAX_PATH];
     in_depth(ortDir, SP_COUNTOF(ortDir), L"ort");
     path_join(dll, SP_COUNTOF(dll), ortDir, ORT_FILE);
-    if (!file_is(dll, ORT_DLL_SIZE, ORT_DLL_SHA)) {              /* the DLL is code we load: always verified */
+    return file_is(dll, ORT_DLL_SIZE, ORT_DLL_SHA);
+}
+
+static BOOL ensure_runtime(DepthJob *j)
+{
+    wchar_t ortDir[SP_MAX_PATH], dll[SP_MAX_PATH];
+    in_depth(ortDir, SP_COUNTOF(ortDir), L"ort");
+    path_join(dll, SP_COUNTOF(dll), ortDir, ORT_FILE);
+    if (!depth_runtime_ready()) {                                 /* the DLL is code we load: always verified */
         wchar_t pkg[SP_MAX_PATH], tar[SP_MAX_PATH], cmd[2200];
         DWORD code = 1;
         if (!dir_create_recursive(ortDir)) {
@@ -527,6 +539,14 @@ static BOOL ensure_assets(DepthJob *j)
         }
         LOGI(L"depth: installed ONNX Runtime 1.24.4");
     }
+    return TRUE;
+}
+
+static BOOL ensure_assets(DepthJob *j)
+{
+    wchar_t dir[SP_MAX_PATH], file[SP_MAX_PATH], what[160];
+    const DepthModel *m = depth_model(j->model);
+    if (!ensure_runtime(j)) return FALSE;
     if (depth_model_ready(j->model)) {
         if (m->user) {
             set_status(-1, L"Keeping your model…");
@@ -553,6 +573,279 @@ static BOOL ensure_assets(DepthJob *j)
 }
 
 void depth_motion_model(wchar_t *out, size_t cap) { in_depth(out, cap, L"models\\upernet-convnext-tiny\\model.onnx"); }
+
+BOOL depth_motion_model_ready(void)
+{
+    wchar_t file[SP_MAX_PATH];
+    depth_motion_model(file, SP_COUNTOF(file));
+    return file_is(file, SEG_SIZE, NULL);
+}
+
+void depth_motion_model_delete(void)
+{
+    wchar_t file[SP_MAX_PATH], dir[SP_MAX_PATH];
+    depth_motion_model(file, SP_COUNTOF(file));
+    DeleteFileW(file);
+    path_dirname(dir, SP_COUNTOF(dir), file);
+    RemoveDirectoryW(dir);
+}
+
+void depth_upscale_model(wchar_t *out, size_t cap)
+{
+    in_depth(out, cap, L"models\\upscale\\model.onnx");
+}
+
+BOOL upscale_model_ready(void)
+{
+    wchar_t file[SP_MAX_PATH];
+    depth_upscale_model(file, SP_COUNTOF(file));
+    return file_is(file, UPS_SIZE, UPS_SHA) && depth_runtime_ready();
+}
+
+BOOL depth_upscale_video_path(const WallpaperEntry *e, wchar_t *out, size_t cap)
+{
+    WIN32_FILE_ATTRIBUTE_DATA fd;
+    if (!e || e->type != WP_VIDEO || (e->flags & WPFLAG_YTDLP) || !e->id[0] || !file_exists(e->path) ||
+        !GetFileAttributesExW(e->path, GetFileExInfoStandard, &fd)) return FALSE;
+    uint64_t h = 1469598103934665603ULL;
+    const wchar_t *p = e->path;
+    for (; *p; p++) { h ^= (uint16_t)*p; h *= 1099511628211ULL; }
+    uint64_t size = ((uint64_t)fd.nFileSizeHigh << 32) | fd.nFileSizeLow;
+    uint64_t time = ((uint64_t)fd.ftLastWriteTime.dwHighDateTime << 32) | fd.ftLastWriteTime.dwLowDateTime;
+    h ^= size; h *= 1099511628211ULL;
+    h ^= time; h *= 1099511628211ULL;
+    wchar_t dir[SP_MAX_PATH];
+    in_depth(dir, SP_COUNTOF(dir), L"upscale-cache");
+    wchar_t name[SP_ID_LEN + 32];
+    str_printf(name, SP_COUNTOF(name), L"%ls-%016llX.mkv", e->id, (unsigned long long)h);
+    path_join(out, cap, dir, name);
+    return TRUE;
+}
+
+BOOL depth_upscale_video_ready(const WallpaperEntry *e)
+{
+    wchar_t path[SP_MAX_PATH];
+    return depth_upscale_video_path(e, path, SP_COUNTOF(path)) && file_exists(path);
+}
+
+void upscale_model_delete(void)
+{
+    wchar_t file[SP_MAX_PATH], dir[SP_MAX_PATH];
+    depth_upscale_model(file, SP_COUNTOF(file));
+    DeleteFileW(file);
+    path_dirname(dir, SP_COUNTOF(dir), file);
+    RemoveDirectoryW(dir);
+}
+
+void depth_model_delete(int i)
+{
+    if (i < 0 || i >= (int)SP_COUNTOF(k_models)) return;
+    wchar_t f[SP_MAX_PATH], dir[SP_MAX_PATH];
+    depth_model_file(i, f, SP_COUNTOF(f));
+    DeleteFileW(f);
+    model_data_file(i, f, SP_COUNTOF(f));
+    DeleteFileW(f);
+    depth_model_dir(i, dir, SP_COUNTOF(dir));
+    wchar_t bj[SP_MAX_PATH];
+    path_join(bj, SP_COUNTOF(bj), dir, L"backend.json");
+    DeleteFileW(bj);
+    wchar_t pt[SP_MAX_PATH];
+    path_join(pt, SP_COUNTOF(pt), dir, L"path.txt");
+    DeleteFileW(pt);
+    RemoveDirectoryW(dir);
+    g_gen++;
+}
+
+static const struct {
+    const wchar_t *key;
+    const wchar_t *name;
+    const wchar_t *desc;
+    int            depthIdx;
+    int64_t        size;
+} k_mgrModels[] = {
+    { L"da2-small", L"Depth Anything 2 Small", L"Fast and light depth estimation", 0, 99060839 },
+    { L"da2-base",  L"Depth Anything 2 Base",  L"Sharper edges and finer detail", 1, 388917010 },
+    { L"da2-large", L"Depth Anything 2 Large", L"Detailed depth, wants strong GPU", 2, 1336922232 },
+    { L"da3-small", L"Depth Anything 3 Small", L"Newer and steadier for videos", 3, 640691 + 104702464 },
+    { L"da3-base",  L"Depth Anything 3 Base",  L"Solid shapes and accurate depth", 4, 646912 + 412068352 },
+    { L"da3-large", L"Depth Anything 3 Large", L"Heavyweight, high-accuracy depth", 5, 1093118 + 1381741568 },
+    { L"motion",    L"ADE20K Motion Regions",  L"Segments sky, water, and plants", -1, SEG_SIZE },
+    { L"upscale",   L"Real-ESRGAN Upscaling",  L"Deblurs and sharpens videos & images", -2, UPS_SIZE },
+};
+
+int model_mgr_count(void)
+{
+    return (int)SP_COUNTOF(k_mgrModels);
+}
+
+BOOL model_mgr_ready(int index)
+{
+    if (index < 0 || index >= (int)SP_COUNTOF(k_mgrModels)) return FALSE;
+    int di = k_mgrModels[index].depthIdx;
+    if (di >= 0) return depth_model_ready(di);
+    if (di == -1) return depth_motion_model_ready();
+    if (di == -2) return upscale_model_ready();
+    return FALSE;
+}
+
+BOOL model_mgr_in_use(int index)
+{
+    if (!g_job || index < 0 || index >= (int)SP_COUNTOF(k_mgrModels)) return FALSE;
+    int di = k_mgrModels[index].depthIdx;
+    return di >= 0 && g_job->fetchKind == 0 && g_job->model == di;
+}
+
+int model_mgr_downloading_index(void)
+{
+    if (!g_job) return -1;
+    if (g_job->fetchKind == 1) return 6;
+    if (g_job->fetchKind == 2) return 7;
+    if (g_job->fetchKind == 0 && !g_job->id[0] && !g_job->outFile[0]) {
+        for (int i = 0; i < 6; i++) {
+            if (k_mgrModels[i].depthIdx == g_job->model) return i;
+        }
+    }
+    return -1;
+}
+
+BOOL model_mgr_get(int index, AppModelInfo *out)
+{
+    if (!out || index < 0 || index >= (int)SP_COUNTOF(k_mgrModels)) return FALSE;
+    out->index = index;
+    out->key = k_mgrModels[index].key;
+    out->name = k_mgrModels[index].name;
+    out->desc = k_mgrModels[index].desc;
+    out->size = k_mgrModels[index].size;
+    out->ready = model_mgr_ready(index);
+    out->downloading = (model_mgr_downloading_index() == index);
+    return TRUE;
+}
+
+static DWORD WINAPI worker(LPVOID p);
+
+BOOL model_mgr_download(int index)
+{
+    if (g_job || index < 0 || index >= (int)SP_COUNTOF(k_mgrModels) || model_mgr_ready(index)) return FALSE;
+    int di = k_mgrModels[index].depthIdx;
+    DepthJob *j = (DepthJob *)calloc(1, sizeof *j);
+    if (!j) return FALSE;
+    j->cancel = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (di >= 0) {
+        j->model = di;
+        j->fetchKind = 0;
+    } else if (di == -1) {
+        j->fetchKind = 1;
+    } else if (di == -2) {
+        j->fetchKind = 2;
+    }
+    AcquireSRWLockExclusive(&g_lock);
+    g_state.busy = 1;
+    g_state.percent = -1;
+    g_state.failed = 0;
+    str_printf(g_state.text, SP_COUNTOF(g_state.text), L"Downloading %ls…", k_mgrModels[index].name);
+    g_state.id[0] = 0;
+    ReleaseSRWLockExclusive(&g_lock);
+    g_job = j;
+    g_thread = j->cancel ? CreateThread(NULL, 0, worker, j, 0, NULL) : NULL;
+    if (!g_thread) {
+        g_job = NULL;
+        if (j->cancel) CloseHandle(j->cancel);
+        free(j);
+        AcquireSRWLockExclusive(&g_lock);
+        g_state.busy = 0;
+        g_state.percent = -1;
+        g_state.failed = 1;
+        str_copy(g_state.text, SP_COUNTOF(g_state.text), L"Could not start the download.");
+        ReleaseSRWLockExclusive(&g_lock);
+        ui_on_status();
+        return FALSE;
+    }
+    ui_on_status();
+    return TRUE;
+}
+
+BOOL depth_upscale_video_start(const WallpaperEntry *e)
+{
+    wchar_t cache[SP_MAX_PATH], dir[SP_MAX_PATH];
+    if (!e || !upscale_model_ready() || depth_upscale_video_ready(e) || g_job ||
+        !depth_upscale_video_path(e, cache, SP_COUNTOF(cache))) return FALSE;
+    path_dirname(dir, SP_COUNTOF(dir), cache);
+    if (!dir_create_recursive(dir)) return FALSE;
+    DepthJob *j = (DepthJob *)calloc(1, sizeof *j);
+    if (!j) return FALSE;
+    j->cancel = CreateEventW(NULL, TRUE, FALSE, NULL);
+    if (!j->cancel) { free(j); return FALSE; }
+    j->fetchKind = 3;
+    j->video = 1;
+    str_copy(j->id, SP_COUNTOF(j->id), e->id);
+    str_copy(j->source, SP_COUNTOF(j->source), e->path);
+    str_copy(j->outFile, SP_COUNTOF(j->outFile), cache);
+    AcquireSRWLockExclusive(&g_lock);
+    g_state.busy = 1;
+    g_state.failed = 0;
+    g_state.percent = 0;
+    str_copy(g_state.id, SP_COUNTOF(g_state.id), e->id);
+    str_copy(g_state.text, SP_COUNTOF(g_state.text), L"Preparing Real-ESRGAN video cache…");
+    ReleaseSRWLockExclusive(&g_lock);
+    g_job = j;
+    g_thread = CreateThread(NULL, 0, worker, j, 0, NULL);
+    if (!g_thread) {
+        g_job = NULL;
+        CloseHandle(j->cancel);
+        free(j);
+        AcquireSRWLockExclusive(&g_lock);
+        g_state.busy = 0;
+        g_state.percent = -1;
+        g_state.failed = 1;
+        str_copy(g_state.text, SP_COUNTOF(g_state.text), L"Could not start Real-ESRGAN video processing.");
+        ReleaseSRWLockExclusive(&g_lock);
+        ui_on_status();
+        return FALSE;
+    }
+    ui_on_status();
+    return TRUE;
+}
+
+void depth_upscale_video_auto(void)
+{
+    if (!upscale_model_ready() || g_job) return;
+    for (int i = 0; i < g_app.monCount; i++) {
+        WallpaperEntry *e = config_find(&g_app.cfg, app_wallpaper_for(g_app.mons[i].id));
+        if (e && e->type == WP_VIDEO && wpapi_load_upscale(e->id) == UPSCALE_REALESRGAN && depth_upscale_video_start(e)) return;
+    }
+    WallpaperEntry *e = config_find(&g_app.cfg, app_wallpaper_for(NULL));
+    if (e && e->type == WP_VIDEO && wpapi_load_upscale(e->id) == UPSCALE_REALESRGAN) depth_upscale_video_start(e);
+}
+
+BOOL model_mgr_delete(int index)
+{
+    if (index < 0 || index >= (int)SP_COUNTOF(k_mgrModels) || !model_mgr_ready(index) || model_mgr_in_use(index)) return FALSE;
+    int di = k_mgrModels[index].depthIdx;
+    if (di >= 0) depth_model_delete(di);
+    else if (di == -1) depth_motion_model_delete();
+    else if (di == -2) upscale_model_delete();
+    if (model_mgr_ready(index)) return FALSE;      /* a failed filesystem delete must not be reported as success */
+
+    if (di >= 0 && str_ieq(g_app.cfg.s.depthModel, k_mgrModels[index].key)) {
+        int fallback = -1;
+        for (int i = 0; i < (int)SP_COUNTOF(k_mgrModels); i++) {
+            if (i != index && k_mgrModels[i].depthIdx >= 0 && model_mgr_ready(i)) { fallback = i; break; }
+        }
+        if (fallback < 0) {
+            for (int i = 0; i < (int)SP_COUNTOF(k_mgrModels); i++) {
+                if (i != index && k_mgrModels[i].depthIdx >= 0) { fallback = i; break; }
+            }
+        }
+        if (fallback >= 0) {
+            str_copy(g_app.cfg.s.depthModel, SP_COUNTOF(g_app.cfg.s.depthModel), k_mgrModels[fallback].key);
+            app_save_config();
+        }
+    }
+    if (di == -2) app_apply_customise();       /* loaded renderers must stop using Sharp immediately */
+    ui_on_config_changed();
+    ui_on_customise_changed();
+    return TRUE;
+}
 
 /* The motion model is a bonus: if it can't be fetched the picture still gets its depth, just no motion. */
 static BOOL ensure_motion(DepthJob *j)
@@ -944,6 +1237,42 @@ static const wchar_t *failure_text(DepthJob *j, DWORD code)
 
 static void run(DepthJob *j)
 {
+    if (j->fetchKind == 1) {
+        wchar_t file[SP_MAX_PATH], dir[SP_MAX_PATH];
+        depth_motion_model(file, SP_COUNTOF(file));
+        path_dirname(dir, SP_COUNTOF(dir), file);
+        dir_create_recursive(dir);
+        j->ok = download(j, L"Downloading the motion model", SEG_URL, SEG_SIZE, SEG_SHA, file);
+        if (!j->ok && !cancelled(j)) fail(j, j->error[0] ? j->error : L"Downloading motion model failed.");
+        return;
+    }
+    if (j->fetchKind == 2) {
+        wchar_t file[SP_MAX_PATH], dir[SP_MAX_PATH];
+        depth_upscale_model(file, SP_COUNTOF(file));
+        path_dirname(dir, SP_COUNTOF(dir), file);
+        dir_create_recursive(dir);
+        j->ok = ensure_runtime(j) &&
+                (file_is(file, UPS_SIZE, UPS_SHA) || download(j, L"Downloading upscaling model", UPS_URL, UPS_SIZE, UPS_SHA, file));
+        if (!j->ok && !cancelled(j)) fail(j, j->error[0] ? j->error : L"Downloading upscaling model failed.");
+        return;
+    }
+    if (j->fetchKind == 3) {
+        wchar_t tmp[SP_MAX_PATH], cmd[2400];
+        DWORD code = 1;
+        str_printf(tmp, SP_COUNTOF(tmp), L"%ls.tmp.mkv", j->outFile);
+        DeleteFileW(tmp);
+        set_status(0, L"Starting Real-ESRGAN video preprocessing…");
+        str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --upscale-video \"%ls\" \"%ls\" --notify %llx",
+                   paths_exe(), j->source, tmp, (unsigned long long)(uintptr_t)g_app.shellWnd);
+        j->ok = run_hidden(j, cmd, VIDEO_MS, &code) && code == 0 &&
+                MoveFileExW(tmp, j->outFile, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        if (!j->ok) {
+            DeleteFileW(tmp);
+            if (!cancelled(j)) fail(j, code == 3 ? L"Real-ESRGAN could not start. Check the model and ONNX Runtime." :
+                                     L"Real-ESRGAN could not finish preprocessing this video.");
+        }
+        return;
+    }
     wchar_t depthFile[SP_MAX_PATH], name[64];
     if (!ensure_assets(j)) return;
     if (j->outFile[0]) {                           /* one picture's depth map for a wallpaper that reads it */
@@ -1174,6 +1503,16 @@ static BOOL convert(DepthJob *j, wchar_t *text, size_t cap)
 void depth_on_event(WPARAM wp, LPARAM lp)
 {
     DepthJob *j = (DepthJob *)lp;
+    if (wp == 3) {                                 /* cached Real-ESRGAN frame progress */
+        int done = (int)(lp & 0xffff), total = (int)((lp >> 16) & 0xffff);
+        if (!g_job || g_job->fetchKind != 3 || total <= 0) return;
+        AcquireSRWLockExclusive(&g_lock);
+        g_state.percent = SP_MIN(99, done * 100 / total);
+        str_printf(g_state.text, SP_COUNTOF(g_state.text), L"Preprocessing Real-ESRGAN video… %d of %d", done, total);
+        ReleaseSRWLockExclusive(&g_lock);
+        ui_on_status();
+        return;
+    }
     if (wp == 2) {                                 /* the child's frame count */
         int done = (int)(lp & 0xffff), total = (int)((lp >> 16) & 0xffff);
         if (!g_job || total <= 0) return;
@@ -1194,9 +1533,17 @@ void depth_on_event(WPARAM wp, LPARAM lp)
     g_job = NULL;
     g_gen++;                                       /* new measurements */
     wchar_t text[400] = L"";
-    int ok = j->ok && (!j->id[0] || convert(j, text, SP_COUNTOF(text)));
+    int cachedVideo = j->fetchKind == 3;
+    int ok = j->ok && (cachedVideo || !j->id[0] || convert(j, text, SP_COUNTOF(text)));
+    int upscaleDownload = j->fetchKind == 2;
     int stopped = !ok && WaitForSingleObject(j->cancel, 0) == WAIT_OBJECT_0;
     if (ok && j->outFile[0]) str_copy(text, SP_COUNTOF(text), L"The background now has depth.");
+    else if (ok && j->fetchKind == 1) str_copy(text, SP_COUNTOF(text), L"Motion model is ready.");
+    else if (ok && j->fetchKind == 2) str_copy(text, SP_COUNTOF(text), L"Upscaling model is ready.");
+    else if (ok && cachedVideo) {
+        WallpaperEntry *e = config_find(&g_app.cfg, j->id);
+        str_printf(text, SP_COUNTOF(text), L"Real-ESRGAN cache is ready for '%ls'.", e ? e->name : L"the video");
+    }
     else if (ok && !j->id[0]) str_copy(text, SP_COUNTOF(text), L"Interactive images are ready.");
     if (ok && text[0] && (!j->autoStart || !j->id[0])) app_notice(NOTICE_INFO, L"%ls", text);
     else if (!ok && !stopped) {
@@ -1211,8 +1558,13 @@ void depth_on_event(WPARAM wp, LPARAM lp)
     ReleaseSRWLockExclusive(&g_lock);
     CloseHandle(j->cancel);
     free(j);
+    if (ok && upscaleDownload) app_apply_customise(); /* the saved Sharp setting can take effect now */
+    if (ok && cachedVideo) app_restart_renderer();
     ui_on_status();
+    ui_on_customise_changed();
+    ui_on_config_changed();
     if (ok) depth_auto_all(FALSE);                 /* the setting is on: the next picture waiting for its turn */
+    depth_upscale_video_auto();
 }
 
 void depth_revert(const wchar_t *id)

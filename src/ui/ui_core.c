@@ -1155,7 +1155,8 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SETCURSOR:
         if (LOWORD(lp) == HTCLIENT) {
             const Hit *hit = u->hot ? hit_find(u, u->hot) : NULL;
-            LPCWSTR c = hit && hit->cursor == 1 ? IDC_HAND : hit && hit->cursor == 2 ? IDC_IBEAM : IDC_ARROW;
+            LPCWSTR c = hit && hit->cursor == 1 ? IDC_HAND : hit && hit->cursor == 2 ? IDC_IBEAM
+                      : hit && hit->cursor == 3 ? IDC_CROSS : IDC_ARROW;
             SetCursor(LoadCursorW(NULL, c));
             return TRUE;
         }

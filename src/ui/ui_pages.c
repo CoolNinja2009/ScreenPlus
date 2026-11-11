@@ -312,10 +312,11 @@ static float draw_hero(Ui *u, float x, float y, float w)
 
     float rx = prev.right + 26, rw = card.right - 22 - rx, ry = y + 22;
     wchar_t cap[96];
-    if (mid) str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING  ·  DISPLAY %d", g_app.mons[u->target].index);
+    int isSlide = g_app.cfg.s.slideshow && !g_app.cfg.s.schedule;
+    if (mid) str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING%ls  ·  DISPLAY %d", isSlide ? L" (SLIDESHOW)" : L"", g_app.mons[u->target].index);
     else if (g_app.monCount > 1 && g_app.cfg.s.displayMode == DM_SPAN)
-        str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING  ·  SPANNED ACROSS %d DISPLAYS", g_app.monCount);
-    else str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING  ·  %ls", g_app.monCount > 1 ? L"ALL DISPLAYS" : L"DESKTOP");
+        str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS", isSlide ? L" (SLIDESHOW)" : L"", g_app.monCount);
+    else str_printf(cap, SP_COUNTOF(cap), L"NOW SHOWING%ls  ·  %ls", isSlide ? L" (SLIDESHOW)" : L"", g_app.monCount > 1 ? L"ALL DISPLAYS" : L"DESKTOP");
     ui_text(cap, u->fCaption, rectf(rx, ry, rw, 16), t->text3);
     ry += 20;
     ui_text(e ? e->name : L"Choose a wallpaper from your library", u->fHeading, rectf(rx, ry, rw, 30), t->text);
@@ -1492,6 +1493,53 @@ static void draw_settings(Ui *u, float cx, float cw)
         segmented(u, x + w - 18 - 78 * 3, y + 15, HK_WEB_FPS, opts, 3, sel, 78, NULL);
         y += 62 + 10;
     }
+    sf_section(u, L"MODEL MANAGER", L"depth upscaling ai models download delete");
+    DepthState modelJob;
+    depth_get(&modelJob);
+    for (int i = 0; i < model_mgr_count(); i++) {
+        AppModelInfo mi;
+        if (!model_mgr_get(i, &mi)) continue;
+        int inUse = model_mgr_in_use(i);
+        int busyOther = modelJob.busy && !mi.downloading && !inUse;
+        if (!sf_want(u, mi.name, mi.desc)) continue;
+        y = sf_place(u, x, y);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        wchar_t sub[128];
+        double mb = mi.size / (1024.0 * 1024.0);
+        if (mi.downloading) {
+            DepthState ds;
+            depth_get(&ds);
+            if (ds.percent >= 0) str_printf(sub, SP_COUNTOF(sub), L"Downloading (%d%%) · %.1f MB", ds.percent, mb);
+            else str_printf(sub, SP_COUNTOF(sub), L"Downloading… · %.1f MB", mb);
+            ui_animate();
+        } else if (inUse) {
+            str_printf(sub, SP_COUNTOF(sub), L"In use by a depth job · %.1f MB", mb);
+        } else if (busyOther) {
+            str_printf(sub, SP_COUNTOF(sub), L"Another depth job is running · %.1f MB", mb);
+        } else if (mi.ready) {
+            str_printf(sub, SP_COUNTOF(sub), L"Downloaded · %.1f MB · %ls", mb, mi.desc);
+        } else {
+            str_printf(sub, SP_COUNTOF(sub), L"Not downloaded · %.1f MB · %ls", mb, mi.desc);
+        }
+        if (mi.downloading) {
+            float bw = ui_button_width(L"Cancel", GL_CLOSE);
+            row_label(u, x, y, w - bw - 60, mi.name, sub);
+            ui_button(HIT_ID(HK_MODEL_CANCEL, i), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Cancel", GL_CLOSE, BTN_SECONDARY);
+        } else if (inUse) {
+            row_label(u, x, y, w - 60, mi.name, sub);
+        } else if (busyOther) {
+            row_label(u, x, y, w - 60, mi.name, sub);
+        } else if (mi.ready) {
+            float bw = ui_button_width(L"Delete", GL_DELETE);
+            row_label(u, x, y, w - bw - 60, mi.name, sub);
+            ui_button(HIT_ID(HK_MODEL_DEL, i), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Delete", GL_DELETE, BTN_SECONDARY);
+        } else {
+            float bw = ui_button_width(L"Download", GL_DOWNLOAD);
+            row_label(u, x, y, w - bw - 60, mi.name, sub);
+            ui_button(HIT_ID(HK_MODEL_DL, i), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Download", GL_DOWNLOAD, BTN_PRIMARY);
+        }
+        y += 72;
+    }
     sf_section(u, L"TROUBLESHOOTING", NULL);
     if (sf_want(u, L"Renderer", L"restart engine")) {
         y = sf_place(u, x, y);
@@ -1585,10 +1633,11 @@ static struct {
     int             takeSec;
     wchar_t         takeId[SP_ID_LEN];
     WallpaperAdjust takeAdj, takeLast; /* the look when recording began; as last noted */
+    int             takeVolumeLast;
     JVal          **takeProps;         /* the property values when recording began */
     int             takePropCount;
     int             presetOpen;        /* the graph presets are showing (right-click a graph) */
-    int             presetFor;         /* for that graph: section | track << 1 */
+    int             presetFor;         /* for that graph: section in low 2 bits, track above */
     float           presetX, presetY, presetScroll;   /* where it was opened; scrolling closes it */
     int             presetEdit;        /* 1 + the preset whose repeat count is showing (right-click it); 0: none */
 } cus;
@@ -1635,7 +1684,7 @@ static void customise_refresh(void)
     if (str_ieq(cus.wpId, e->id) && !cus.forceReload) return;
     if (!str_ieq(cus.wpId, e->id)) {
         if (cus.take) rec_stop();                    /* the take belongs to the wallpaper being left */
-        cus.graphs[REC_LOOK] = cus.graphs[REC_PROPS] = 0;
+        cus.graphs[REC_LOOK] = cus.graphs[REC_PROPS] = cus.graphs[REC_VOLUME] = 0;
     }
     str_copy(cus.wpId, SP_COUNTOF(cus.wpId), e->id);
     if (u->textFocus) pages_text_end(0);   /* the edited field belonged to the previous wallpaper */
@@ -1725,6 +1774,16 @@ static void rec_note_look(void)
     }
 }
 
+static void rec_note_volume(int value)
+{
+    if (!cus.take || cus.takeSec != REC_VOLUME || value == cus.takeVolumeLast) return;
+    JVal *b = wpapi_num_value(cus.takeVolumeLast, 1), *v = wpapi_num_value(value, 1);
+    wprec_take_note(cus.take, "volume", RT_NUM, 0, 1, 0, 100, b, v);
+    json_free(b);
+    json_free(v);
+    cus.takeVolumeLast = value;
+}
+
 static void rec_note_prop(CustomProp *cp)
 {
     int idx = (int)(cp - cus.props), kind, style = 0;
@@ -1771,6 +1830,7 @@ static void rec_start(int sec)
     cus.takeSec = sec;
     str_copy(cus.takeId, SP_COUNTOF(cus.takeId), e->id);
     cus.takeAdj = cus.takeLast = cus.adj;
+    cus.takeVolumeLast = entry_volume(e);
     cus.takeProps = cus.propCount ? (JVal **)calloc((size_t)cus.propCount, sizeof *cus.takeProps) : NULL;
     cus.takePropCount = cus.takeProps ? cus.propCount : 0;
     for (int i = 0; i < cus.takePropCount; i++) wpapi_jval_copy(&cus.takeProps[i], cus.props[i].value);
@@ -1814,6 +1874,11 @@ static void rec_pause(int sec)
             wprec_look(r, pos, &cus.adj);
             wpapi_save_adjust(e->id, &cus.adj);
         }
+        if (e && sec == REC_VOLUME && r->count) {
+            int value = SP_CLAMP((int)lround(wprec_num(&r->t[0], r->n, pos)), 0, 100);
+            e->volCut = 100 - value;
+            app_save_config();
+        }
         for (int k = 0; e && sec == REC_PROPS && k < r->count; k++)
             for (int i = 0; i < cus.propCount; i++) {
                 CustomProp *cp = &cus.props[i];
@@ -1841,6 +1906,8 @@ static int rec_locked(int id)
         return rec_shown(REC_LOOK);
     case HK_PSLIDER: case HK_PCHECK: case HK_PDOWN: case HK_PCOLOR: case HK_PTEXT: case HK_PVAL: case HK_RESET_PROPS:
         return rec_shown(REC_PROPS);
+    case HK_VOLUME:
+        return HIT_DATA(id) == 1 && rec_shown(REC_VOLUME);
     default:
         return 0;
     }
@@ -2078,7 +2145,7 @@ static void rec_drag(int kind, int data, D2D1_RECT_F r, float x, float y, int co
 {
     static int stroke;
     static float lastX, lastY;
-    int sec = data & 1;
+    int sec = data & 3;
     Rec *rec = &cus.rec[sec];
     if (!rec->n) return;
     if (kind == HK_REC_SPEED || kind == HK_REC_SMOOTH) {
@@ -2092,7 +2159,7 @@ static void rec_drag(int kind, int data, D2D1_RECT_F r, float x, float y, int co
             wprec_prepare(rec);
         }
     } else {
-        int ti = data >> 1;
+        int ti = data >> 2;
         if (ti < 0 || ti >= rec->count || rec->t[ti].kind == RT_COLOR) return;   /* colours are recorded, not drawn */
         RecTrack *t = &rec->t[ti];
         float w = SP_MAX(r.right - r.left, 1.0f), h = SP_MAX(r.bottom - r.top, 1.0f);
@@ -2167,6 +2234,7 @@ void pages_drag(int id, float x, float y, int commit)
         if (v == cur && !commit) return;
         if (e) e->volCut = 100 - v;
         else g_app.cfg.s.volume = v;
+        if (e) rec_note_volume(v);
         if (commit || time_ms() - lastSave > 120.0) {
             app_save_config();
             lastSave = time_ms();
@@ -2670,6 +2738,7 @@ static void rec_header(Ui *u, float x, float y, float w, int sec)
 
 static void rec_track_label(const RecTrack *tk, int sec, wchar_t *out, size_t cap)
 {
+    if (sec == REC_VOLUME && !strcmp(tk->key, "volume")) { str_copy(out, cap, L"Volume"); return; }
     if (sec == REC_LOOK) {
         if (!strcmp(tk->key, "tint")) { str_copy(out, cap, L"Tint colour"); return; }
         for (int i = 0; i < (int)SP_COUNTOF(k_lookKeys); i++) {
@@ -2752,7 +2821,7 @@ static float draw_rec_graphs(Ui *u, float x, float y, float w, int sec)
         ui_text(val, u->fSmall, rectf(tx, ry + 31, labelW - 24, 20), t->text2);
 
         D2D1_RECT_F g = rectf(x + labelW, ry + 4, w - labelW - 18, rowH - 14);
-        int id = HIT_ID(HK_REC_GRAPH, sec | (i << 1));
+        int id = HIT_ID(HK_REC_GRAPH, sec | (i << 2));
         ui_rrect(g, 8, t->field);
         if (tk->kind != RT_COLOR && ui_is_hot(id)) ui_rrect_stroke(g, 8, 1, t->accent);
         float gx = g.left + 6, gw = (g.right - g.left) - 12, gy = g.top + 6, gh = (g.bottom - g.top) - 12;
@@ -2772,7 +2841,7 @@ static float draw_rec_graphs(Ui *u, float x, float y, float w, int sec)
         }
         float hx = gx + (float)(pos / r->n) * gw;                                      /* playhead */
         ui_line(hx, g.top + 2, hx, g.bottom - 2, 1.5f, col_a(t->text, 0.7f));
-        if (tk->kind != RT_COLOR) ui_hit(id, g, 0, 1);
+        if (tk->kind != RT_COLOR) ui_hit(id, g, 0, 3);
     }
     ui_animate();                                    /* the playhead and the values move */
     return y + card + 26.0f;
@@ -2910,7 +2979,7 @@ static void rec_apply_preset(int sec, int ti, int p)
 static void rec_presets_open(int data)
 {
     Ui *u = g_ui;
-    int sec = data & 1, ti = data >> 1;
+    int sec = data & 3, ti = data >> 2;
     if (!cus.rec[sec].n || ti < 0 || ti >= cus.rec[sec].count || cus.rec[sec].t[ti].kind == RT_COLOR) return;
     cus.presetOpen = 1;
     cus.presetEdit = 0;
@@ -2939,7 +3008,7 @@ int pages_escape(void)
 static void draw_rec_presets(Ui *u)
 {
     if (!cus.presetOpen) return;
-    int sec = cus.presetFor & 1, ti = cus.presetFor >> 1;
+    int sec = cus.presetFor & 3, ti = cus.presetFor >> 2;
     Rec *rec = &cus.rec[sec];
     if (u->page != PAGE_CUSTOMIZE || !cus.graphs[sec] || !rec->n || ti >= rec->count ||
         fabsf(u->scroll[PAGE_CUSTOMIZE] - cus.presetScroll) > 0.5f) {
@@ -3070,18 +3139,38 @@ static int upscale_applies(const WallpaperEntry *e)
     return e->type == WP_VIDEO || e->type == WP_IMAGE;
 }
 
-/* Upscaling: Smooth enlarges with bicubic, Sharp also deblurs at any size. Plain images are already scaled smoothly,
- * so Off/Sharp. */
+/* GPU filtering is always available; Real-ESRGAN is a separate model-backed mode. */
 static float draw_upscale_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
 {
-    static const wchar_t *vopts[] = { L"Off", L"Smooth", L"Sharp" }, *iopts[] = { L"Off", L"Sharp" };
-    static const int idata[] = { UPSCALE_OFF, UPSCALE_SHARP };
-    int image = e->type == WP_IMAGE, n = image ? 2 : 3;
-    int sel = image ? (cus.upscale == UPSCALE_SHARP) : cus.upscale;
+    static const wchar_t *vopts[] = { L"Off", L"Smooth", L"Sharp", L"Real-ESRGAN" }, *iopts[] = { L"Off", L"Sharp", L"Real-ESRGAN" };
+    static const wchar_t *vBasic[] = { L"Off", L"Smooth", L"Sharp" }, *iBasic[] = { L"Off", L"Sharp" };
+    static const int vdata[] = { UPSCALE_OFF, UPSCALE_SMOOTH, UPSCALE_SHARP, UPSCALE_REALESRGAN };
+    static const int idata[] = { UPSCALE_OFF, UPSCALE_SHARP, UPSCALE_REALESRGAN };
+    int depthPage = (e->flags & WPFLAG_DEPTH) != 0;
+    int image = e->type == WP_IMAGE;
+    int canAI = !depthPage && (image || (e->type == WP_VIDEO && !(e->flags & WPFLAG_YTDLP)));
+    int haveModel = canAI && upscale_model_ready();
+    int downloading = model_mgr_downloading_index() == 7;
+    int n = depthPage || !canAI ? 3 : image ? (haveModel ? 3 : 2) : (haveModel ? 4 : 3);
+    int sel = image ? (cus.upscale == UPSCALE_REALESRGAN ? 2 : cus.upscale == UPSCALE_SHARP ? 1 : 0) : cus.upscale;
+    if ((depthPage || !canAI) && sel > UPSCALE_SHARP) sel = UPSCALE_OFF;
+    if (image && cus.upscale == UPSCALE_SMOOTH) sel = 0;
+    if (!haveModel && sel == UPSCALE_REALESRGAN) sel = UPSCALE_OFF;
+    float segWidth = haveModel ? 112.0f : 84.0f;
+    float bw = haveModel || !canAI ? 0 : ui_button_width(downloading ? L"Cancel" : L"Download model", downloading ? GL_CLOSE : GL_DOWNLOAD);
     y = section(u, x, y, L"UPSCALING");
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-    row_label(u, x, y, w - n * 84 - 40, L"Upscaling", NULL);
-    segmented(u, x + w - 18 - n * 84, y + 15, HK_UPSCALE, image ? iopts : vopts, n, sel, 84, image ? idata : NULL);
+    row_label(u, x, y, w - n * segWidth - bw - 52, L"Upscaling", haveModel || !canAI ? NULL : L"Real-ESRGAN needs its model");
+    segmented(u, x + w - 18 - n * segWidth, y + 15, HK_UPSCALE,
+              depthPage || !canAI ? vBasic : haveModel ? (image ? iopts : vopts) : (image ? iBasic : vBasic), n, sel, segWidth,
+              depthPage || !canAI ? vdata : image ? idata : vdata);
+    if (!haveModel && canAI) {
+        const wchar_t *label = downloading ? L"Cancel" : L"Download model";
+        wchar_t icon = downloading ? GL_CLOSE : GL_DOWNLOAD;
+        ui_button(HIT_ID(downloading ? HK_MODEL_CANCEL : HK_DOWNLOAD_UPSCALE, 7),
+                  rectf(x + w - 18 - n * segWidth - bw - 8, y + 14, bw, 34), label, icon,
+                  downloading ? BTN_SECONDARY : BTN_PRIMARY);
+    }
     return y + 62 + 26.0f;
 }
 
@@ -3354,11 +3443,18 @@ static float draw_sound_section(Ui *u, float x, float y, float w, const Wallpape
         y += 62 + 10;
     }
     wchar_t pct[8];
-    str_printf(pct, SP_COUNTOF(pct), L"%d%%", entry_volume(e));
+    rec_header(u, x, y - 24, w, REC_VOLUME);
+    int shownVolume = entry_volume(e);
+    if (rec_shown(REC_VOLUME) && cus.rec[REC_VOLUME].count)
+        shownVolume = SP_CLAMP((int)lround(wprec_num(&cus.rec[REC_VOLUME].t[0], cus.rec[REC_VOLUME].n,
+                                                     wprec_pos(&cus.rec[REC_VOLUME], wprec_now()))), 0, 100);
+    if (cus.graphs[REC_VOLUME] && cus.rec[REC_VOLUME].n) return draw_rec_graphs(u, x, y, w, REC_VOLUME);
+    str_printf(pct, SP_COUNTOF(pct), L"%d%%", shownVolume);
     ui_glass(rectf(x, y, w, 62), 14, 0, 0);
     row_label(u, x, y, w - 340, L"Volume", g_app.cfg.s.audio ? NULL : L"Sound is off");
-    ui_slider(HIT_ID(HK_VOLUME, 1), rectf(x + w - 18 - 56 - 240, y + 19, 240, 24), entry_volume(e) / 100.0f);
+    ui_slider(HIT_ID(HK_VOLUME, 1), rectf(x + w - 18 - 56 - 240, y + 19, 240, 24), shownVolume / 100.0f);
     text_right(pct, u->fBody, x + w - 18, y, 62, u->t.text2);
+    if (rec_shown(REC_VOLUME)) ui_rrect(rectf(x, y, w, 62), 14, col_a(u->t.bg, 0.4f));
     return y + 62 + 26.0f;
 }
 
@@ -3887,8 +3983,8 @@ void pages_activate(int id, int dbl)
         g_app.cfg.s.scrDisplays = (ScrDisplays)SP_CLAMP(data, SCRD_ALL, SCRD_PRIMARY);
         app_save_config();
         break;
-    case HK_REC:           if (cus.take && cus.takeSec == (data & 1)) rec_stop(); else rec_start(data & 1); break;
-    case HK_REC_EDIT:      cus.graphs[data & 1] = !cus.graphs[data & 1]; cus.presetOpen = 0; ui_invalidate(); break;
+    case HK_REC:           if (cus.take && cus.takeSec == data) rec_stop(); else rec_start(data); break;
+    case HK_REC_EDIT:      cus.graphs[data] = !cus.graphs[data]; cus.presetOpen = 0; ui_invalidate(); break;
     case HK_REC_REPS:
         if (u->textFocus != id && data >= 0 && data < RP_COUNT) {
             str_printf(cus.edit, SP_COUNTOF(cus.edit), L"%d", preset_reps(data));
@@ -3901,7 +3997,7 @@ void pages_activate(int id, int dbl)
             int pi = data % RP_COUNT;
             preset_reps_set(pi, preset_reps(pi) + (data < 2 * RP_COUNT ? -1 : 1));
         } else if (data >= 0) {
-            rec_apply_preset(cus.presetFor & 1, cus.presetFor >> 1, data);
+            rec_apply_preset(cus.presetFor & 3, cus.presetFor >> 2, data);
             cus.presetOpen = 0;
         } else if (data == -1) {
             cus.presetOpen = 0;
@@ -3910,8 +4006,8 @@ void pages_activate(int id, int dbl)
         }
         ui_invalidate();
         break;
-    case HK_REC_DEL:       rec_delete(data & 1); break;
-    case HK_REC_PAUSE:     rec_pause(data & 1); break;
+    case HK_REC_DEL:       rec_delete(data); break;
+    case HK_REC_PAUSE:     rec_pause(data); break;
     case HK_RULE_ADD:      pick_rule_app(data & 1); break;
     case HK_RULE_DEL: {
         wchar_t *list = (data & 1) ? g_app.cfg.s.muteApps : g_app.cfg.s.pauseApps, app[MAX_PATH];
@@ -3961,14 +4057,43 @@ void pages_activate(int id, int dbl)
         break;
     case HK_UPSCALE: {
         WallpaperEntry *e = customise_entry();
+        int previous = cus.upscale;
+        if (data == UPSCALE_REALESRGAN && !upscale_model_ready()) {
+            if (model_mgr_download(7)) {
+                cus.upscale = data;
+                if (e) wpapi_save_upscale(e->id, data);
+            } else app_notice(NOTICE_WARN, L"The upscaling model download could not start. Another depth job may be running.");
+            ui_invalidate();
+            break;
+        }
         cus.upscale = data;
         if (e) {
             wpapi_save_upscale(e->id, data);
-            app_apply_customise();
+            if (e->type == WP_VIDEO && (previous == UPSCALE_REALESRGAN || data == UPSCALE_REALESRGAN)) {
+                if (data == UPSCALE_REALESRGAN && !depth_upscale_video_ready(e)) depth_upscale_video_start(e);
+                if (depth_upscale_video_ready(e) || previous == UPSCALE_REALESRGAN) app_restart_renderer();
+                else app_apply_customise();
+            } else app_apply_customise();
         }
         ui_invalidate();
         break;
     }
+    case HK_DOWNLOAD_UPSCALE:
+        if (!model_mgr_download(7)) app_notice(NOTICE_WARN, L"The upscaling model download could not start. Another depth job may be running.");
+        ui_invalidate();
+        break;
+    case HK_MODEL_DL:
+        if (!model_mgr_download(data)) app_notice(NOTICE_WARN, L"The download could not start. Another depth job may be running.");
+        ui_invalidate();
+        break;
+    case HK_MODEL_DEL:
+        if (!model_mgr_delete(data)) app_notice(NOTICE_ERROR, L"Could not delete this model. Check that its files are writable and not in use.");
+        ui_invalidate();
+        break;
+    case HK_MODEL_CANCEL:
+        depth_cancel();
+        ui_invalidate();
+        break;
     case HK_DEPTH_PICK:
         g_depthList = !g_depthList;
         ui_invalidate();
@@ -4196,6 +4321,7 @@ int pages_key(UINT vk, int ctrl, int shift)
         int v = SP_CLAMP((e ? entry_volume(e) : g_app.cfg.s.volume) + (vk == VK_RIGHT ? 1 : -1) * (shift ? 10 : 1), 0, 100);
         if (e) e->volCut = 100 - v;
         else g_app.cfg.s.volume = v;
+        if (e) rec_note_volume(v);
         app_save_config();
         u->focusVisible = 1;
         ui_invalidate();
@@ -4255,10 +4381,10 @@ const wchar_t *pages_tooltip(int id)
         return tip;
     }
     case HK_STORE_DL:      return store_dl_tip(HIT_DATA(id));
-    case HK_REC:           return cus.take && cus.takeSec == (HIT_DATA(id) & 1) ? L"Stop recording"
+    case HK_REC:           return cus.take && cus.takeSec == HIT_DATA(id) ? L"Stop recording"
                                 : L"Record your changes; they play on a loop";
     case HK_REC_EDIT:      return L"Edit the recording";
-    case HK_REC_PAUSE:     return cus.rec[HIT_DATA(id) & 1].paused > 0 ? L"Play the recording" : L"Pause the recording";
+    case HK_REC_PAUSE:     return cus.rec[HIT_DATA(id)].paused > 0 ? L"Play the recording" : L"Pause the recording";
     case HK_REC_DEL:       return L"Delete the recording";
     case HK_REC_GRAPH:     return L"Draw over the line to change it; right-click for presets";
     case HK_REC_REPS:      return L"Type how many times it repeats";

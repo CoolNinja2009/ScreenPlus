@@ -372,7 +372,7 @@ static int run_download(UrlJob *j, wchar_t *why, size_t whyCap)
                L"--newline --progress --progress-template \"download:[sp] %%(progress.downloaded_bytes)s "
                L"%%(progress.total_bytes)s %%(progress.total_bytes_estimate)s\" "
                L"--print \"after_move:[sp-file] %%(filepath)s\" --print \"after_move:[sp-title] %%(title)s\" "
-               L"--max-filesize 4G %ls -P \"home:%ls\" -P \"temp:%ls\" -o \"%%(title).80B [%%(id).30B].%%(ext)s\" -- \"%ls\"",
+               L"--max-filesize 4G --force-overwrites %ls -P \"home:%ls\" -P \"temp:%ls\" -o \"%%(title).80B [%%(id).30B].%%(ext)s\" -- \"%ls\"",
                fmt, paths_downloads(), partial, j->url);
     int code = ytdlp_run(args, partial, j->cancel, NULL, dl_line, c, why, whyCap);
     free(args);

@@ -16,7 +16,12 @@ int edid_id(const unsigned char *e, size_t n, wchar_t *out, size_t cap)
 {
     static const unsigned char head[8] = { 0, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0 };
     if (!e || n < 128 || memcmp(e, head, 8) != 0) return 0;
+    unsigned checksum = 0;
+    for (int i = 0; i < 128; i++) checksum += e[i];
+    if ((checksum & 0xFF) != 0) return 0;
     unsigned mfg = ((unsigned)e[8] << 8) | e[9], product = e[10] | ((unsigned)e[11] << 8);
+    if (!((mfg >> 10) & 31) || !((mfg >> 5) & 31) || !(mfg & 31) ||
+        ((mfg >> 10) & 31) > 26 || ((mfg >> 5) & 31) > 26 || (mfg & 31) > 26) return 0;
     wchar_t model[8] = { (wchar_t)('@' + ((mfg >> 10) & 31)), (wchar_t)('@' + ((mfg >> 5) & 31)), (wchar_t)('@' + (mfg & 31)), 0 };
     wchar_t serial[16] = { 0 };
     for (int d = 54; d <= 108 && !serial[0]; d += 18) {

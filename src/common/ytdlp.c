@@ -163,12 +163,16 @@ int ytdlp_run(const wchar_t *args, const wchar_t *workDir, HANDLE cancel, volati
 
 void ytdlp_format(wchar_t *out, size_t cap, int maxRes, int stream)
 {
+    /* Keep the audio with the picture. Screen+ reads one media URL (including for range-based
+     * streams) and ships FFmpeg libraries, not ffmpeg.exe, so it cannot merge DASH video/audio
+     * formats after yt-dlp downloads them. Prefer a combined A/V format and don't silently pick
+     * a video-only format when a site offers only separate tracks. */
     if (stream)
         str_printf(out, cap,
-                   L"-f \"bv*[protocol~='^https?$'][vcodec!^=?av01][dynamic_range=?SDR]/bv*[protocol~='^https?$'][vcodec!^=?av01]/"
-                   L"bv*[protocol~='^https?$']/b[protocol~='^https?$']/bv*[vcodec!^=?av01]/bv*/b\" -S \"res:%d\"", maxRes);
+                   L"-f \"b[protocol~='^https?$'][vcodec!^=?av01][dynamic_range=?SDR]/b[protocol~='^https?$'][vcodec!^=?av01]/"
+                   L"b[protocol~='^https?$']/b\" -S \"res:%d\"", maxRes);
     else
-        str_printf(out, cap, L"-f \"bv*[vcodec!^=?av01][dynamic_range=?SDR]/bv*[vcodec!^=?av01]/bv*/b\" -S \"res:%d\"", maxRes);
+        str_printf(out, cap, L"-f \"b[vcodec!^=?av01][dynamic_range=?SDR]/b[vcodec!^=?av01]/b\" -S \"res:%d\"", maxRes);
 }
 
 void ytdlp_tidy_error(wchar_t *s)
@@ -288,7 +292,8 @@ void ytdlp_cache_save(const wchar_t *page, const YtStream *s)
     path_dirname(dir, SP_COUNTOF(dir), path);
     dir_create_recursive(dir);
     StrBuf b = { 0 };
-    sb_printf(&b, "v1\n%lld\n%lld\n", (long long)s->expires, (long long)s->size);
+    /* v2 invalidates stream addresses picked by the former video-only selector. */
+    sb_printf(&b, "v2\n%lld\n%lld\n", (long long)s->expires, (long long)s->size);
     const wchar_t *fields[] = { page, s->format, s->protocol, s->url };
     for (size_t i = 0; i < SP_COUNTOF(fields); i++) {
         sb_put_wide(&b, fields[i]);
@@ -329,7 +334,7 @@ BOOL ytdlp_cache_load(const wchar_t *page, YtStream *out)
         p = wcschr(p, L'\n');
         if (p) *p++ = 0;
     }
-    BOOL ok = count >= 7 && wcscmp(lines[0], L"v1") == 0 && str_ieq(lines[3], page);
+    BOOL ok = count >= 7 && wcscmp(lines[0], L"v2") == 0 && str_ieq(lines[3], page);
     if (ok) {
         out->expires = _wtoi64(lines[1]);
         out->size = _wtoi64(lines[2]);

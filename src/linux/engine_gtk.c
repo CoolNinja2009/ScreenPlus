@@ -11,6 +11,7 @@
 #include <epoxy/gl.h>
 #include <dlfcn.h>
 #include <locale.h>
+#include <math.h>
 
 #include "desktop.h"
 #include "../common/log.h"
@@ -329,7 +330,8 @@ static void rec_load(Slot *s)
         if (wprec_load(s->wallpaper, k, &s->rec[k]) && s->rec[k].paused > 0) wprec_free(&s->rec[k]);   /* paused: own settings hold */
 }
 
-static int rec_playing(const Slot *s) { return s->win && !s->paused && (s->rec[0].n || s->rec[1].n); }
+static void slot_set_sound(Slot *s, int on);
+static int rec_playing(const Slot *s) { return s->win && !s->paused && (s->rec[REC_LOOK].n || s->rec[REC_PROPS].n || s->rec[REC_VOLUME].n); }
 
 static gboolean rec_tick(gpointer data)
 {
@@ -343,6 +345,7 @@ static gboolean rec_tick(gpointer data)
         any = 1;
         Rec *look = &s->rec[REC_LOOK], *pr = &s->rec[REC_PROPS];
         WallpaperAdjust a = s->recBase;
+        if (s->rec[REC_VOLUME].n) slot_set_sound(s, g_cfg.s.audio && !g_micHeld);
         if (look->n) wprec_look(look, wprec_pos(look, now), &a);
         int sendProps = pr->n && (props || !s->recProps);
         if (sendProps) {
@@ -448,7 +451,10 @@ static void slot_set_paused(Slot *s, int paused)
 static void slot_set_sound(Slot *s, int on)
 {
     const WallpaperEntry *e = config_find(&g_cfg, s->wallpaper);
-    int vol = SP_CLAMP(g_cfg.s.volume, 0, 100) * (e ? entry_volume(e) : 100) / 100;
+    int own = e ? entry_volume(e) : 100;
+    Rec *vr = &s->rec[REC_VOLUME];
+    if (vr->n && vr->count) own = SP_CLAMP((int)lround(wprec_num(&vr->t[0], vr->n, wprec_pos(vr, wprec_now()))), 0, 100);
+    int vol = SP_CLAMP(g_cfg.s.volume, 0, 100) * own / 100;
     if (!vol) on = 0;
     if (s->mpv) {
         char v[16];

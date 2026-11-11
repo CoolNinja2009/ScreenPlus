@@ -37,6 +37,7 @@ enum { MB_YESNO = 4, MB_ICONQUESTION = 0x20, MB_ICONWARNING = 0x30, MB_DEFBUTTON
 #define IDC_ARROW ((LPCWSTR)(uintptr_t)0)
 #define IDC_HAND  ((LPCWSTR)(uintptr_t)1)
 #define IDC_IBEAM ((LPCWSTR)(uintptr_t)2)
+#define IDC_CROSS ((LPCWSTR)(uintptr_t)3)
 
 /* Nothing to do on Linux. */
 typedef struct TRACKMOUSEEVENT { DWORD size, flags; HWND h; DWORD hover; } TRACKMOUSEEVENT;

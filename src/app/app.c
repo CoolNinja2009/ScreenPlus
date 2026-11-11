@@ -445,6 +445,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     library_check_missing();
 
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
+    depth_upscale_video_auto();     /* resume any selected video cache that was interrupted by shutdown */
     update_init();                  /* "Auto update": the first check a few minutes from now */
     samples_init();                 /* "Sample wallpaper updates", when on */
     rotate_init();                  /* slideshow and day/night schedule */

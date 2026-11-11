@@ -55,6 +55,8 @@ with Windows 11.
 
 Silent install: `ScreenPlus-Setup-<version>.exe /S [/DEFAULT | /CLEAN] [/NOURL] [/VCRUN] [/D=<folder>]`
 
+The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SHARP-onnx)
+
 ## Usage
 
 - **Library**: import files or a folder, or drag them onto the window. For a web wallpaper, import the folder that

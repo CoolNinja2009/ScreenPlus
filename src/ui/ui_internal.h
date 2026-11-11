@@ -56,7 +56,9 @@ enum HitKind {
     HK_SLIDE_FROM,                    /* Settings: which wallpapers the slideshow shows (menu) */
     HK_SCHED_PICK, HK_SCHED_HOUR,     /* Settings: day/night wallpaper and start hour; data 0 day, 1 night */
     HK_PLAY_SET,                      /* Library: play the shown collection or favourites as a slideshow (data 1: stop) */
-    HK_PLAY_EVERY                     /* Library: its minutes menu */
+    HK_PLAY_EVERY,                    /* Library: its minutes menu */
+    HK_DOWNLOAD_UPSCALE,              /* Customise: download the upscaling model */
+    HK_MODEL_DL, HK_MODEL_DEL, HK_MODEL_CANCEL /* Settings: Model Manager */
 };
 enum { SEL_FAV, SEL_COLL, SEL_REMOVE, SEL_CLEAR, SEL_ALL };
 
@@ -73,7 +75,7 @@ typedef struct Hit {
     int         id;
     D2D1_RECT_F r;
     int         focusable;
-    int         cursor;    /* 0 arrow, 1 hand, 2 ibeam */
+    int         cursor;    /* 0 arrow, 1 hand, 2 ibeam, 3 crosshair */
 } Hit;
 
 typedef struct Theme {
@@ -246,3 +248,4 @@ const wchar_t *pages_tooltip(int id);                       /* tooltip text for 
 #define GL_STAR     0xE734
 #define GL_STAR_ON  0xE735     /* filled (Linux: the same outline, drawn in the accent colour) */
 #define GL_SORT     0xE8CB
+#define GL_DELETE   0xE74D

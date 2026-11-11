@@ -67,7 +67,7 @@ BOOL wpapi_load_adjust(const wchar_t *wallpaperId, WallpaperAdjust *out);
 void wpapi_save_adjust(const wchar_t *wallpaperId, const WallpaperAdjust *a);
 /* Upscaling (Customise, videos and images): UPSCALE_* under "_screenplus_upscale"; not part of the
  * look, so recordings and Reset look leave it alone. Off is today's scaling (bilinear video, cubic images). */
-enum { UPSCALE_OFF = 0, UPSCALE_SMOOTH = 1, UPSCALE_SHARP = 2 };
+enum { UPSCALE_OFF = 0, UPSCALE_SMOOTH = 1, UPSCALE_SHARP = 2, UPSCALE_REALESRGAN = 3 };
 int  wpapi_load_upscale(const wchar_t *wallpaperId);
 void wpapi_save_upscale(const wchar_t *wallpaperId, int mode);
 
@@ -101,10 +101,10 @@ JVal    *wpapi_color_value(uint32_t rgb, int style);
 int      wpapi_parse_rgb(const wchar_t *s, uint32_t *rgb);                 /* typed "#RRGGBB", "0xRRGGBB" or "RRGGBB" */
 
 /* ---- Recordings (Customise's record button): what the user did to a section's settings, played back on a
- * loop. Stored in props\<id>.json as "_screenplus_rec": {"look": rec, "props": rec}, each sampled REC_RATE times a
+ * loop. Stored in props\<id>.json as "_screenplus_rec": {"look": rec, "props": rec, "volume": rec}, each sampled REC_RATE times a
  * second. Playback position comes from the wall clock (epoch = unix ms of sample 0), so the engine, the window's
  * graphs and Plasma's plugin agree without talking. */
-enum { REC_LOOK = 0, REC_PROPS = 1, REC_SECTIONS = 2 };
+enum { REC_LOOK = 0, REC_PROPS = 1, REC_VOLUME = 2, REC_SECTIONS = 3 };
 enum { RT_NUM, RT_BOOL, RT_CHOICE, RT_COLOR };   /* interpolated number; on/off; one of opts; 0xRRGGBB per channel */
 #define REC_RATE    30
 #define REC_MAX_SEC 600

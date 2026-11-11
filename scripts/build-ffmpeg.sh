@@ -23,8 +23,20 @@ JOBS="$(nproc 2>/dev/null || echo 4)"
 mkdir -p "$DEPS"
 if [ ! -f "$SRC/configure" ]; then
     tarball="$DEPS/ffmpeg-$FFMPEG_VERSION.tar.xz"
-    [ -f "$tarball" ] || curl -L --fail --retry 5 --retry-all-errors --retry-delay 15 -o "$tarball" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"
-    tar -xf "$tarball" -C "$DEPS"
+    if [ ! -s "$tarball" ]; then
+        rm -f "$tarball"
+        if curl -L --fail --retry 2 --retry-all-errors --retry-delay 5 -o "$tarball" "https://ffmpeg.org/releases/ffmpeg-$FFMPEG_VERSION.tar.xz"; then
+            tar -xf "$tarball" -C "$DEPS"
+        else
+            rm -f "$tarball"
+            mirror="$DEPS/ffmpeg-$FFMPEG_VERSION.tar.gz"
+            curl -L --fail --retry 2 --retry-all-errors --retry-delay 5 -o "$mirror" "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n$FFMPEG_VERSION.tar.gz"
+            tar -xzf "$mirror" -C "$DEPS"
+            mv "$DEPS/FFmpeg-n$FFMPEG_VERSION" "$SRC"
+        fi
+    else
+        tar -xf "$tarball" -C "$DEPS"
+    fi
 fi
 
 cd "$SRC"
@@ -39,6 +51,8 @@ cd "$SRC"
     --enable-swscale --enable-swresample \
     --enable-protocol=file \
     --enable-demuxer=mov,matroska,avi,mpegts,mpegps,asf,flv,ivf,gif \
+    --enable-muxer=matroska \
+    --enable-encoder=mpeg4 \
     --enable-parser=h264,hevc,vp8,vp9,av1,mpeg4video,mpegvideo,vc1,gif,aac,mpegaudio,opus,vorbis,flac,ac3 \
     --enable-decoder=h264,hevc,vp8,vp9,av1,mpeg4,mpeg2video,mpeg1video,vc1,wmv3,gif,aac,mp3float,opus,vorbis,flac,ac3,eac3,alac,wmav2,pcm_s16le,pcm_s24le,pcm_f32le \
     --enable-hwaccel=h264_d3d11va,h264_d3d11va2,h264_dxva2,hevc_d3d11va,hevc_d3d11va2,hevc_dxva2,vp9_d3d11va,vp9_d3d11va2,vp9_dxva2,av1_d3d11va,av1_d3d11va2,av1_dxva2,mpeg2_d3d11va,mpeg2_d3d11va2,mpeg2_dxva2,vc1_d3d11va,vc1_d3d11va2,vc1_dxva2,wmv3_d3d11va,wmv3_d3d11va2,wmv3_dxva2 \

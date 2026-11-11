@@ -57,8 +57,8 @@ static void read_names(void)
 
 /* ------------------------------------------------------------- cpu */
 
-/* Total Processor Time percentage over the window since the previous call,
- * the way Task Manager reports it. The first call primes the window. */
+/* GetSystemTimes returns aggregate processor times. Kernel includes idle, so subtract idle
+ * before adding user time; divide by total elapsed kernel + user time. The first call primes. */
 static double cpu_usage(void)
 {
     static ULONGLONG k0, u0, i0, wall0;
@@ -67,13 +67,10 @@ static double cpu_usage(void)
     ULONGLONG kk = ft64(k), uu = ft64(u), ii = ft64(i), now = filetime_now();
     double pct = 0.0;
     if (wall0 && now > wall0 && kk >= k0 && uu >= u0 && ii >= i0) {
-        SYSTEM_INFO si;
-        GetSystemInfo(&si);
-        ULONGLONG busy = (kk - k0) + (uu - u0);
-        ULONGLONG total = busy + (ii - i0);
-        if (total)
-            pct = (double)busy * 100.0 / (double)total /
-                  (double)SP_MAX(si.dwNumberOfProcessors, 1);
+        ULONGLONG idle = ii - i0, kernel = kk - k0, user = uu - u0;
+        ULONGLONG busy = (kernel >= idle ? kernel - idle : 0) + user;
+        ULONGLONG total = kernel + user;
+        if (total) pct = (double)busy * 100.0 / (double)total;
     }
     k0 = kk; u0 = uu; i0 = ii; wall0 = now ? now : 1;
     return SP_CLAMP(pct, 0.0, 100.0);

@@ -1,6 +1,7 @@
 /* Static image wallpapers: WIC decode + EXIF orientation + cover scaling on a thread-pool
  * worker, then a single GDI BitBlt per WM_PAINT. No continuous rendering at all. */
 #include "../renderer.h"
+#include "../../app/app.h"
 #include "../html/wallpaper_api.h"
 #include "../../common/util.h"
 #include "../../common/log.h"
@@ -186,7 +187,49 @@ typedef struct DecodeJob {
     ImageRenderer *r;
     LONG           generation;
     int            w, h;
+    int            upscale;
 } DecodeJob;
+
+static HBITMAP decode_upscaled(ImageRenderer *r, int width, int height, HRESULT *hr)
+{
+    int iw = SP_MAX(8, (width + 3) / 4), ih = SP_MAX(8, (height + 3) / 4);
+    double scale = 1.0;
+    HBITMAP src = image_decode_cover_ex(r->path, NULL, iw, ih, hr, &scale);
+    if (!src) return NULL;
+    DIBSECTION ds;
+    if (GetObjectW(src, sizeof ds, &ds) != sizeof ds || !ds.dsBm.bmBits) { DeleteObject(src); return NULL; }
+    size_t count = (size_t)iw * ih;
+    uint8_t *rgb = (uint8_t *)malloc(count * 3);
+    if (!rgb) { DeleteObject(src); return NULL; }
+    const uint8_t *bgra = (const uint8_t *)ds.dsBm.bmBits;
+    for (size_t i = 0; i < count; i++) {
+        rgb[i * 3] = bgra[i * 4 + 2];
+        rgb[i * 3 + 1] = bgra[i * 4 + 1];
+        rgb[i * 3 + 2] = bgra[i * 4];
+    }
+    DeleteObject(src);
+    RealEsrganSession *session = realesrgan_open(iw, ih);
+    uint8_t *out = NULL;
+    int ow = 0, oh = 0;
+    BOOL ok = session && realesrgan_run(session, rgb, &out, &ow, &oh);
+    realesrgan_close(session);
+    free(rgb);
+    if (!ok) { free(out); return NULL; }
+    BITMAPINFO bi;
+    ZeroMemory(&bi, sizeof bi);
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = ow;
+    bi.bmiHeader.biHeight = -oh;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void *bits = NULL;
+    HBITMAP result = CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (result && bits) memcpy(bits, out, (size_t)ow * oh * 4);
+    else { if (result) DeleteObject(result); result = NULL; }
+    free(out);
+    return result;
+}
 
 static void img_release(ImageRenderer *r)
 {
@@ -206,15 +249,28 @@ static void CALLBACK decode_work(PTP_CALLBACK_INSTANCE inst, void *ctx)
     double t0 = time_ms();
     HRESULT hr = S_OK;
     double scale = 1.0;
-    HBITMAP bmp = image_decode_cover_ex(r->path, NULL, job->w, job->h, &hr, &scale);
+    HBITMAP bmp = job->upscale == UPSCALE_REALESRGAN ? decode_upscaled(r, job->w, job->h, &hr)
+                                                      : image_decode_cover_ex(r->path, NULL, job->w, job->h, &hr, &scale);
+    if (!bmp && job->upscale == UPSCALE_REALESRGAN) {
+        LOGW(L"image: Real-ESRGAN failed; displaying the original image scaling");
+        bmp = image_decode_cover_ex(r->path, NULL, job->w, job->h, &hr, &scale);
+    }
     if (SUCCEEDED(hrInit)) CoUninitialize();
 
     ID3D11Texture2D *tex = NULL;
+    int resultW = job->w, resultH = job->h;
+    if (bmp) {
+        DIBSECTION dimensions;
+        if (GetObjectW(bmp, sizeof dimensions, &dimensions) == sizeof dimensions) {
+            resultW = dimensions.dsBm.bmWidth;
+            resultH = dimensions.dsBm.bmHeight;
+        }
+    }
     if (bmp && job->generation == r->generation) {
         DIBSECTION ds;
         wchar_t err[SP_ERR_LEN];
         if (GetObjectW(bmp, sizeof ds, &ds) == sizeof ds && ds.dsBm.bmBits &&
-            gfx_texture_from_bgra(ds.dsBm.bmBits, job->w, job->h, &tex, err, SP_COUNTOF(err))) {
+            gfx_texture_from_bgra(ds.dsBm.bmBits, resultW, resultH, &tex, err, SP_COUNTOF(err))) {
             DeleteObject(bmp);                    /* GPU copy made: no CPU copy retained */
             bmp = NULL;
         } else {
@@ -235,9 +291,9 @@ static void CALLBACK decode_work(PTP_CALLBACK_INSTANCE inst, void *ctx)
         SP_RELEASE(r->tex);
         if (r->bmp) DeleteObject(r->bmp);
         r->tex = tex;
-        r->texW = r->bmpW = job->w;
-        r->texH = r->bmpH = job->h;
-        r->enlarged = scale > 1.02;
+        r->texW = r->bmpW = resultW;
+        r->texH = r->bmpH = resultH;
+        r->enlarged = job->upscale == UPSCALE_REALESRGAN || scale > 1.02;
         r->bmp = bmp;
         ReleaseSRWLockExclusive(&r->lock);
         InterlockedExchange(&r->repaint, 1);    /* new texture (first decode or resize): present it */
@@ -261,6 +317,7 @@ static void schedule_decode(ImageRenderer *r)
     job->generation = InterlockedIncrement(&r->generation);
     job->w = r->w;
     job->h = r->h;
+    job->upscale = r->upscale;
     InterlockedIncrement(&r->refs);
     if (!TrySubmitThreadpoolCallback(decode_work, job, NULL)) {
         free(job);
@@ -277,7 +334,12 @@ static void img_apply(Renderer *base)
 {
     ImageRenderer *r = (ImageRenderer *)base;
     wpapi_load_adjust(r->wpId, &r->adj);
-    r->upscale = wpapi_load_upscale(r->wpId);
+    int upscale = wpapi_load_upscale(r->wpId);
+    if (upscale != r->upscale) {
+        r->upscale = upscale;
+        schedule_decode(r);
+        return;
+    }
     InterlockedExchange(&r->repaint, 1);
     InvalidateRect(r->hwnd, NULL, FALSE);
 }

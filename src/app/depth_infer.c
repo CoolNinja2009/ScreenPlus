@@ -44,6 +44,7 @@
 #endif
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
 #include <libswscale/swscale.h>
 #include <ctype.h>
 #include <math.h>
@@ -286,6 +287,10 @@ typedef struct Sess {
     int                w, h, v3, gpu;
 } Sess;
 
+struct RealEsrganSession { Sess sess; };
+static SRWLOCK g_reLock = SRWLOCK_INIT;
+static HMODULE g_reDll;
+
 static void sess_close(Sess *x)
 {
     if (x->mi) g_o->ReleaseMemoryInfo(x->mi);
@@ -426,6 +431,285 @@ static HMODULE load_runtime(void)
         return NULL;
     }
     return m;
+}
+
+/* Real-ESRGAN's x4 model uses RGB in [0,1] and NCHW tensors. Sessions are retained by the caller so a video
+ * reuses the compiled DirectML graph on every frame. */
+RealEsrganSession *realesrgan_open(int inputWidth, int inputHeight)
+{
+    if (!upscale_model_ready() || inputWidth < 8 || inputHeight < 8 || inputWidth > 2048 || inputHeight > 2048) return NULL;
+    AcquireSRWLockExclusive(&g_reLock);
+    if (!g_reDll) g_reDll = load_runtime();
+    HMODULE dll = g_reDll;
+    ReleaseSRWLockExclusive(&g_reLock);
+    if (!dll) return NULL;
+    wchar_t model[SP_MAX_PATH];
+    depth_upscale_model(model, SP_COUNTOF(model));
+    RealEsrganSession *x = (RealEsrganSession *)calloc(1, sizeof *x);
+    if (!x) return NULL;
+#ifdef _WIN32
+    if (sess_open(&x->sess, dll, 1, model, 0, inputWidth, inputHeight)) {
+        LOGI(L"realesrgan: using DirectML on the GPU (%dx%d input)", inputWidth, inputHeight);
+    } else if (sess_open(&x->sess, dll, 0, model, 0, inputWidth, inputHeight)) {
+        LOGW(L"realesrgan: DirectML session failed; using the CPU (%dx%d input)", inputWidth, inputHeight);
+    } else {
+        free(x);
+        return NULL;
+    }
+#else
+    if (!sess_open(&x->sess, dll, 0, model, 0, inputWidth, inputHeight)) {
+        free(x);
+        return NULL;
+    }
+#endif
+    return x;
+}
+
+BOOL realesrgan_run(RealEsrganSession *x, const uint8_t *rgb, uint8_t **bgra, int *outputWidth, int *outputHeight)
+{
+    if (bgra) *bgra = NULL;
+    if (outputWidth) *outputWidth = 0;
+    if (outputHeight) *outputHeight = 0;
+    if (!x || !rgb || !bgra || !outputWidth || !outputHeight) return FALSE;
+    int w = x->sess.w, h = x->sess.h;
+    size_t n = (size_t)w * h, outN = n * 16;
+    if (n > SIZE_MAX / (3 * sizeof(float)) || outN > SIZE_MAX / 4) return FALSE;
+    float *chw = (float *)malloc(n * 3 * sizeof(float));
+    uint8_t *pixels = NULL;
+    OrtValue *in = NULL, *res = NULL;
+    OrtTensorTypeAndShapeInfo *info = NULL;
+    BOOL ok = FALSE;
+    if (!chw) goto done;
+    for (size_t i = 0; i < n; i++) {
+        chw[i] = rgb[i * 3] / 255.0f;
+        chw[n + i] = rgb[i * 3 + 1] / 255.0f;
+        chw[2 * n + i] = rgb[i * 3 + 2] / 255.0f;
+    }
+    {
+        int64_t shape[4] = { 1, 3, h, w };
+        ORT(g_o->CreateTensorWithDataAsOrtValue(x->sess.mi, chw, n * 3 * sizeof(float), shape, 4,
+                                                ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT, &in));
+    }
+    {
+        const char *inName[] = { "input" }, *outName[] = { "output" };
+        ORT(g_o->Run(x->sess.s, NULL, inName, (const OrtValue *const *)&in, 1, outName, 1, &res));
+    }
+    float *data = NULL;
+    int64_t dims[4] = { 0 };
+    size_t nd = 0;
+    ORT(g_o->GetTensorMutableData(res, (void **)&data));
+    ORT(g_o->GetTensorTypeAndShape(res, &info));
+    ORT(g_o->GetDimensionsCount(info, &nd));
+    if (nd == 4) ORT(g_o->GetDimensions(info, dims, nd));
+    if (nd != 4 || dims[0] != 1 || dims[1] != 3 || dims[2] != (int64_t)h * 4 || dims[3] != (int64_t)w * 4) goto done;
+    pixels = (uint8_t *)malloc(outN * 4);
+    if (!pixels) goto done;
+    for (size_t i = 0; i < outN; i++) {
+        pixels[i * 4 + 2] = (uint8_t)lroundf(SP_CLAMP(data[i], 0.0f, 1.0f) * 255.0f);
+        pixels[i * 4 + 1] = (uint8_t)lroundf(SP_CLAMP(data[outN + i], 0.0f, 1.0f) * 255.0f);
+        pixels[i * 4 + 0] = (uint8_t)lroundf(SP_CLAMP(data[outN * 2 + i], 0.0f, 1.0f) * 255.0f);
+        pixels[i * 4 + 3] = 255;
+    }
+    *bgra = pixels;
+    *outputWidth = w * 4;
+    *outputHeight = h * 4;
+    pixels = NULL;
+    ok = TRUE;
+done:
+    if (info) g_o->ReleaseTensorTypeAndShapeInfo(info);
+    if (res) g_o->ReleaseValue(res);
+    if (in) g_o->ReleaseValue(in);
+    free(pixels);
+    free(chw);
+    return ok;
+}
+
+void realesrgan_close(RealEsrganSession *x)
+{
+    if (!x) return;
+    sess_close(&x->sess);
+    free(x);
+}
+
+static BOOL realesrgan_drain_encoder(AVCodecContext *enc, AVFormatContext *out, AVStream *stream)
+{
+    AVPacket *pkt = av_packet_alloc();
+    if (!pkt) return FALSE;
+    int ret;
+    while ((ret = avcodec_receive_packet(enc, pkt)) >= 0) {
+        av_packet_rescale_ts(pkt, enc->time_base, stream->time_base);
+        pkt->stream_index = stream->index;
+        if (av_interleaved_write_frame(out, pkt) < 0) { av_packet_free(&pkt); return FALSE; }
+        av_packet_unref(pkt);
+    }
+    av_packet_free(&pkt);
+    return ret == AVERROR(EAGAIN) || ret == AVERROR_EOF;
+}
+
+static BOOL realesrgan_encode_frame(AVFrame *src, AVStream *input, AVCodecContext *enc, AVFormatContext *out,
+                                    AVStream *video, RealEsrganSession *session, struct SwsContext **toRgb,
+                                    struct SwsContext **toYuv, AVFrame *scaled, uint8_t *rgb, int iw, int ih,
+                                    uint8_t **bgra, int64_t *nextPts, int64_t *sourcePts)
+{
+    *toRgb = sws_getCachedContext(*toRgb, src->width, src->height, (enum AVPixelFormat)src->format,
+                                  iw, ih, AV_PIX_FMT_RGB24, SWS_AREA, NULL, NULL, NULL);
+    if (!*toRgb) return FALSE;
+    uint8_t *dst[4] = { rgb, NULL, NULL, NULL };
+    int lines[4] = { iw * 3, 0, 0, 0 };
+    if (sws_scale(*toRgb, (const uint8_t *const *)src->data, src->linesize, 0, src->height, dst, lines) != ih) return FALSE;
+    int ow = 0, oh = 0;
+    if (!realesrgan_run(session, rgb, bgra, &ow, &oh)) return FALSE;
+    *toYuv = sws_getCachedContext(*toYuv, ow, oh, AV_PIX_FMT_BGRA, ow, oh, enc->pix_fmt,
+                                  SWS_BILINEAR, NULL, NULL, NULL);
+    if (!*toYuv || av_frame_make_writable(scaled) < 0) return FALSE;
+    const uint8_t *srcData[4] = { *bgra, NULL, NULL, NULL };
+    int srcLines[4] = { ow * 4, 0, 0, 0 };
+    if (sws_scale(*toYuv, srcData, srcLines, 0, oh, scaled->data, scaled->linesize) != oh) return FALSE;
+    free(*bgra); *bgra = NULL;
+    int64_t pts = src->best_effort_timestamp;
+    scaled->pts = pts != AV_NOPTS_VALUE ? av_rescale_q(pts, input->time_base, enc->time_base) : *nextPts;
+    *nextPts = scaled->pts + 1;
+    if (sourcePts) *sourcePts = pts;
+    int ret = avcodec_send_frame(enc, scaled);
+    if (ret == AVERROR(EAGAIN) && realesrgan_drain_encoder(enc, out, video)) ret = avcodec_send_frame(enc, scaled);
+    return ret >= 0 && realesrgan_drain_encoder(enc, out, video);
+}
+
+/* Preprocess videos once, then play the cached MPEG-4/Matroska file instead of running inference in the render loop. */
+int realesrgan_video_main(const wchar_t *source, const wchar_t *output, HWND notifyWnd)
+{
+    AVFormatContext *in = NULL, *out = NULL;
+    AVCodecContext *dec = NULL, *enc = NULL;
+    AVPacket *pkt = NULL;
+    AVFrame *fr = NULL, *upFrame = NULL;
+    AVStream **streamMap = NULL, *vin = NULL, *vout = NULL;
+    struct SwsContext *toRgb = NULL, *toYuv = NULL;
+    RealEsrganSession *session = NULL;
+    uint8_t *rgb = NULL, *bgra = NULL;
+    char *src8 = NULL, *out8 = NULL;
+    int rc = 2, vi = -1, ow = 0, oh = 0, iw = 0, ih = 0, frames = 0;
+    double t0 = time_ms();
+    HRESULT co = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+    log_init(L"realesrgan-video");
+    if (!source || !output || !upscale_model_ready() || !video_ffmpeg_available(NULL, 0)) { rc = 3; goto done; }
+    src8 = utf8_from_wide(source, NULL);
+    out8 = utf8_from_wide(output, NULL);
+    if (!src8 || !out8 || avformat_open_input(&in, src8, NULL, NULL) < 0 || avformat_find_stream_info(in, NULL) < 0) goto done;
+    vi = av_find_best_stream(in, AVMEDIA_TYPE_VIDEO, -1, -1, NULL, 0);
+    if (vi < 0) goto done;
+    vin = in->streams[vi];
+    const AVCodec *decoder = avcodec_find_decoder(vin->codecpar->codec_id);
+    const AVCodec *encoder = avcodec_find_encoder(AV_CODEC_ID_MPEG4);
+    if (!decoder || !encoder || vin->codecpar->width <= 0 || vin->codecpar->height <= 0) { rc = 4; goto done; }
+    if (!(dec = avcodec_alloc_context3(decoder)) || avcodec_parameters_to_context(dec, vin->codecpar) < 0 || avcodec_open2(dec, decoder, NULL) < 0) goto done;
+    dec->thread_count = 0;
+
+    /* Limit cached output to 4K on the long side; the model still performs true x4 inference. */
+    double scale = SP_MIN(1.0, 1024.0 / SP_MAX(dec->width, dec->height));
+    iw = SP_MAX(8, (int)lround(dec->width * scale));
+    ih = SP_MAX(8, (int)lround(dec->height * scale));
+    iw = (iw + 1) & ~1; ih = (ih + 1) & ~1;
+    session = realesrgan_open(iw, ih);
+    if (!session) { rc = 3; goto done; }
+    ow = iw * 4; oh = ih * 4;
+    if (avformat_alloc_output_context2(&out, NULL, "matroska", out8) < 0 || !out) { rc = 4; goto done; }
+    vout = avformat_new_stream(out, NULL);
+    if (!vout || !(enc = avcodec_alloc_context3(encoder))) { rc = 4; goto done; }
+    AVRational frate = av_guess_frame_rate(in, vin, NULL);
+    if (frate.num <= 0 || frate.den <= 0) frate = (AVRational){ 30, 1 };
+    enc->width = ow; enc->height = oh;
+    enc->pix_fmt = AV_PIX_FMT_YUV420P;
+    enc->time_base = vin->time_base.num > 0 && vin->time_base.den > 0 ? vin->time_base : av_inv_q(frate);
+    enc->framerate = frate;
+    enc->sample_aspect_ratio = vin->sample_aspect_ratio;
+    enc->gop_size = SP_MAX(1, (int)lround(av_q2d(frate) * 2));
+    enc->max_b_frames = 0;
+    enc->bit_rate = 8000000;
+    if (out->oformat->flags & AVFMT_GLOBALHEADER) enc->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
+    if (enc->priv_data) {
+        av_opt_set(enc->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(enc->priv_data, "crf", "22", 0);
+    }
+    if (avcodec_open2(enc, encoder, NULL) < 0 || avcodec_parameters_from_context(vout->codecpar, enc) < 0) { rc = 4; goto done; }
+    vout->time_base = enc->time_base;
+    vout->codecpar->codec_tag = 0;
+    streamMap = (AVStream **)calloc(in->nb_streams, sizeof *streamMap);
+    if (!streamMap) { rc = 4; goto done; }
+    for (unsigned i = 0; i < in->nb_streams; i++) {
+        AVStream *si = in->streams[i];
+        if ((int)i == vi || si->codecpar->codec_type != AVMEDIA_TYPE_AUDIO) continue;
+        AVStream *so = avformat_new_stream(out, NULL);
+        if (!so || avcodec_parameters_copy(so->codecpar, si->codecpar) < 0) { rc = 4; goto done; }
+        so->codecpar->codec_tag = 0;
+        so->time_base = si->time_base;
+        streamMap[i] = so;
+    }
+    if (!(out->oformat->flags & AVFMT_NOFILE) && avio_open(&out->pb, out8, AVIO_FLAG_WRITE) < 0) { rc = 4; goto done; }
+    if (avformat_write_header(out, NULL) < 0) { rc = 4; goto done; }
+    if (!(pkt = av_packet_alloc()) || !(fr = av_frame_alloc()) || !(upFrame = av_frame_alloc())) { rc = 4; goto done; }
+    upFrame->format = enc->pix_fmt; upFrame->width = ow; upFrame->height = oh;
+    if (av_frame_get_buffer(upFrame, 32) < 0) { rc = 4; goto done; }
+    size_t rgbBytes = (size_t)iw * ih * 3;
+    rgb = (uint8_t *)malloc(rgbBytes);
+    if (!rgb) { rc = 4; goto done; }
+
+    int64_t nextPts = 0;
+    double durationSecs = vin->duration > 0 ? vin->duration * av_q2d(vin->time_base)
+                        : in->duration > 0 ? in->duration / (double)AV_TIME_BASE : 0.0;
+    int totalSecs = durationSecs > 0 ? SP_MIN(65535, (int)ceil(durationSecs)) : 0;
+    int64_t pts;
+    while (av_read_frame(in, pkt) >= 0) {
+        if (pkt->stream_index == vi) {
+            int sent = avcodec_send_packet(dec, pkt);
+            if (sent < 0) { rc = 4; av_packet_unref(pkt); goto done; }
+            int got;
+            while ((got = avcodec_receive_frame(dec, fr)) >= 0) {
+                if (!realesrgan_encode_frame(fr, vin, enc, out, vout, session, &toRgb, &toYuv,
+                                             upFrame, rgb, iw, ih, &bgra, &nextPts, &pts)) {
+                    rc = 4; av_frame_unref(fr); av_packet_unref(pkt); goto done;
+                }
+                frames++;
+                if (notifyWnd && frames % 5 == 0) {
+                    int done = totalSecs && pts != AV_NOPTS_VALUE ? (int)SP_MIN(totalSecs, (int)SP_MAX(0.0, pts * av_q2d(vin->time_base))) : frames;
+                    int total = totalSecs ? totalSecs : SP_MIN(65535, frames + 1);
+                    PostMessageW(notifyWnd, WM_SP_DEPTH, 3, (LPARAM)(SP_MIN(done, 0xffff) | (SP_MIN(total, 0xffff) << 16)));
+                }
+                av_frame_unref(fr);
+            }
+            if (got != AVERROR(EAGAIN) && got != AVERROR_EOF) { rc = 4; av_packet_unref(pkt); goto done; }
+        } else if (pkt->stream_index >= 0 && (unsigned)pkt->stream_index < in->nb_streams && streamMap[pkt->stream_index]) {
+            AVStream *si = in->streams[pkt->stream_index], *so = streamMap[pkt->stream_index];
+            av_packet_rescale_ts(pkt, si->time_base, so->time_base);
+            pkt->stream_index = so->index;
+            if (av_interleaved_write_frame(out, pkt) < 0) { rc = 4; av_packet_unref(pkt); goto done; }
+        }
+        av_packet_unref(pkt);
+    }
+    if (avcodec_send_packet(dec, NULL) >= 0) {
+        int got;
+        while ((got = avcodec_receive_frame(dec, fr)) >= 0) {
+            if (!realesrgan_encode_frame(fr, vin, enc, out, vout, session, &toRgb, &toYuv,
+                                         upFrame, rgb, iw, ih, &bgra, &nextPts, &pts)) { rc = 4; goto done; }
+            frames++;
+            av_frame_unref(fr);
+        }
+    }
+    if (!realesrgan_drain_encoder(enc, out, vout) || avcodec_send_frame(enc, NULL) < 0 ||
+        !realesrgan_drain_encoder(enc, out, vout)) { rc = 4; goto done; }
+    if (!frames || av_write_trailer(out) < 0) { rc = 4; goto done; }
+    rc = 0;
+    LOGI(L"realesrgan: cached %d frames at %dx%d in %.1f s", frames, ow, oh, time_ms() - t0);
+done:
+    free(bgra); free(rgb); free(streamMap); free(src8); free(out8);
+    if (out && !(out->oformat->flags & AVFMT_NOFILE) && out->pb) avio_closep(&out->pb);
+    avformat_free_context(out);
+    avcodec_free_context(&enc); avcodec_free_context(&dec);
+    avformat_close_input(&in);
+    av_packet_free(&pkt); av_frame_free(&fr); av_frame_free(&upFrame);
+    sws_freeContext(toRgb); sws_freeContext(toYuv);
+    realesrgan_close(session);
+    if (SUCCEEDED(co)) CoUninitialize();
+    return rc;
 }
 
 /* ---------------------------------------------------------------- GPU or CPU */

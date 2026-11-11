@@ -18,6 +18,7 @@
 #include <wtsapi32.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 #define WM_SP_HOST_LOST  (WM_APP + 41)
 #define WM_SP_SHELL_GONE (WM_APP + 42)
@@ -137,7 +138,10 @@ static BOOL slot_wants_audio(const Slot *s)
 {
     if (!E.cfg.s.audio || E.micMuted || audio_slot() != s) return 0;
     const WallpaperEntry *e = config_find(&E.cfg, s->wp.id);
-    int v = SP_CLAMP(E.cfg.s.volume, 0, 100) * (e ? entry_volume(e) : entry_volume(&s->wp)) / 100;
+    int own = e ? entry_volume(e) : entry_volume(&s->wp);
+    const Rec *vr = &s->rec[REC_VOLUME];
+    if (vr->n && vr->count) own = SP_CLAMP((int)lround(wprec_num(&vr->t[0], vr->n, wprec_pos(vr, wprec_now()))), 0, 100);
+    int v = SP_CLAMP(E.cfg.s.volume, 0, 100) * own / 100;
     return v;
 }
 
@@ -165,7 +169,7 @@ static void slot_load_rec(Slot *s)
     if (any) LOGI(L"display %d: playing a Customise recording", s->mon.index);
 }
 
-static int slot_playing(const Slot *s) { return s->used && s->r && s->state == RS_ACTIVE && (s->rec[0].n || s->rec[1].n); }
+static int slot_playing(const Slot *s) { return s->used && s->r && s->state == RS_ACTIVE && (s->rec[REC_LOOK].n || s->rec[REC_PROPS].n || s->rec[REC_VOLUME].n); }
 
 static void rec_tick(void)
 {
@@ -178,6 +182,7 @@ static void rec_tick(void)
         any = 1;
         WallpaperAdjust a = s->recBase;
         Rec *look = &s->rec[REC_LOOK], *pr = &s->rec[REC_PROPS];
+        if (s->rec[REC_VOLUME].n) s->r->vt->set_audio(s->r, slot_wants_audio(s));
         if (look->n) wprec_look(look, wprec_pos(look, now), &a);
         if (pr->n && (props || !s->recProps)) {
             StrBuf b = { 0 };

@@ -1,6 +1,7 @@
 /* Video wallpapers: FFmpeg (libavformat/libavcodec/libswscale) decode + Direct3D 11 presentation.
  * See video_internal.h for the thread model. */
 #include "video_internal.h"
+#include "../../app/app.h"
 #include "../../common/util.h"
 #include "../../common/log.h"
 #include <d3d10.h>
@@ -1471,8 +1472,13 @@ static BOOL create_swapchain(VideoOutput *o, wchar_t *err, size_t cap)
 
 Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap)
 {
+    wchar_t cachePath[SP_MAX_PATH];
+    const wchar_t *playPath = ctx->wp->path;
+    int upscale = wpapi_load_upscale(ctx->wp->id);
+    if (upscale == UPSCALE_REALESRGAN && depth_upscale_video_ready(ctx->wp) &&
+        depth_upscale_video_path(ctx->wp, cachePath, SP_COUNTOF(cachePath))) playPath = cachePath;
     if (!video_ffmpeg_available(err, errCap)) return NULL;
-    if (!wallpaper_is_url(ctx->wp->path) && !file_exists(ctx->wp->path)) {
+    if (!wallpaper_is_url(playPath) && !file_exists(playPath)) {
         str_copy(err, errCap, L"Video file not found");
         return NULL;
     }
@@ -1488,7 +1494,7 @@ Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     o->notify = ctx->notify;
     str_copy(o->wpId, SP_COUNTOF(o->wpId), ctx->wp->id);
     wpapi_load_adjust(o->wpId, &o->adj);
-    o->upscale = wpapi_load_upscale(o->wpId);
+    o->upscale = upscale;
     o->w = SP_MAX(ctx->width, 1);
     o->h = SP_MAX(ctx->height, 1);
     o->state = RS_ACTIVE;
@@ -1504,10 +1510,11 @@ Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     ensure_hwdev();
     VideoSource *s = NULL;
     for (int i = 0; i < g.sourceCount; i++)
-        if (!g.sources[i]->failed && str_ieq(g.sources[i]->path, ctx->wp->path)) s = g.sources[i];
+        if (!g.sources[i]->failed && str_ieq(g.sources[i]->path, playPath)) s = g.sources[i];
     if (!s) {
         if (g.sourceCount >= SP_MAX_MONITORS ||
-            !(s = source_create(ctx->wp->path, (ctx->wp->flags & WPFLAG_YTDLP) != 0, SP_MIN(ctx->width, ctx->height)))) {
+            !(s = source_create(playPath, playPath == ctx->wp->path && (ctx->wp->flags & WPFLAG_YTDLP) != 0,
+                                SP_MIN(ctx->width, ctx->height)))) {
             ReleaseSRWLockExclusive(&g.lock);
             SP_RELEASE(o->swap);
             free(o);

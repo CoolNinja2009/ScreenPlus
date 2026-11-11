@@ -25,7 +25,7 @@ static Timer         g_timers[MAX_TIMERS];
 static Posted        g_posted[MAX_POSTED];
 static int           g_postedCount;
 static SDL_Mutex    *g_lock;
-static SDL_Cursor   *g_cursors[3];
+static SDL_Cursor   *g_cursors[4];
 static SDL_Cursor   *g_cursorNow;
 static SpDrop        g_drop;
 
@@ -83,7 +83,7 @@ BOOL GetClientRect(HWND h, RECT *r)
 void SetCursor(LPCWSTR c)
 {
     int i = (int)(uintptr_t)c;
-    if (i < 0 || i > 2 || !g_cursors[i] || g_cursorNow == g_cursors[i]) return;
+    if (i < 0 || i > 3 || !g_cursors[i] || g_cursorNow == g_cursors[i]) return;
     SDL_SetCursor(g_cursors[i]);
     g_cursorNow = g_cursors[i];
 }
@@ -390,6 +390,7 @@ HWND sp_window_open(int w, int h, float *scale)
         g_cursors[0] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_DEFAULT);
         g_cursors[1] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_POINTER);
         g_cursors[2] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_TEXT);
+        g_cursors[3] = SDL_CreateSystemCursor(SDL_SYSTEM_CURSOR_CROSSHAIR);
     }
     if (!SDL_CreateWindowAndRenderer("Screen+", w, h, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY, &g_win, &g_ren)) {
         LOGE(L"ui: no window: %s", SDL_GetError());
