@@ -47,6 +47,16 @@ static int    g_appHeld, g_micHeld;      /* app rules: a pause app is focused; a
 static guint  g_micSource;
 static GtkApplication *g_app;
 
+/* wallpaper_api.c is shared with the service, where depth.c provides this check. The renderer is a
+ * separate process, so check the same installed model/runtime files from its data directory here. */
+BOOL upscale_model_ready(void)
+{
+    wchar_t model[SP_MAX_PATH], runtime[SP_MAX_PATH];
+    path_join(model, SP_COUNTOF(model), paths_root(), L"depth/models/upscale/model.onnx");
+    path_join(runtime, SP_COUNTOF(runtime), paths_root(), L"depth/ort/libonnxruntime.so.1.24.4");
+    return file_exists(model) && file_exists(runtime);
+}
+
 /* ------------------------------------------------------------------ mpv */
 
 static void *mpv_proc(void *ctx, const char *name)
