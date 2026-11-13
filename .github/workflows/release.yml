@@ -1,4 +1,5 @@
-# Builds Screen+ and publishes a GitHub release with the installer and a portable zip.
+# Builds Screen+ for Windows and Linux, validates Linux packages across distributions,
+# then publishes one GitHub release after every build and install check passes.
 #
 # Every push to main that changes the app gets a new version automatically:
 #   - the next patch after the newest vX.Y.Z tag (v1.0.3 -> v1.0.4), or
@@ -14,7 +15,7 @@ name: Build and release
 
 on:
   push:
-    branches: [main, master]
+    branches: [main]
     tags: ['v*.*.*']
     paths:
       - 'src/**'
@@ -26,13 +27,18 @@ on:
       - 'build.cmd'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
-      - '.github/workflows/release.yml'
+      - '.github/workflows/**'
+      - '.gitlab-ci.yml'
   pull_request:
     paths:
       - 'src/**'
       - 'resources/**'
       - 'installer/**'
       - 'CMakeLists.txt'
+      - 'build.cmd'
+      - 'scripts/**'
+      - '.github/workflows/**'
+      - '.gitlab-ci.yml'
   workflow_dispatch:
 
 permissions:
@@ -43,24 +49,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: windows-latest
+  version:
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      skip: ${{ steps.version.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0            # tags are needed to pick the next version
-
+          fetch-depth: 0
       - name: Pick version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          base=$(sed -n 's/^set(SCREENPLUS_VERSION "\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' CMakeLists.txt)
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             ver="${GITHUB_REF#refs/tags/v}"
+            if gh release view "v$ver" >/dev/null 2>&1; then
+              echo "version=$ver" >> "$GITHUB_OUTPUT"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           else
+            base=$(sed -n 's/^set(SCREENPLUS_VERSION "\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' CMakeLists.txt)
             latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
             latest="${latest#v}"
             if [[ -z "$latest" ]]; then
@@ -72,9 +85,19 @@ jobs:
               ver="$major.$minor.$((patch + 1))"
             fi
           fi
-          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Version '$ver' must be major.minor.patch"; exit 1; }
+          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid version '$ver'"; exit 1; }
           echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "Building Screen+ $ver"
+
+  windows:
+    runs-on: windows-latest
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # tags are needed to pick the next version
 
       - name: Download prebuilt FFmpeg
         id: ffmpeg
@@ -135,7 +158,7 @@ jobs:
 
       - name: Build app and installer
         shell: cmd
-        run: call build.cmd Release ${{ steps.version.outputs.version }}
+        run: call build.cmd Release ${{ needs.version.outputs.version }}
 
       # Code signing through SignPath Foundation (free for open source), so Defender and SmartScreen
       # trust the files instead of flagging an unknown unsigned exe. It runs once the repository variable
@@ -169,7 +192,7 @@ jobs:
         if: steps.unsigned-bin.outcome == 'success'
         shell: pwsh
         run: |
-          $v = '${{ steps.version.outputs.version }}'
+          $v = '${{ needs.version.outputs.version }}'
           Copy-Item signed-bin\ScreenPlus.exe, signed-bin\ScreenPlus.com build\ -Force
           Copy-Item build\ScreenPlus.exe build\ScreenPlus.scr -Force
           & 'C:\Program Files (x86)\NSIS\makensis.exe' /V2 "/DVERSION=$v" "/DSTAGE=$PWD\build" `
@@ -182,7 +205,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: unsigned-setup
-          path: build/ScreenPlus-Setup-${{ steps.version.outputs.version }}.exe
+          path: build/ScreenPlus-Setup-${{ needs.version.outputs.version }}.exe
 
       - name: Sign setup
         if: steps.unsigned-setup.outcome == 'success'
@@ -207,7 +230,7 @@ jobs:
         id: package
         shell: pwsh
         run: |
-          $v = '${{ steps.version.outputs.version }}'
+          $v = '${{ needs.version.outputs.version }}'
           $setup = "build\ScreenPlus-Setup-$v.exe"
           if (-not (Test-Path $setup)) { throw "Installer was not built: $setup" }
           $stage = 'dist\ScreenPlus'
@@ -226,46 +249,194 @@ jobs:
           Copy-Item "build\ScreenPlus-$v-samples.zip" release\   # setup's optional download (screenplus samples install)
           Copy-Item "build\ScreenPlus-$v-samples.json" release\  # every sample file's SHA-256: the app's sample updates
           Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$v-win-x64-portable.zip"
-          Get-ChildItem release -File | ForEach-Object {
-            "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
-          } | Set-Content -Encoding ascii release\SHA256SUMS.txt
           Get-ChildItem release
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ScreenPlus-${{ steps.version.outputs.version }}
+          name: release-windows
           path: release/*
 
-      - name: Publish release
-        if: github.event_name != 'pull_request'
-        shell: bash
+  arch:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build on Arch Linux
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          set -euo pipefail
-          tag="v${{ steps.version.outputs.version }}"
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" release/* --clobber
-          else
-            gh release create "$tag" release/* --target "$GITHUB_SHA" --title "Screen+ ${tag#v}" --generate-notes
-          fi
+          docker run --rm -e VERSION -v "$GITHUB_WORKSPACE:/workspace" -w /workspace archlinux:latest bash -lc '
+            pacman -Syu --noconfirm --needed base-devel cmake ninja pkgconf sdl3 cairo pango fontconfig gtk4 gtk4-layer-shell mpv webkitgtk-6.0 libepoxy wayland wayland-protocols ffmpeg
+            bash scripts/gitlab-linux.sh build
+          '
+  debian:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Debian package
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          docker run --rm -e VERSION -v "$GITHUB_WORKSPACE:/workspace" -w /workspace debian:13 bash -lc '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates build-essential cmake ninja-build pkg-config dpkg-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libgtk-4-dev libmpv-dev libwebkitgtk-6.0-dev libepoxy-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libsdl3-dev libgtk4-layer-shell-dev
+            bash scripts/gitlab-linux.sh deb debian
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-debian
+          path: release/*
 
-  linux:
-    needs: build
-    uses: ./.github/workflows/linux.yml
-    with:
-      version: ${{ needs.build.outputs.version }}
+  ubuntu:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore Ubuntu native library build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ffmpeg-own/
+            libs-own/
+          key: linux-ubuntu-${{ hashFiles('scripts/build-ffmpeg-linux.sh', 'scripts/build-libs-linux.sh') }}
+      - name: Build Ubuntu package and portable Linux tarball
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          docker run --rm -e VERSION -v "$GITHUB_WORKSPACE:/workspace" -w /workspace ubuntu:24.04 bash -lc '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends ca-certificates build-essential cmake ninja-build pkg-config dpkg-dev libcairo2-dev libpango1.0-dev libfontconfig-dev libgtk-4-dev libmpv-dev libwebkitgtk-6.0-dev libepoxy-dev libavformat-dev libavcodec-dev libavutil-dev libswscale-dev meson patchelf curl xz-utils nasm libdav1d-dev zlib1g-dev libwayland-dev wayland-protocols libxkbcommon-dev libegl-dev libgl-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev libxtst-dev libdecor-0-dev libdbus-1-dev
+            bash scripts/gitlab-linux.sh deb ubuntu
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-ubuntu
+          path: release/*
 
-  publish-linux:
-    needs: [build, linux]
-    if: github.event_name != 'pull_request'
+  fedora:
+    needs: version
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore Fedora FFmpeg build cache
+        uses: actions/cache@v4
+        with:
+          path: ffmpeg-own/
+          key: linux-fedora-${{ hashFiles('scripts/build-ffmpeg-linux.sh') }}
+      - name: Build Fedora RPM
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          docker run --rm -e VERSION -v "$GITHUB_WORKSPACE:/workspace" -w /workspace fedora:44 bash -lc '
+            dnf install -y gcc cmake ninja-build pkgconf-pkg-config rpm-build make nasm xz patchelf "pkgconfig(dav1d)" "pkgconfig(zlib)" "pkgconfig(sdl3)" "pkgconfig(cairo)" "pkgconfig(pangocairo)" "pkgconfig(fontconfig)" "pkgconfig(gtk4)" "pkgconfig(gtk4-layer-shell-0)" "pkgconfig(webkitgtk-6.0)" "pkgconfig(mpv)" "pkgconfig(epoxy)"
+            bash scripts/gitlab-linux.sh rpm
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-fedora
+          path: release/*
+
+  ubuntu-newest:
+    needs: [version, ubuntu]
+    if: needs.version.outputs.skip != 'true'
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: ScreenPlus-linux
+          name: release-ubuntu
           path: release
-      - name: Add to the release
+      - name: Install Ubuntu package on newest Ubuntu
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          docker run --rm -e VERSION -v "$GITHUB_WORKSPACE:/workspace" -w /workspace ubuntu:26.04 bash -lc '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update
+            apt-get install -y --no-install-recommends ./release/ScreenPlus-$VERSION-ubuntu-amd64.deb
+            screenplus version | grep -F "$VERSION"
+            screenplus help >/dev/null
+            if ldd /usr/lib/screenplus/screenplus-ui.so /usr/lib/screenplus/screenplus-engine /usr/lib/screenplus/screenplus-depth.so | grep "not found"; then exit 1; fi
+          '
+
+  install-test:
+    needs: [version, ubuntu]
+    if: needs.version.outputs.skip != 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: arch
+            image: archlinux:latest
+          - distro: fedora
+            image: fedora:44
+          - distro: opensuse
+            image: opensuse/tumbleweed:latest
+          - distro: debian
+            image: debian:13
+          - distro: ubuntu
+            image: ubuntu:26.04
+          - distro: neon
+            image: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-ubuntu
+          path: release
+      - name: Test portable tarball installer on ${{ matrix.distro }}
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          docker run --rm -e VERSION -v "$GITHUB_WORKSPACE:/workspace" -w /workspace "${{ matrix.image }}" bash -lc '
+            sh scripts/gitlab-install-test.sh "${{ matrix.distro }}"
+          '
+
+  publish:
+    needs: [version, windows, arch, debian, ubuntu, fedora, ubuntu-newest, install-test]
+    if: needs.version.outputs.skip != 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows packages
+        uses: actions/download-artifact@v4
+        with:
+          name: release-windows
+          path: release
+      - name: Download Debian package
+        uses: actions/download-artifact@v4
+        with:
+          name: release-debian
+          path: release
+      - name: Download Ubuntu package and Linux tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ubuntu
+          path: release
+      - name: Download Fedora RPM
+        uses: actions/download-artifact@v4
+        with:
+          name: release-fedora
+          path: release
+      - name: Create checksums and publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "v${{ needs.build.outputs.version }}" release/* --clobber --repo "$GITHUB_REPOSITORY"
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          (cd release && sha256sum -- * > SHA256SUMS.txt)
+          tag="v$VERSION"
+          gh release create "$tag" release/* --target "$GITHUB_SHA" --title "Screen+ $VERSION" --generate-notes --repo "$GITHUB_REPOSITORY"
