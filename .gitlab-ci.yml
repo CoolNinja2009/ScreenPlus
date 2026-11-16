@@ -2,7 +2,7 @@
 # portable zip and the samples (on the runner on the developer's PC, unsigned: SignPath runs on GitHub only),
 # and a tar.gz for any distribution with an install.sh that installs what is missing (built with the Ubuntu .deb), a
 # .deb each for Debian and Ubuntu (24.04 and newer) and an .rpm from Fedora (on GitLab's machines).
-# Every push to main gets the next version, a vX.Y.Z tag releases that exact version, merge requests are built
+# Relevant pushes to main get the next version, a vX.Y.Z tag releases that exact version, merge requests are built
 # but not released. Nothing is released unless every build passes. .github/workflows/release.yml mirrors these
 # builds and checks on GitHub.
 workflow:
@@ -22,6 +22,7 @@ workflow:
         - THIRD_PARTY_NOTICES.md
         - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: *app
 
 stages: [version, build, release]
 

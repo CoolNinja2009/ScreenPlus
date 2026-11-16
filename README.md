@@ -7,6 +7,7 @@
 Live wallpapers for Windows and Linux.
 
 [![Release](https://img.shields.io/gitlab/v/release/screenplus-group/screenplus?style=flat-square&color=FFA500&label=release)](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)
+[![Downloads](https://img.shields.io/github/downloads/CoolNinja2009/ScreenPlus/total?style=flat-square&label=downloads)](https://github.com/CoolNinja2009/ScreenPlus/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square)](LICENSE)
 
 </div>
