@@ -111,6 +111,13 @@ void pages_rebuild_view(void)
 {
     Ui *u = g_ui;
     if (!u) return;
+    if (u->motion == 0 && u->page == PAGE_LIBRARY && u->flowDrawnCount) {
+        u->flowOldCount = u->flowDrawnCount;
+        memcpy(u->flowOld, u->flowDrawn, sizeof(u->flowOld[0]) * (size_t)u->flowOldCount);
+        u->flowT0 = time_ms();
+        u->hoverBlockUntil = u->flowT0 + 280.0;
+        ui_animate();
+    }
     if (u->viewCap < g_app.cfg.count) {
         int *p = (int *)realloc(u->view, sizeof(int) * (size_t)SP_MAX(g_app.cfg.count, 16));
         if (!p) return;
@@ -157,22 +164,40 @@ static void draw_sidebar(Ui *u)
     /* brand */
     D2D1_RECT_F mark = rectf(24, 22, 30, 30);
     ui_rrect(mark, 9, t->accent);
-    ui_rrect_stroke(rectf(31, 30, 16, 12), 3, 1.6f, t->onAccent);
-    ui_line(39, 32, 39, 40, 1.4f, t->onAccent);
-    ui_line(35, 36, 43, 36, 1.4f, t->onAccent);
-    ui_line(39, 42, 39, 45.5f, 1.6f, t->onAccent);
-    ui_line(35, 46, 43, 46, 1.6f, t->onAccent);
+    float brandP = u->brandAt > 0 && u->motion == 0 ?
+                   SP_CLAMP((float)((time_ms() - u->brandAt) / 260.0), 0.0f, 1.0f) : 1.0f;
+    if (brandP >= 1.0f) ui_rrect_stroke(rectf(31, 30, 16, 12), 3, 1.6f, t->onAccent);
+    else {
+        ui_line(33, 30, 33 + 12 * brandP, 30, 1.6f, t->onAccent);
+        ui_line(47, 32, 47, 32 + 8 * brandP, 1.6f, t->onAccent);
+        ui_line(45, 42, 45 - 12 * brandP, 42, 1.6f, t->onAccent);
+        ui_line(31, 40, 31, 40 - 8 * brandP, 1.6f, t->onAccent);
+    }
+    float standP = u->brandAt > 0 && u->motion == 0 ?
+                   SP_CLAMP((float)((time_ms() - u->brandAt - 260.0) / 180.0), 0.0f, 1.0f) : 1.0f;
+    ui_line(39, 32, 39, 32 + 8 * brandP, 1.4f, t->onAccent);
+    ui_line(35, 36, 35 + 8 * brandP, 36, 1.4f, t->onAccent);
+    ui_line(39, 42, 39, 42 + 3.5f * standP, 1.6f, t->onAccent);
+    ui_line(35, 46, 35 + 8 * standP, 46, 1.6f, t->onAccent);
+    if (u->brandAt > 0 && time_ms() - u->brandAt < 580.0 && u->motion == 0) ui_animate();
     ui_text(L"Screen+", u->fBrand, rectf(64, 22, 150, 30), t->text);
 
     static const wchar_t *labels[] = { L"Library", L"Displays", L"Customise", L"Store", L"Settings" };
     static const wchar_t icons[] = { GL_LIBRARY, GL_DISPLAY, GL_COLOR, GL_STORE, GL_SETTINGS };
+    float navTarget = 84.0f + u->page * 44.0f;
+    if (u->motion == 0 && u->navT0 > 0) {
+        float p = (float)((time_ms() - u->navT0) / 220.0);
+        u->navY = u->navFrom + (navTarget - u->navFrom) * ui_motion_curve(p, 1);
+        if (p < 1.0f) ui_animate();
+        else u->navT0 = 0;
+    } else u->navY = navTarget;
+    ui_rrect(rectf(12, u->navY, SIDEBAR_W - 24, 40), 10, t->navActive);
     float y = 84;
     for (int i = 0; i < PAGE_COUNT; i++) {
         int id = HIT_ID(HK_NAV, i);
         D2D1_RECT_F r = rectf(12, y, SIDEBAR_W - 24, 40);
         int sel = u->page == i, hot = ui_is_hot(id);
-        if (sel) ui_rrect(r, 10, t->navActive);
-        else if (hot) ui_rrect(r, 10, col_a(t->navActive, t->navActive.a * 0.55f));
+        if (!sel && hot) ui_rrect(r, 10, col_a(t->navActive, t->navActive.a * 0.55f));
         ui_icon(icons[i], u->fIcon, rectf(r.left + 10, y, 24, 40), sel ? t->accent : t->text2);
         ui_text(labels[i], sel ? u->fBodyB : u->fBody, rectf(r.left + 44, y, 150, 40), sel ? t->text : t->text2);
         ui_hit(id, r, 1, 1);
@@ -183,7 +208,16 @@ static void draw_sidebar(Ui *u)
     /* engine status card */
     int sev = 0;
     const wchar_t *state = app_engine_state_text(&sev);
+    if (wcscmp(u->statusText, state) != 0) {
+        str_copy(u->statusText, SP_COUNTOF(u->statusText), state);
+        u->statusAt = time_ms();
+    }
     D2D1_COLOR_F dot = sev == 0 ? t->success : sev == 1 ? t->warning : sev == 2 ? t->warning : t->danger;
+    if (u->motion == 0 && (sev != 0 || !g_app.haveStatus) && time_ms() - u->statusAt < 8000.0) {
+        float phase = (float)fmod((time_ms() - u->statusAt) / 1600.0, 1.0);
+        dot.a *= 0.45f + 0.55f * (1.0f - fabsf(2.0f * phase - 1.0f));
+        ui_animate();
+    }
     float ch = 70, cy = u->h - ch - 16;
     D2D1_RECT_F card = rectf(12, cy, SIDEBAR_W - 24, ch);
     ui_glass(card, 14, 0, 0);
@@ -205,21 +239,53 @@ static void draw_title(Ui *u, float x, const wchar_t *title, const wchar_t *subt
 
 static float draw_notice(Ui *u, float x, float y, float w)
 {
-    if (!g_app.notice[0]) return 0.0f;
+    float target = g_app.notice[0] ? 44.0f : 0.0f;
+    if (target != u->noticeTo) {
+        u->noticeFrom = u->noticeH;
+        u->noticeTo = target;
+        u->noticeT0 = time_ms();
+        if (target) {
+            str_copy(u->noticeText, SP_COUNTOF(u->noticeText), g_app.notice);
+            u->noticeKind = g_app.noticeKind;
+        }
+    }
+    if (target && wcscmp(u->noticeText, g_app.notice) != 0) {
+        str_copy(u->noticeText, SP_COUNTOF(u->noticeText), g_app.notice);
+        u->noticeKind = g_app.noticeKind;
+    }
+    if (u->motion != 0) { u->noticeH = target; u->noticeT0 = 0; }
+    else if (u->noticeT0 > 0) {
+        float dur = target > u->noticeFrom ? 220.0f : 140.0f;
+        float p = (float)((time_ms() - u->noticeT0) / dur);
+        u->noticeH = u->noticeFrom + (target - u->noticeFrom) * ui_motion_curve(p, target ? 0 : 2);
+        if (p < 1.0f) ui_animate();
+        else u->noticeT0 = 0;
+    }
+    if (u->noticeH <= 0.01f) return 0.0f;
     Theme *t = &u->t;
-    D2D1_COLOR_F c = g_app.noticeKind == NOTICE_ERROR ? t->danger : g_app.noticeKind == NOTICE_WARN ? t->warning : t->accent;
-    wchar_t g = g_app.noticeKind == NOTICE_ERROR ? GL_ERROR : g_app.noticeKind == NOTICE_WARN ? GL_WARNING : GL_INFO;
+    D2D1_COLOR_F c = u->noticeKind == NOTICE_ERROR ? t->danger : u->noticeKind == NOTICE_WARN ? t->warning : t->accent;
+    wchar_t g = u->noticeKind == NOTICE_ERROR ? GL_ERROR : u->noticeKind == NOTICE_WARN ? GL_WARNING : GL_INFO;
     D2D1_RECT_F r = rectf(x, y, w, 44);
+    int hot = u->tracking && in_rect(r, u->mx, u->my);
+    app_notice_hover(hot);
+    ui_push_clip(rectf(x, y, w, u->noticeH));
     ui_rrect(r, 12, col_a(c, t->dark ? 0.14f : 0.10f));
     ui_rrect_stroke(r, 12, 1, col_a(c, 0.35f));
     ui_icon(g, u->fIcon, rectf(x + 10, y, 28, 44), c);
-    ui_text(g_app.notice, u->fBody, rectf(x + 44, y, w - 96, 44), t->text);
-    if (g_app.noticeKind == NOTICE_ERROR && (g_app.engineGaveUp || g_app.engineError[0])) {
+    ui_text(u->noticeText, u->fBody, rectf(x + 44, y, w - 96, 44), t->text);
+    if (u->noticeKind == NOTICE_INFO && g_app.noticeKind == NOTICE_INFO) {
+        double left = g_app.noticeRemaining - (g_app.noticeHover ? 0.0 : time_ms() - g_app.noticeAt);
+        float frac = (float)SP_CLAMP(left / 10000.0, 0.0, 1.0);
+        ui_rrect(rectf(x, y + 42, w * frac, 2), 1, c);
+        if (!g_app.noticeHover && frac > 0.0f && u->motion != 2) ui_animate();
+    }
+    if (u->noticeKind == NOTICE_ERROR && (g_app.engineGaveUp || g_app.engineError[0])) {
         float bw = ui_button_width(L"Restart renderer", 0);
         ui_button(HIT_ID(HK_RESTART_ENGINE, 1), rectf(x + w - 48 - bw, y + 6, bw, 32), L"Restart renderer", 0, BTN_SECONDARY);
     }
     ui_button(HIT_ID(HK_NOTICE_CLOSE, 0), rectf(x + w - 40, y + 6, 32, 32), NULL, GL_CLOSE, BTN_GHOST);
-    return 56.0f;
+    ui_pop_clip();
+    return u->noticeH + 12.0f * (u->noticeH / 44.0f);
 }
 
 /* The scrollbar: a thumb to drag, or a click on the track to jump there (HK_SCROLLBAR, data: the page;
@@ -233,8 +299,10 @@ static void draw_scrollbar(Ui *u, D2D1_RECT_F view, int page)
     float th = SP_MAX(36.0f, vh * vh / ch), range = vh - th;
     float pos = range * SP_CLAMP(u->scroll[page] / (ch - vh), 0.0f, 1.0f);
     int id = HIT_ID(HK_SCROLLBAR, page), on = ui_is_hot(id) || u->pressed == id;
-    float bw = on ? 8.0f : 4.0f;
-    ui_rrect(rectf(view.right - 6 - bw, view.top + pos + 2, bw, th - 4), bw * 0.5f, on ? u->t.text2 : u->t.text3);
+    float hp = ui_motion_hover(id, on);
+    float bw = 4.0f + 4.0f * hp;
+    ui_rrect(rectf(view.right - 6 - bw, view.top + pos + 2, bw, th - 4), bw * 0.5f,
+             ui_motion_color(u->t.text3, u->t.text2, hp));
     ui_hit(id, rectf(view.right - 16, view.top, 16, vh), 0, 0);
 }
 
@@ -277,9 +345,14 @@ static void draw_search(Ui *u, D2D1_RECT_F r, int id, int clearId, const wchar_t
 {
     Theme *t = &u->t;
     int editing = u->textFocus == id;
+    float focus = ui_motion_hover(id, editing);
     float bh = r.bottom - r.top;
     ui_rrect(r, 9, t->field);
-    ui_rrect_stroke(r, 9, editing ? 1.5f : 1.0f, editing ? t->accent : t->border);
+    if (focus > 0.01f && u->motion == 0) {
+        D2D1_RECT_F glow = { r.left - 2.0f, r.top - 2.0f, r.right + 2.0f, r.bottom + 2.0f };
+        ui_rrect_stroke(glow, 11, 2.0f, col_a(t->accent, 0.18f * focus));
+    }
+    ui_rrect_stroke(r, 9, 1.0f + 0.5f * focus, ui_motion_color(t->border, t->accent, focus));
     ui_icon(GL_SEARCH, u->fIconS, rectf(r.left + 8, r.top, 22, bh), t->text3);
     float tx = r.left + 34, tw = r.right - r.left - 34 - (text[0] ? 32 : 10);
     if (!text[0] && !editing) ui_text(hint, u->fBody, rectf(tx, r.top, tw, bh), t->text3);
@@ -306,7 +379,21 @@ static float draw_hero(Ui *u, float x, float y, float w)
     float ph = h - 32, pw = ph * 16.0f / 9.0f;
     if (pw > w * 0.46f) { pw = w * 0.46f; ph = pw * 9.0f / 16.0f; }
     D2D1_RECT_F prev = rectf(x + 16, y + (h - ph) * 0.5f, pw, ph);
-    if (e) ui_draw_thumb(e, prev, 12, 1);
+    u->heroRect = prev;
+    if (e) {
+        float savedAlpha = u->alpha;
+        if (u->ghost.active && wcscmp(u->ghost.id, e->id) == 0) {
+            float p = (float)((time_ms() - u->ghost.t0 - 120.0) / 200.0);
+            u->alpha *= ui_motion_curve(p, 0);
+        } else if (u->heroFadeAt > 0 && u->motion != 2) {
+            float p = (float)((time_ms() - u->heroFadeAt) / (u->motion == 1 ? 140.0 : 180.0));
+            u->alpha *= ui_motion_curve(p, 0);
+            if (p < 1.0f) ui_animate();
+            else u->heroFadeAt = 0;
+        }
+        ui_draw_thumb(e, prev, 12, 1);
+        u->alpha = savedAlpha;
+    }
     else {
         ui_rrect(prev, 12, t->chip);
         ui_icon(GL_DISPLAY, u->fIconL, rectf(prev.left, prev.top, pw, ph - 18), t->text3);
@@ -410,6 +497,20 @@ static void draw_coll_field(Ui *u, D2D1_RECT_F r)
     ui_hit(HIT_ID(HK_COLL_TEXT, 0), r, 1, 2);
 }
 
+static void draw_filter_chip(Ui *u, int id, D2D1_RECT_F r, const wchar_t *label, int active, int pass)
+{
+    float hp = ui_motion_hover(id, ui_is_hot(id));
+    float radius = (r.bottom - r.top) * 0.5f;
+    if (!active && pass == 0) {
+        ui_rrect(r, radius, ui_motion_color(u->t.chip, u->t.panelHover, hp));
+        ui_rrect_stroke(r, radius, 1.0f, col_a(u->t.border, u->t.border.a * 0.8f));
+    }
+    if (pass == 0) return;
+    ui_text(label, u->fCenter, r, active ? u->t.onAccent : ui_motion_color(u->t.text2, u->t.text, hp));
+    ui_hit(id, r, 1, 1);
+    ui_focus_ring(r, radius, id);
+}
+
 /* Filter chips (types, Recent, Favourites, then each collection), the sort menu and the count; while cards are
  * selected, the selection bar instead. */
 static float draw_filters(Ui *u, float x, float y, float w)
@@ -438,21 +539,66 @@ static float draw_filters(Ui *u, float x, float y, float w)
         return y + 30;
     }
     float sw = ui_button_width(k_sortNames[g_app.cfg.s.librarySort], GL_SORT), right = x + w - sw - 80;
-    float cx = x, rowY = y;
-    for (int i = 0; i < (int)SP_COUNTOF(k_filters) + 1; i++) {
-        const wchar_t *label = i < (int)SP_COUNTOF(k_filters) ? k_filters[i] : L"Favourites";
-        float cw = ui_text_width(label, u->fCenter) + 30;
-        if (cx + cw > right && cx > x) { cx = x; y += 38; }
-        ui_chip(HIT_ID(HK_FILTER, i), rectf(cx, y, cw, 30), label, u->filter == i);
-        cx += cw + 8;
-    }
     wchar_t names[64][64];
     int nc = config_collections(&g_app.cfg, names, 64);
+    float cx = x, rowY = y;
+    D2D1_RECT_F selected = { 0 };
+    int selectedId = 0;
+    for (int i = 0; i < (int)SP_COUNTOF(k_filters) + 1; i++) {
+        const wchar_t *label = i < (int)SP_COUNTOF(k_filters) ? k_filters[i] : L"Favourites";
+        float chipW = ui_text_width(label, u->fCenter) + 30;
+        if (cx + chipW > right && cx > x) { cx = x; y += 38; }
+        if (u->filter == i) { selected = rectf(cx, y, chipW, 30); selectedId = HIT_ID(HK_FILTER, i); }
+        cx += chipW + 8;
+    }
     for (int k = 0; k < nc; k++) {
-        float cw = SP_MIN(ui_text_width(names[k], u->fCenter) + 30, 220.0f);
-        if (cx + cw > right && cx > x) { cx = x; y += 38; }
-        ui_chip(HIT_ID(HK_COLL, k), rectf(cx, y, cw, 30), names[k], u->filter == 6 && str_ieq(u->coll, names[k]));
-        cx += cw + 8;
+        float chipW = SP_MIN(ui_text_width(names[k], u->fCenter) + 30, 220.0f);
+        if (cx + chipW > right && cx > x) { cx = x; y += 38; }
+        if (u->filter == 6 && str_ieq(u->coll, names[k])) {
+            selected = rectf(cx, y, chipW, 30); selectedId = HIT_ID(HK_COLL, k);
+        }
+        cx += chipW + 8;
+    }
+    if (selectedId) {
+        if (!u->filterPillReady || u->motion != 0) {
+            u->filterPill = selected;
+            u->filterPillReady = 1;
+        } else if (selectedId != u->filterPillId ||
+                   fabsf(u->filterTo.left - selected.left) > 0.5f || fabsf(u->filterTo.top - selected.top) > 0.5f) {
+            u->filterFrom = u->filterPill;
+            u->filterPillAt = time_ms();
+            ui_animate();
+        }
+        u->filterPillId = selectedId;
+        u->filterTo = selected;
+        if (u->motion == 0 && u->filterPillAt > 0) {
+            float p = ui_motion_curve((float)((time_ms() - u->filterPillAt) / 200.0), 1);
+            u->filterPill.left = u->filterFrom.left + (selected.left - u->filterFrom.left) * p;
+            u->filterPill.top = u->filterFrom.top + (selected.top - u->filterFrom.top) * p;
+            u->filterPill.right = u->filterFrom.right + (selected.right - u->filterFrom.right) * p;
+            u->filterPill.bottom = u->filterFrom.bottom + (selected.bottom - u->filterFrom.bottom) * p;
+            if (p < 1.0f) ui_animate();
+            else u->filterPillAt = 0;
+        } else u->filterPill = selected;
+    }
+    for (int pass = 0; pass < 2; pass++) {
+        cx = x;
+        y = rowY;
+        for (int i = 0; i < (int)SP_COUNTOF(k_filters) + 1; i++) {
+            const wchar_t *label = i < (int)SP_COUNTOF(k_filters) ? k_filters[i] : L"Favourites";
+            float chipW = ui_text_width(label, u->fCenter) + 30;
+            if (cx + chipW > right && cx > x) { cx = x; y += 38; }
+            draw_filter_chip(u, HIT_ID(HK_FILTER, i), rectf(cx, y, chipW, 30), label, u->filter == i, pass);
+            cx += chipW + 8;
+        }
+        for (int k = 0; k < nc; k++) {
+            float chipW = SP_MIN(ui_text_width(names[k], u->fCenter) + 30, 220.0f);
+            if (cx + chipW > right && cx > x) { cx = x; y += 38; }
+            draw_filter_chip(u, HIT_ID(HK_COLL, k), rectf(cx, y, chipW, 30), names[k],
+                             u->filter == 6 && str_ieq(u->coll, names[k]), pass);
+            cx += chipW + 8;
+        }
+        if (pass == 0 && selectedId) ui_rrect(u->filterPill, 15, u->t.accent);
     }
     if (u->textFocus == HIT_ID(HK_COLL_TEXT, 0)) {
         if (cx + 200 > right && cx > x) { cx = x; y += 38; }
@@ -481,13 +627,57 @@ static float draw_filters(Ui *u, float x, float y, float w)
 
 static void draw_card_name(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F nr);
 
+static float card_selection(Ui *u, const WallpaperEntry *e, int current, double *currentAt)
+{
+    int selected = (e->uiMark & 1) != 0, slot = -1, oldest = 0;
+    for (int i = 0; i < (int)SP_COUNTOF(u->cardMotion); i++) {
+        if (u->cardMotion[i].id[0] && wcscmp(u->cardMotion[i].id, e->id) == 0) { slot = i; break; }
+        if (!u->cardMotion[i].id[0]) oldest = i;
+        else if (u->cardMotion[i].used < u->cardMotion[oldest].used) oldest = i;
+    }
+    if (slot < 0) {
+        slot = oldest;
+        str_copy(u->cardMotion[slot].id, SP_ID_LEN, e->id);
+        u->cardMotion[slot].selection = (float)selected;
+        u->cardMotion[slot].selected = selected;
+        u->cardMotion[slot].current = current;
+        u->cardMotion[slot].currentAt = 0;
+    }
+    u->cardMotion[slot].used = u->frame;
+    if (u->cardMotion[slot].selected != selected) {
+        u->cardMotion[slot].selected = selected;
+        ui_animate();
+    }
+    if (u->cardMotion[slot].current != current) {
+        u->cardMotion[slot].current = current;
+        if (current) u->cardMotion[slot].currentAt = time_ms();
+        ui_animate();
+    }
+    *currentAt = u->cardMotion[slot].currentAt;
+    return u->motion == 0 ? u->cardMotion[slot].selection : (float)selected;
+}
+
 static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, float thumbH, int current)
 {
     Theme *t = &u->t;
     int id = HIT_ID(HK_CARD, vi), hot = ui_is_hot(id);
-    ui_glass(r, 14, hot, hot);
+    double currentAt = 0;
+    float selection = card_selection(u, e, current, &currentAt);
+    float scale = u->motion == 0 && u->cardDrag && u->pressed == id ? 1.04f :
+                  u->motion == 0 && u->pressId == id ? 1.0f - u->pressAmt * 0.015f : 1.0f;
+    if (scale != 1.0f) {
+        float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
+        D2D1_MATRIX_3X2_F m = { scale, 0, 0, scale, cx * (1.0f - scale), cy * (1.0f - scale) };
+        ID2D1RenderTarget_SetTransform((ID2D1RenderTarget *)u->rt, &m);
+    }
+    float hp = ui_motion_hover(id, hot || ui_is_hot(HIT_ID(HK_FAV, vi)) || ui_is_hot(HIT_ID(HK_NAME, vi)));
+    ui_glass_amount(r, 14, hp, u->cardDrag && u->pressed == id ? 1.0f : hp);
     D2D1_RECT_F th = { r.left + 6, r.top + 6, r.right - 6, r.top + 6 + thumbH };
     ui_draw_thumb(e, th, 10, 0);
+    if (u->ghost.active && wcscmp(u->ghost.id, e->id) == 0) {
+        float p = (float)((time_ms() - u->ghost.t0) / 140.0);
+        if (p < 1.0f) ui_rrect(th, 10, col(0x000000, 0.08f * (1.0f - p)));
+    }
     if (e->missing) {
         ui_rrect(th, 10, t->scrim);
         ui_icon(GL_WARNING, u->fIcon, rectf(th.left, th.top, th.right - th.left, (th.bottom - th.top) - 14), col(0xFFFFFF, 1));
@@ -501,15 +691,20 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
     ui_icon(ui_type_icon(e->type)[0], u->fIconS, rectf(b.left + 6, b.top, 16, 22), col(0xFFFFFF, 0.95f));
     ui_text(tn, u->fCenterS, rectf(b.left + 20, b.top, bw - 24, 22), col(0xFFFFFF, 0.95f));
     if (current) {
-        ui_circle(th.right - 18, th.top + 18, 12, t->accent);
+        float cp = currentAt > 0 && u->motion == 0 ?
+            ui_motion_curve((float)((time_ms() - currentAt) / 300.0), 0) : 1.0f;
+        float size = 12.0f * (currentAt > 0 && cp < 1.0f ? 0.9f + 0.1f * cp + 0.04f * sinf(cp * 3.1415926f) : 1.0f);
+        ui_circle(th.right - 18, th.top + 18, size, t->accent);
         ui_icon(GL_CHECK, u->fIconS, rectf(th.right - 30, th.top + 6, 24, 24), t->onAccent);
         ui_rrect_stroke(r, 14, 2, t->accent);
+        if (cp < 1.0f) ui_animate();
     }
-    if (e->uiMark & 1) {                           /* selected: tinted, ringed, a tick top-left */
-        ui_rrect(th, 10, col_a(t->accent, 0.28f));
-        ui_rrect_stroke(r, 14, 3, t->accent);
-        ui_circle(th.left + 18, th.top + 18, 12, t->accent);
-        ui_icon(GL_CHECK, u->fIconS, rectf(th.left + 6, th.top + 6, 24, 24), t->onAccent);
+    if (selection > 0.01f) {                        /* selected: tinted, ringed, a tick top-left */
+        ui_rrect(th, 10, col_a(t->accent, 0.28f * selection));
+        ui_rrect_stroke(r, 14, 3, col_a(t->accent, selection));
+        float tick = 12.0f * (0.8f + 0.2f * selection);
+        ui_circle(th.left + 18, th.top + 18, tick, col_a(t->accent, selection));
+        ui_icon(GL_CHECK, u->fIconS, rectf(th.left + 6, th.top + 6, 24, 24), col_a(t->onAccent, selection));
     } else if (selected_count()) {
         ui_circle(th.left + 18, th.top + 18, 11, col(0x000000, 0.22f));    /* an empty tick ring */
         ui_rrect_stroke(rectf(th.left + 7, th.top + 7, 22, 22), 11, 1.5f, col(0xFFFFFF, 0.92f));
@@ -517,8 +712,26 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
     int fav = (e->flags & WPFLAG_FAV) != 0, starId = HIT_ID(HK_FAV, vi), starHot = ui_is_hot(starId);
     D2D1_RECT_F sr = { th.right - 36, th.bottom - 34, th.right - 8, th.bottom - 6 };
     if (fav || hot || starHot || ui_is_hot(HIT_ID(HK_NAME, vi))) {   /* the star: always when a favourite, else on hover */
-        ui_circle((sr.left + sr.right) * 0.5f, (sr.top + sr.bottom) * 0.5f, 14, col(0x000000, starHot ? 0.62f : 0.48f));
-        ui_icon(fav ? GL_STAR_ON : GL_STAR, u->fIconS, sr, fav ? col(0xFFC83D, 1.0f) : col(0xFFFFFF, starHot ? 1.0f : 0.85f));
+        float starScale = 1.0f;
+        if (u->motion == 0 && u->starAt > 0 && wcscmp(u->starId, e->id) == 0) {
+            float p = (float)((time_ms() - u->starAt) / (u->starOn ? 180.0 : 120.0));
+            if (p < 1.0f) {
+                starScale = u->starOn ? (p < 0.35f ? 1.0f - 0.14f * (p / 0.35f) :
+                            0.86f + 0.18f * ui_motion_curve((p - 0.35f) / 0.65f, 0)) :
+                            1.0f - 0.12f * (1.0f - p);
+                ui_animate();
+            }
+            if (p < 1.33f && u->starOn) {
+                float ring = SP_CLAMP(p / 1.33f, 0.0f, 1.0f);
+                ui_circle((sr.left + sr.right) * 0.5f, (sr.top + sr.bottom) * 0.5f, 15.0f + 3.0f * ring,
+                          col_a(t->accent, 0.12f * (1.0f - ring)));
+            }
+        }
+        float scx = (sr.left + sr.right) * 0.5f, scy = (sr.top + sr.bottom) * 0.5f;
+        ui_circle(scx, scy, 14, col(0x000000, starHot ? 0.62f : 0.48f));
+        D2D1_RECT_F starRect = rectf(scx - 14.0f * starScale, scy - 14.0f * starScale,
+                                    28.0f * starScale, 28.0f * starScale);
+        ui_icon(fav ? GL_STAR_ON : GL_STAR, u->fIconS, starRect, fav ? col(0xFFC83D, 1.0f) : col(0xFFFFFF, starHot ? 1.0f : 0.85f));
     }
     wchar_t meta[96], ext[16];
     str_copy(ext, SP_COUNTOF(ext), path_ext(e->path)[0] ? path_ext(e->path) + 1 : L"file");
@@ -539,6 +752,10 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
     draw_card_name(u, vi, e, rectf(r.left + 12, th.bottom + 8, r.right - r.left - 24, 20));
     ui_hit(HIT_ID(HK_NAME, vi), rectf(r.left + 10, th.bottom + 6, r.right - r.left - 20, 24), 0, 2);
     ui_hit(starId, sr, 0, 1);                      /* after the card's, so a click on it stars instead of applying */
+    if (scale != 1.0f) {
+        D2D1_MATRIX_3X2_F identity = { 1, 0, 0, 1, 0, 0 };
+        ID2D1RenderTarget_SetTransform((ID2D1RenderTarget *)u->rt, &identity);
+    }
 }
 
 /* ---- drag to select: from empty space in the Library, a rectangle selects the cards it touches (Ctrl or Shift
@@ -624,12 +841,59 @@ static float draw_grid(Ui *u, float x, float y, float w)
     u->gridX = x;
     u->colW = cw + gap;
     const wchar_t *cur = app_wallpaper_for(target_id());
+    u->flowDrawnCount = 0;
+    float flowP = u->flowT0 > 0 ? (float)((time_ms() - u->flowT0) / 220.0) : 1.0f;
+    int flowing = u->motion == 0 && flowP < 1.0f;
+    if (flowing) ui_animate();
+    else u->flowT0 = 0;
+    int dragged = u->cardDrag ? HIT_DATA(u->pressed) : -1;
+    D2D1_RECT_F dragRect = { 0 };
+    const WallpaperEntry *dragEntry = NULL;
     for (int i = 0; i < u->viewCount; i++) {
         int c = i % cols, row = i / cols;
         D2D1_RECT_F r = rectf(x + c * (cw + gap), y + row * (ch + gap), cw, ch);
-        if (r.bottom < u->viewTop - 8 || r.top > u->h + 8) continue;     /* culled */
         const WallpaperEntry *e = &g_app.cfg.items[u->view[i]];
+        float cardAlpha = 1.0f;
+        if (flowing) {
+            int old = -1;
+            for (int j = 0; j < u->flowOldCount; j++)
+                if (wcscmp(u->flowOld[j].id, e->id) == 0) { old = j; break; }
+            if (old >= 0) {
+                float p = ui_motion_curve(flowP, 1);
+                D2D1_RECT_F from = u->flowOld[old].r;
+                r.left = from.left + (r.left - from.left) * p;
+                r.top = from.top + (r.top - from.top) * p;
+                r.right = r.left + cw;
+                r.bottom = r.top + ch;
+            } else {
+                float p = ui_motion_curve((flowP * 220.0f - SP_MIN(i, 8) * 12.0f) / 220.0f, 0);
+                r.top += (1.0f - p) * 4.0f;
+                r.bottom += (1.0f - p) * 4.0f;
+                cardAlpha = p;
+            }
+        }
+        if (r.bottom < u->viewTop - 8 || r.top > u->h + 8) continue;     /* culled */
+        if (u->flowDrawnCount < UI_MAX_HITS) {
+            str_copy(u->flowDrawn[u->flowDrawnCount].id, SP_ID_LEN, e->id);
+            u->flowDrawn[u->flowDrawnCount++].r = r;
+        }
+        if (i == dragged) {
+            ui_rrect(r, 14, col_a(u->t.accent, 0.10f));
+            ui_rrect_stroke(r, 14, 1.0f, col_a(u->t.accent, 0.35f));
+            dragRect = u->pressedRect;
+            dragEntry = e;
+            continue;
+        }
+        float savedAlpha = u->alpha;
+        u->alpha *= cardAlpha;
         draw_card(u, i, e, r, thumbH, wcscmp(e->id, cur) == 0);
+        u->alpha = savedAlpha;
+    }
+    if (dragEntry) {
+        float dx = u->mx - u->pressX, dy = u->my - u->pressY;
+        dragRect.left += dx; dragRect.right += dx;
+        dragRect.top += dy; dragRect.bottom += dy;
+        draw_card(u, dragged, dragEntry, dragRect, thumbH, wcscmp(dragEntry->id, cur) == 0);
     }
     int rows = (u->viewCount + cols - 1) / cols;
     return y + rows * (ch + gap) - gap;
@@ -652,6 +916,17 @@ static float draw_empty(Ui *u, float x, float y, float w, int noResults)
     }
     float b1 = ui_button_width(L"Import files", GL_ADD), b2 = ui_button_width(L"Wallpaper folder", GL_FOLDER);
     float bx = x + (w - b1 - b2 - 10) * 0.5f;
+    if (!u->emptyPulseAt && !g_app.uiReadyMs && u->motion == 0) u->emptyPulseAt = time_ms();
+    if (u->emptyPulseAt > 0 && u->motion == 0) {
+        double elapsed = time_ms() - u->emptyPulseAt;
+        if (elapsed < 2400.0) {
+            float phase = (float)fmod(elapsed / 1200.0, 1.0);
+            float grow = 6.0f * phase;
+            D2D1_RECT_F halo = rectf(bx - grow, y + 116 - grow, b1 + grow * 2, 36 + grow * 2);
+            ui_rrect_stroke(halo, 9 + grow, 2, col_a(t->accent, 0.25f * (1.0f - phase)));
+            ui_animate();
+        }
+    }
     ui_button(HIT_ID(HK_IMPORT, 1), rectf(bx, y + 116, b1, 36), L"Import files", GL_ADD, BTN_PRIMARY);
     ui_button(HIT_ID(HK_IMPORT_FOLDER, 1), rectf(bx + b1 + 10, y + 116, b2, 36), L"Wallpaper folder", GL_FOLDER, BTN_SECONDARY);
     return y + h;
@@ -671,7 +946,7 @@ static void draw_library(Ui *u, float cx, float cw)
     ui_button(HIT_ID(HK_IMPORT_FOLDER, 0), rectf(bx, by, 36, bh), NULL, GL_FOLDER, BTN_SECONDARY);
     if (g_app.cfg.s.urlImport) {
         bx -= 8 + 36;
-        ui_button(HIT_ID(HK_URL, 0), rectf(bx, by, 36, bh), NULL, GL_LINK, BTN_SECONDARY);
+        ui_button(HIT_ID(HK_URL, 0), rectf(bx, by, 36, bh), NULL, GL_LINK, urlp.open ? BTN_PRIMARY : BTN_SECONDARY);
     }
     float sw = SP_MIN(260.0f, w * 0.34f);
     bx -= 12 + sw;
@@ -763,7 +1038,8 @@ static void draw_store_card(Ui *u, const StoreItem *it, int i, D2D1_RECT_F r, fl
 {
     Theme *t = &u->t;
     int id = HIT_ID(HK_STORE_CARD, i), hot = ui_is_hot(id);
-    ui_glass(r, 14, hot, hot);
+    float hp = ui_motion_hover(id, hot);
+    ui_glass_amount(r, 14, hp, hp);
     D2D1_RECT_F th = { r.left + 6, r.top + 6, r.right - 6, r.top + 6 + thumbH };
     WallpaperEntry e;
     if (store_preview_entry(i, &e)) ui_draw_thumb(&e, th, 10, 0);
@@ -801,8 +1077,9 @@ static void draw_store_card(Ui *u, const StoreItem *it, int i, D2D1_RECT_F r, fl
     ui_text(meta, u->fSmall, rectf(r.left + 12, th.bottom + 28, r.right - r.left - 24, 16), t->text3);
 
     int pct, style = BTN_SECONDARY;
+    int dlState = store_dl_state(i, &pct);
     wchar_t label[40], icon = 0;
-    switch (store_dl_state(i, &pct)) {
+    switch (dlState) {
     case STOREDL_WAIT:
         str_copy(label, SP_COUNTOF(label), it->detail == STORE_READY ? L"Queued" : L"Preparing…");
         break;
@@ -829,7 +1106,28 @@ static void draw_store_card(Ui *u, const StoreItem *it, int i, D2D1_RECT_F r, fl
         style = BTN_PRIMARY;
         break;
     }
+    if (dlState == STOREDL_RUNNING && pct >= 0) {
+        int slot = -1, oldest = 0;
+        for (int j = 0; j < (int)SP_COUNTOF(u->storeFill); j++) {
+            if (u->storeFill[j].id == i + 1) { slot = j; break; }
+            if (!u->storeFill[j].id) oldest = j;
+            else if (u->storeFill[j].used < u->storeFill[oldest].used) oldest = j;
+        }
+        if (slot < 0) { slot = oldest; u->storeFill[slot].id = i + 1; u->storeFill[slot].value = 0.0f; }
+        float target = SP_CLAMP(pct / 100.0f, 0.0f, 1.0f);
+        u->storeFill[slot].target = target;
+        double now = time_ms();
+        float dt = (float)SP_CLAMP(now - u->storeFill[slot].lastAt, 0.0, 50.0) / 1000.0f;
+        if (u->motion == 2) u->storeFill[slot].value = target;
+        else u->storeFill[slot].value += (target - u->storeFill[slot].value) * SP_MIN(1.0f, dt / 0.20f);
+        u->storeFill[slot].lastAt = now;
+        u->storeFill[slot].used = u->frame;
+        u->progressId = HIT_ID(HK_STORE_DL, i);
+        u->progressFill = u->storeFill[slot].value;
+        if (fabsf(target - u->progressFill) > 0.002f) ui_animate();
+    }
     ui_button(HIT_ID(HK_STORE_DL, i), rectf(r.left + 10, th.bottom + 52, r.right - r.left - 20, 32), label, icon, style);
+    u->progressId = 0;
 }
 
 static float draw_store_grid(Ui *u, const StoreState *s, float x, float y, float w)
@@ -853,12 +1151,25 @@ static float draw_store_grid(Ui *u, const StoreState *s, float x, float y, float
 
 static float draw_store_skeleton(Ui *u, float x, float y, float w)
 {
+    if (!u->storeSkeletonAt) u->storeSkeletonAt = time_ms();
     Theme *t = &u->t;
     StoreGrid g = store_grid(w);
+    double elapsed = time_ms() - u->storeSkeletonAt;
     for (int i = 0; i < g.cols * 2; i++) {
         D2D1_RECT_F r = store_cell(&g, x, y, i);
         ui_glass(r, 14, 0, 0);
-        ui_rrect(rectf(r.left + 6, r.top + 6, g.cw - 12, g.thumbH), 10, t->chip);
+        D2D1_RECT_F block = rectf(r.left + 6, r.top + 6, g.cw - 12, g.thumbH);
+        ui_rrect(block, 10, t->chip);
+        if (u->motion == 0 && elapsed < 8000.0) {
+            float phase = fmodf((float)elapsed / 1200.0f, 1.0f);
+            float sx = block.left - 120.0f + phase * (g.cw + 120.0f);
+            ui_push_clip(block);
+            ui_fill(rectf(sx, block.top, 40, g.thumbH), col(0xFFFFFF, 0.025f));
+            ui_fill(rectf(sx + 40, block.top, 40, g.thumbH), col(0xFFFFFF, 0.08f));
+            ui_fill(rectf(sx + 80, block.top, 40, g.thumbH), col(0xFFFFFF, 0.025f));
+            ui_pop_clip();
+            ui_animate();
+        }
         ui_rrect(rectf(r.left + 12, r.top + g.thumbH + 18, g.cw * 0.55f, 10), 5, t->chip);
         ui_rrect(rectf(r.left + 12, r.top + g.thumbH + 38, g.cw * 0.35f, 8), 4, t->chip);
         ui_rrect(rectf(r.left + 10, r.top + g.thumbH + 58, g.cw - 20, 32), 8, t->chip);
@@ -888,6 +1199,7 @@ static void draw_store(Ui *u, float cx, float cw)
     float x = cx + PAD, w = cw - PAD * 2;
     store_open();
     const StoreState *s = store_get();
+    if (s->viewCount || (!s->loading && !s->more)) u->storeSkeletonAt = 0;
     static const wchar_t *const captions[SF_COUNT] = { L"Category", L"Resolution", L"Sort by", L"Type", L"Site" };
     const wchar_t *names[32];
     int sites = store_filter_names(SF_SOURCE, names, SP_COUNTOF(names)) - 1;
@@ -993,14 +1305,36 @@ static void segmented(Ui *u, float x, float y, int kind, const wchar_t *const *o
                       const int *data)
 {
     Theme *t = &u->t;
+    int slot = -1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->segment); i++) {
+        if (u->segment[i].kind == kind) { slot = i; break; }
+        if (slot < 0 && !u->segment[i].kind) slot = i;
+    }
+    if (slot < 0) slot = 0;
+    if (!u->segment[slot].kind) {
+        u->segment[slot].kind = kind;
+        u->segment[slot].pos = (float)sel;
+        u->segment[slot].to = sel;
+    }
+    if (u->segment[slot].to != sel) {
+        u->segment[slot].from = u->segment[slot].pos;
+        u->segment[slot].to = sel;
+        u->segment[slot].t0 = time_ms();
+    }
+    if (u->motion == 0 && u->segment[slot].t0 > 0) {
+        float p = (float)((time_ms() - u->segment[slot].t0) / 200.0);
+        u->segment[slot].pos = u->segment[slot].from + (sel - u->segment[slot].from) * ui_motion_curve(p, 1);
+        if (p < 1.0f) ui_animate();
+        else u->segment[slot].t0 = 0;
+    } else u->segment[slot].pos = (float)sel;
     ui_rrect(rectf(x - 3, y - 3, segW * n + 6, 38), 10, t->chip);
+    D2D1_RECT_F pill = rectf(x + u->segment[slot].pos * segW, y, segW, 32);
+    ui_rrect(pill, 8, t->dark ? col(0xFFFFFF, 0.14f) : col(0xFFFFFF, 1.0f));
+    ui_rrect_stroke(pill, 8, 1, t->border);
     for (int i = 0; i < n; i++) {
         int id = HIT_ID(kind, data ? data[i] : i), on = i == sel;
         D2D1_RECT_F r = rectf(x + i * segW, y, segW, 32);
-        if (on) {
-            ui_rrect(r, 8, t->dark ? col(0xFFFFFF, 0.14f) : col(0xFFFFFF, 1.0f));
-            ui_rrect_stroke(r, 8, 1, t->border);
-        } else if (ui_is_hot(id)) {
+        if (!on && ui_is_hot(id)) {
             ui_rrect(r, 8, col_a(t->chip, t->chip.a * 1.5f));
         }
         ui_text(opts[i], u->fCenter, r, on ? t->text : t->text2);
@@ -1319,6 +1653,14 @@ static void draw_settings(Ui *u, float cx, float cw)
         row_label(u, x, y, w - 300, L"Appearance", NULL);
         static const wchar_t *opts[] = { L"System", L"Light", L"Dark" };
         segmented(u, x + w - 18 - 78 * 3, y + 15, HK_THEME, opts, 3, (int)s->theme, 78, NULL);
+        y += 62 + 10;
+    }
+    if (sf_want(u, L"Animations", L"motion reduce accessibility")) {
+        y = sf_place(u, x, y);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 300, L"Animations", NULL);
+        static const wchar_t *opts[] = { L"Full", L"Reduced", L"Off" };
+        segmented(u, x + w - 18 - 78 * 3, y + 15, HK_MOTION, opts, 3, s->uiMotion, 78, NULL);
         y += 62 + 10;
     }
     if (sf_want(u, L"Accent colour", L"accent color blue green custom hex")) {
@@ -2607,8 +2949,23 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
             if (HIT_KIND(u->textFocus) == HK_URL_TEXT) u->textFocus = 0;
         }
     }
-    if (!st.busy && (!urlp.open || !g_app.cfg.s.urlImport)) return 0.0f;
+    float target = st.busy || (urlp.open && g_app.cfg.s.urlImport) ? 128.0f : 0.0f;
+    if (u->urlTo != target) {
+        u->urlFrom = u->urlH;
+        u->urlTo = target;
+        u->urlT0 = time_ms();
+    }
+    if (u->motion != 0) { u->urlH = target; u->urlT0 = 0; }
+    else if (u->urlT0 > 0) {
+        float dur = target > u->urlFrom ? 220.0f : 140.0f;
+        float p = (float)((time_ms() - u->urlT0) / dur);
+        u->urlH = u->urlFrom + (target - u->urlFrom) * ui_motion_curve(p, target ? 0 : 2);
+        if (p < 1.0f) ui_animate();
+        else u->urlT0 = 0;
+    }
+    if (u->urlH <= 0.01f) return 0.0f;
     const float h = 128.0f;
+    ui_push_clip(rectf(x, y, w, u->urlH));
     ui_glass(rectf(x, y, w, h), 14, 0, 0);
     ui_icon(GL_LINK, u->fIconS, rectf(x + 14, y + 10, 24, 28), t->accent);
     ui_text(L"Import from a link", u->fBodyB, rectf(x + 44, y + 10, w - 100, 28), t->text);
@@ -2643,7 +3000,8 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
         ui_text(st.text, u->fSmall, rectf(x + 16, ry, w - 32, 18), t->text2);
         ui_rrect(bar, 2, t->track);
         if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
-        return h + 12.0f;
+        ui_pop_clip();
+        return u->urlH + 12.0f * (u->urlH / h);
     }
     static const wchar_t *modes[] = { L"Automatic", L"Download", L"Web page" };
     float cx = x + 16;
@@ -2653,7 +3011,8 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
         cx += cw + 8;
     }
     if (st.failed && st.text[0]) ui_text(st.text, u->fSmall, rectf(cx + 6, ry, x + w - 22 - cx, 28), t->danger);
-    return h + 12.0f;
+    ui_pop_clip();
+    return u->urlH + 12.0f * (u->urlH / h);
 }
 
 /* ---- drawing */
@@ -2732,7 +3091,14 @@ static void rec_header(Ui *u, float x, float y, float w, int sec)
         int id = HIT_ID(HK_REC, sec);
         D2D1_RECT_F r = rectf(bx, by, s, s);
         icon_button(u, id, r, 0, t->danger);
-        ui_rrect(rectf(bx + s * 0.5f - 6, by + s * 0.5f - 6, 12, 12), 2.5f, t->danger);   /* stop */
+        float breathe = 1.0f;
+        if (u->motion == 0) {
+            float phase = (float)fmod(time_ms() / 1200.0, 1.0);
+            breathe = 0.82f + 0.18f * (1.0f - fabsf(phase * 2.0f - 1.0f));
+            ui_rrect_stroke(rectf(bx + 3, by + 3, s - 6, s - 6), 12, 2, col_a(t->danger, 0.35f * breathe));
+        }
+        float dot = 12.0f * breathe;
+        ui_rrect(rectf(bx + (s - dot) * 0.5f, by + (s - dot) * 0.5f, dot, dot), 2.5f, t->danger); /* stop */
         wchar_t tm[48];
         int secs = (int)wprec_take_seconds(cus.take);
         str_printf(tm, SP_COUNTOF(tm), L"Recording  %d:%02d", secs / 60, secs % 60);
@@ -2859,7 +3225,14 @@ static float draw_rec_graphs(Ui *u, float x, float y, float w, int sec)
             }
         }
         float hx = gx + (float)(pos / r->n) * gw;                                      /* playhead */
+        if (u->motion == 0 && r->paused <= 0) {
+            float trail = SP_MIN(16.0f, (float)(0.06 * REC_RATE * r->speed / r->n) * gw);
+            for (int k = 1; k <= 3; k++)
+                ui_line(hx - trail * k / 3.0f, g.top + 2, hx - trail * k / 3.0f, g.bottom - 2,
+                        1.5f, col_a(t->accent, 0.12f * (4 - k) / 3.0f));
+        }
         ui_line(hx, g.top + 2, hx, g.bottom - 2, 1.5f, col_a(t->text, 0.7f));
+        ui_circle(hx, g.top + 4, 2.5f, t->accent);
         if (tk->kind != RT_COLOR) ui_hit(id, g, 0, 3);
     }
     ui_animate();                                    /* the playhead and the values move */
@@ -3006,6 +3379,8 @@ static void rec_presets_open(int data)
     cus.presetX = u->mx;
     cus.presetY = u->my;
     cus.presetScroll = u->scroll[PAGE_CUSTOMIZE];
+    u->presetAt = time_ms();
+    ui_animate();
     ui_invalidate();
 }
 
@@ -3040,9 +3415,20 @@ static void draw_rec_presets(Ui *u)
     float pw = pad * 2 + cols * tw + (cols - 1) * gap, ph = head + rows * th + (rows - 1) * gap + pad;
     float px = SP_MAX(SP_MIN(cus.presetX, u->w - pw - 8.0f), SIDEBAR_W + 8.0f);
     float py = SP_MAX(SP_MIN(cus.presetY, u->h - ph - 8.0f), 8.0f);
+    float elapsed = (float)(time_ms() - u->presetAt);
+    float enter = u->motion == 2 ? 1.0f : ui_motion_curve(elapsed / (u->motion == 1 ? 120.0f : 200.0f), 0);
+    if (u->motion == 0 && elapsed < 640.0f) ui_animate();
 
-    ui_fill(rectf(0, 0, u->w, u->h), col_a(t->scrim, t->scrim.a * 0.5f));
+    ui_fill(rectf(0, 0, u->w, u->h), col_a(t->scrim, t->scrim.a * 0.5f * enter));
     ui_hit(HIT_ID(HK_REC_PRESET, -1), rectf(0, 0, u->w, u->h), 0, 0);
+    if (u->motion == 0 && enter < 1.0f) {
+        float scale = 0.97f + 0.03f * enter;
+        float cx = px + pw * 0.5f, cy = py + ph * 0.5f;
+        D2D1_MATRIX_3X2_F m = { scale, 0, 0, scale, cx * (1.0f - scale), cy * (1.0f - scale) + 6.0f * (1.0f - enter) };
+        ID2D1RenderTarget_SetTransform((ID2D1RenderTarget *)u->rt, &m);
+    }
+    float savedAlpha = u->alpha;
+    u->alpha *= enter;
     D2D1_RECT_F pr = rectf(px, py, pw, ph);
     ui_rrect(pr, 14, t->bg);
     ui_glass(pr, 14, 0, 1);
@@ -3061,7 +3447,8 @@ static void draw_rec_presets(Ui *u)
         float gx = tx + 12, gw = tw - 24, gy = ty + 12, gh = th - 40;
         ui_line(gx, gy + gh, gx + gw, gy + gh, 1.0f, col_a(t->text3, 0.35f));   /* baseline */
         float lx = gx, ly = 0;
-        for (float dx = 0; dx <= gw + 0.01f; dx += 1.5f) {
+        float graphP = u->motion == 0 ? ui_motion_curve((elapsed - i * 20.0f) / 180.0f, 0) : 1.0f;
+        for (float dx = 0; dx <= gw * graphP + 0.01f; dx += 1.5f) {
             float ny = gy + gh - preset_at(i, dx / gw, 7u) * gh;
             if (dx > 0) ui_line(lx, ly, gx + dx, ny, 1.8f, hot ? t->accent : col_a(t->accent, 0.85f));
             lx = gx + dx;
@@ -3093,6 +3480,11 @@ static void draw_rec_presets(Ui *u)
             else str_copy(name, SP_COUNTOF(name), k_presetNames[i]);
             ui_text(name, u->fCenterS, rectf(tx, ty + th - 26, tw, 20), hot ? t->text : t->text2);
         }
+    }
+    u->alpha = savedAlpha;
+    if (u->motion == 0 && enter < 1.0f) {
+        D2D1_MATRIX_3X2_F identity = { 1, 0, 0, 1, 0, 0 };
+        ID2D1RenderTarget_SetTransform((ID2D1RenderTarget *)u->rt, &identity);
     }
 }
 
@@ -3373,7 +3765,20 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     }
     const float rowH = 58.0f;
     float noteH = busy || !note ? 0.0f : ui_text_height(note, u->fWrap, w - 36);
-    float listH = g_depthList ? n * rowH + 8.0f : 0.0f;
+    float listTarget = g_depthList ? n * rowH + 8.0f : 0.0f;
+    if (u->depthListTo != listTarget) {
+        u->depthListFrom = u->depthListH;
+        u->depthListTo = listTarget;
+        u->depthListT0 = time_ms();
+    }
+    if (u->motion != 0) { u->depthListH = listTarget; u->depthListT0 = 0; }
+    else if (u->depthListT0 > 0) {
+        float p = (float)((time_ms() - u->depthListT0) / (listTarget ? 220.0 : 140.0));
+        u->depthListH = u->depthListFrom + (listTarget - u->depthListFrom) * ui_motion_curve(p, listTarget ? 0 : 2);
+        if (p < 1.0f) ui_animate();
+        else u->depthListT0 = 0;
+    }
+    float listH = u->depthListH;
     float h = 112.0f + listH + (busy ? 46.0f : note ? noteH + 16.0f : 0.0f);
     y = section(u, x, y, L"MAKE WALLPAPER COOLER");
     ui_glass(rectf(x, y, w, h), 14, 0, 0);
@@ -3391,7 +3796,9 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
     float cy = y + 62;
     draw_choice(u, HIT_ID(HK_DEPTH_PICK, 0), rectf(x + 18, cy, w - 36, 36), line);
     cy += 44;
-    if (g_depthList) {
+    if (listH > 0.01f) {
+        float listY = cy;
+        ui_push_clip(rectf(x + 18, cy, w - 36, listH));
         float right = x + w - 18, colW = SP_MIN(230.0f, w * 0.42f);
         for (int i = 0; i < n; i++) {
             const DepthModel *m = depth_model(i);
@@ -3433,14 +3840,34 @@ static float draw_cooler_section(Ui *u, float x, float y, float w, const Wallpap
             }
             cy += rowH;
         }
-        cy += 8;
+        ui_pop_clip();
+        cy = listY + listH;
     }
     if (busy) {
         D2D1_RECT_F bar = rectf(x + 18, cy + 26, w - 36, 4);
         ui_text(st.text, u->fSmall, rectf(x + 18, cy + 2, w - 36, 18), t->text2);
         ui_rrect(bar, 2, t->track);
-        if (st.percent > 0) ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * st.percent / 100.0f, 4), 2, t->accent);
+        if (st.percent > 0) {
+            float target = SP_CLAMP(st.percent / 100.0f, 0.0f, 1.0f);
+            u->depthTarget = target;
+            double now = time_ms();
+            float dt = (float)SP_CLAMP(now - u->depthFillAt, 0.0, 50.0) / 1000.0f;
+            if (u->motion == 2) u->depthFill = target;
+            else u->depthFill += (target - u->depthFill) * SP_MIN(1.0f, dt / 0.14f);
+            u->depthFillAt = now;
+            ui_rrect(rectf(bar.left, bar.top, (bar.right - bar.left) * u->depthFill, 4), 2, t->accent);
+            if (fabsf(target - u->depthFill) > 0.002f) ui_animate();
+        } else if (u->motion == 0) {
+            float phase = fmodf((float)time_ms() / 1400.0f, 1.0f);
+            float blockW = (bar.right - bar.left) * 0.30f;
+            float bx = bar.left - blockW + phase * ((bar.right - bar.left) + blockW);
+            ui_push_clip(bar);
+            ui_rrect(rectf(bx, bar.top, blockW, 4), 2, t->accent);
+            ui_pop_clip();
+            ui_animate();
+        }
     } else if (note) {
+        u->depthFill = u->depthTarget = 0.0f;
         ui_text(note, u->fWrap, rectf(x + 18, cy + 2, w - 36, noteH + 4.0f), failed ? t->danger : t->text2);
     }
     return y + h + 26.0f;
@@ -3518,7 +3945,6 @@ static void draw_customise(Ui *u, float cx, float cw)
     ui_pop_clip();
     finish_scroll(u, PAGE_CUSTOMIZE, y + 8, top);
     draw_scrollbar(u, view, PAGE_CUSTOMIZE);
-    draw_rec_presets(u);
 }
 
 /* ================================================================ dispatch */
@@ -3529,7 +3955,9 @@ void pages_draw(void)
     draw_sidebar(u);
     float cx = SIDEBAR_W, cw = u->w - SIDEBAR_W;
     float p = u->pageAnim;
-    u->alpha = p * p * (3.0f - 2.0f * p);     /* smoothstep fade-in on page switch */
+    u->alpha = ui_motion_curve(p, 0);
+    if (u->motion == 0) cx += u->pageDx * (1.0f - u->alpha);
+    ui_push_clip(rectf(SIDEBAR_W, 0, cw, u->h));
     switch (u->page) {
     case PAGE_DISPLAYS:  draw_displays(u, cx, cw); break;
     case PAGE_CUSTOMIZE: draw_customise(u, cx, cw); break;
@@ -3537,6 +3965,31 @@ void pages_draw(void)
     case PAGE_SETTINGS:  draw_settings(u, cx, cw); break;
     default:             draw_library(u, cx, cw); break;
     }
+    if (u->ghost.active && u->motion == 0 && u->page == PAGE_LIBRARY) {
+        float ghostP = (float)((time_ms() - u->ghost.t0) / 320.0);
+        if (ghostP < 1.0f) {
+            float q = ui_motion_curve(ghostP, 0);
+            D2D1_RECT_F r = {
+                u->ghost.from.left + (u->ghost.to.left - u->ghost.from.left) * q,
+                u->ghost.from.top + (u->ghost.to.top - u->ghost.from.top) * q,
+                u->ghost.from.right + (u->ghost.to.right - u->ghost.from.right) * q,
+                u->ghost.from.bottom + (u->ghost.to.bottom - u->ghost.from.bottom) * q
+            };
+            WallpaperEntry *e = config_find(&g_app.cfg, u->ghost.id);
+            if (e) ui_draw_thumb(e, r, 10.0f + 2.0f * q, 0);
+            ui_animate();
+        } else u->ghost.active = 0;
+    }
+    ui_pop_clip();
+    if (u->resetSweepAt > 0 && u->motion == 0) {
+        float q = (float)((time_ms() - u->resetSweepAt) / 420.0);
+        if (q < 1.0f) {
+            ui_rrect(rectf(SIDEBAR_W, 0, cw * ui_motion_curve(q, 0), 2.0f), 0,
+                     col_a(u->t.accent, 1.0f - q));
+            ui_animate();
+        } else u->resetSweepAt = 0;
+    }
+    if (u->page == PAGE_CUSTOMIZE) draw_rec_presets(u);
     u->alpha = 1.0f;
 }
 
@@ -3558,9 +4011,11 @@ static void reset_settings(void)
     *s = d.s;
     app_save_config();
     store_unblock_all();
+    ui_refresh_motion();
     ui_refresh_theme();
     update_schedule(FALSE);
     LOGI(L"settings reset to factory values");
+    if (u->motion == 0) u->resetSweepAt = time_ms();
     app_notice(NOTICE_INFO, L"Settings reset.");
     ui_animate();
 }
@@ -3864,6 +4319,10 @@ void pages_activate(int id, int dbl)
     switch (kind) {
     case HK_NAV:
         if (u->page != data) {
+            u->navFrom = u->navY;
+            u->navT0 = time_ms();
+            u->pageDx = data > u->page ? 6.0f : -6.0f;
+            u->pageFrom = u->page;
             u->page = data;
             u->pageAnim = 0.0f;
             ui_animate();
@@ -3919,7 +4378,12 @@ void pages_activate(int id, int dbl)
     }
     case HK_FAV:
         if (data >= 0 && data < u->viewCount) {
-            g_app.cfg.items[u->view[data]].flags ^= WPFLAG_FAV;
+            WallpaperEntry *e = &g_app.cfg.items[u->view[data]];
+            e->flags ^= WPFLAG_FAV;
+            str_copy(u->starId, SP_COUNTOF(u->starId), e->id);
+            u->starOn = (e->flags & WPFLAG_FAV) != 0;
+            u->starAt = time_ms();
+            ui_animate();
             app_save_config();
             if (u->filter == 5) pages_rebuild_view();
         }
@@ -3971,7 +4435,29 @@ void pages_activate(int id, int dbl)
             }
             u->selAnchor = data;
             if (e->missing) app_notice(NOTICE_WARN, L"'%ls' can't be shown because the file is missing.", e->name);
-            else app_apply_wallpaper(e->id, target_id());
+            else {
+                const wchar_t *current = app_wallpaper_for(target_id());
+                if (u->motion != 2 && (!current || wcscmp(current, e->id) != 0)) {
+                    u->heroFadeAt = time_ms();
+                    if (u->motion == 0 && u->heroRect.right > u->heroRect.left) {
+                        for (int j = 0; j < u->flowDrawnCount; j++) {
+                            if (wcscmp(u->flowDrawn[j].id, e->id) != 0) continue;
+                            D2D1_RECT_F src = u->flowDrawn[j].r;
+                            if (src.top < u->viewTop || src.bottom > u->h) break;
+                            float thumbH = (src.right - src.left - 12.0f) * 9.0f / 16.0f;
+                            u->ghost.from = rectf(src.left + 6, src.top + 6, src.right - src.left - 12, thumbH);
+                            u->ghost.to = u->heroRect;
+                            str_copy(u->ghost.id, SP_ID_LEN, e->id);
+                            u->ghost.t0 = time_ms();
+                            u->ghost.active = 1;
+                            u->heroFadeAt = 0;
+                            break;
+                        }
+                    }
+                    ui_animate();
+                }
+                app_apply_wallpaper(e->id, target_id());
+            }
         }
         break;
     case HK_NAME:
@@ -4174,6 +4660,12 @@ void pages_activate(int id, int dbl)
         g_app.cfg.s.theme = (ThemeMode)data;
         app_save_config();
         ui_refresh_theme();
+        break;
+    case HK_MOTION:
+        g_app.cfg.s.uiMotion = data;
+        app_save_config();
+        ui_refresh_motion();
+        ui_invalidate();
         break;
     case HK_ACCENT_COLOR: {
         uint32_t rgb = g_app.cfg.s.accentColor;

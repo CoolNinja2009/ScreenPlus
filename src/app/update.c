@@ -1,9 +1,9 @@
 /* Auto update: the "Auto update" setting (on by default), Settings' Check now and `screenplus update`.
  * The latest release of Screen+ (GitHub, else the GitLab mirror) (never a pre-release) is compared with this build. A newer release's
  * installer is downloaded into <data>\updates and kept only if its size and SHA-256 match what the release lists
- * for that asset; it then runs silently with /UPDATE: setup closes Screen+, updates it in place (library and
- * settings are kept) and starts it again. Only installed copies update (uninstall.exe beside the exe):
- * portable and development builds are never replaced. With the setting on, the first check runs a few
+ * for that asset. Windows runs setup silently; Linux tar installs use update.sh and Fedora RPM installs use
+ * update-rpm.sh (DNF with Polkit authorization). Portable and development builds are never replaced.
+ * With the setting on, the first check runs a few
  * minutes after start (the network may not be up at sign-in, and sign-in must not wait for it), then every
  * 12 hours, or an hour after a failed one. A downloaded update waits while the window is open, so nothing
  * closes under the user's hands. The network work runs on a worker thread that reports via WM_SP_UPDATE. */
@@ -23,6 +23,7 @@
 #define SETUP_NAME   L"ScreenPlus-Setup-%ls.exe"
 #else
 #define SETUP_NAME   L"ScreenPlus-%ls-linux-x86_64.tar.gz"
+#define RPM_NAME     L"ScreenPlus-%ls-fedora-x86_64.rpm"
 #endif
 #define RELEASE_API  L"https://api.github.com/repos/CoolNinja2009/ScreenPlus/releases/latest"
 #define RELEASE_DL   L"https://github.com/CoolNinja2009/ScreenPlus/releases/download/v"
@@ -57,6 +58,19 @@ static HANDLE      g_thread;
 static wchar_t     g_ready[SP_MAX_PATH];        /* a verified installer waiting for the window to close */
 static wchar_t     g_readyVersion[32];
 static int         g_readyUser;
+#ifndef _WIN32
+static int         g_rpmInstall;
+
+static void setup_name(wchar_t *out, size_t cap, const wchar_t *version)
+{
+    str_printf(out, cap, g_rpmInstall ? RPM_NAME : SETUP_NAME, version);
+}
+#else
+static void setup_name(wchar_t *out, size_t cap, const wchar_t *version)
+{
+    str_printf(out, cap, SETUP_NAME, version);
+}
+#endif
 
 static void set_status(int busy, int percent, const wchar_t *text)
 {
@@ -264,7 +278,7 @@ static BOOL read_release(UpdateJob *j, wchar_t *url, size_t urlCap, int64_t *siz
     BOOL ok = TRUE;
     if (j->newer) {
         wchar_t name[64];
-        str_printf(name, SP_COUNTOF(name), SETUP_NAME, j->version);
+        setup_name(name, SP_COUNTOF(name), j->version);
         ok = release_asset(root, j->version, name, SETUP_MAX, url, urlCap, size, sha);
         if (!ok) str_printf(j->error, SP_COUNTOF(j->error), L"Screen+ %ls has no installer this copy can verify", j->version);
     }
@@ -279,7 +293,7 @@ static void run(UpdateJob *j)
     int64_t size = 0;
     if (!read_release(j, url, SP_COUNTOF(url), &size, sha)) return;
     updates_dir(dir, SP_COUNTOF(dir));
-    str_printf(name, SP_COUNTOF(name), SETUP_NAME, j->version);
+    setup_name(name, SP_COUNTOF(name), j->version);
     path_join(dest, SP_COUNTOF(dest), dir, name);
     sweep(dir, j->newer ? name : NULL);
     j->ok = 1;
@@ -333,10 +347,11 @@ static void run_setup(void)
 #ifdef _WIN32
     str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" /S /UPDATE", g_ready);
 #else
-    /* Under a systemd unit (sign-in starts it as screenplus.service) update.sh would sit in the service's cgroup,
+    /* Under a systemd unit (sign-in starts it as screenplus.service) the updater would sit in the service's cgroup,
      * and its `screenplus stop` would take it down with the service: it gets a scope of its own. */
-    str_printf(cmd, SP_COUNTOF(cmd), L"%ls\"%ls/update.sh\" \"%ls\"",
-               getenv("INVOCATION_ID") ? L"systemd-run --user --scope --quiet " : L"", paths_exe_dir(), g_ready);
+    str_printf(cmd, SP_COUNTOF(cmd), L"%ls\"%ls/%ls\" \"%ls\"",
+               getenv("INVOCATION_ID") ? L"systemd-run --user --scope --quiet " : L"", paths_exe_dir(),
+               g_rpmInstall ? L"update-rpm.sh" : L"update.sh", g_ready);
 #endif
     if (!CreateProcessW(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
         LOGW(L"update: could not start the installer (err %lu)", GetLastError());
@@ -392,7 +407,9 @@ void update_init(void)
 #ifdef _WIN32
     path_join(un, SP_COUNTOF(un), dir, L"uninstall.exe");
 #else
-    path_join(un, SP_COUNTOF(un), dir, L"update.sh");     /* install.sh's copy, not a build folder */
+    path_join(un, SP_COUNTOF(un), dir, L"update-rpm.sh");
+    g_rpmInstall = file_exists(un);
+    if (!g_rpmInstall) path_join(un, SP_COUNTOF(un), dir, L"update.sh");
 #endif
     g_state.supported = file_exists(un);
     update_schedule(FALSE);

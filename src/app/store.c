@@ -544,8 +544,8 @@ static void fold(int i)
     for (int j = 0; j < S.count; j++) {
         StoreItem *a = &S.items[i], *b = &S.items[j];
         if (j == i || !same_wallpaper(a, b)) continue;
-        if (!(int64_t)a->w * a->h && a->detail == STORE_NONE) want_detail(i, 1);     /* its page knows its resolution */
-        if (!(int64_t)b->w * b->h && b->detail == STORE_NONE) want_detail(j, 1);
+        if ((a->w == 0 || a->h == 0) && a->detail == STORE_NONE) want_detail(i, 1); /* its page knows its resolution */
+        if ((b->w == 0 || b->h == 0) && b->detail == STORE_NONE) want_detail(j, 1);
         int keep = better(a, b) ? i : better(b, a) ? j : SP_MIN(i, j), drop = keep == i ? j : i;
         S.items[drop].dupOf = keep + 1;
         if (S.items[keep].dupOf == drop + 1) S.items[keep].dupOf = 0;

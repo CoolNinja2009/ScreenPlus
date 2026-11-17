@@ -26,7 +26,7 @@ enum { PAGE_LIBRARY = 0, PAGE_DISPLAYS = 1, PAGE_CUSTOMIZE = 2, PAGE_STORE = 3, 
 
 enum HitKind {
     HK_NONE = 0, HK_NAV, HK_IMPORT, HK_IMPORT_FOLDER, HK_SEARCH, HK_SEARCH_CLEAR, HK_FILTER, HK_CARD, HK_TARGET,
-    HK_PLAYPAUSE, HK_AUDIO, HK_RESTART_CURRENT, HK_REVEAL, HK_TOGGLE, HK_THEME, HK_WEB_FPS, HK_OPEN_LOGS, HK_OPEN_DATA,
+    HK_PLAYPAUSE, HK_AUDIO, HK_RESTART_CURRENT, HK_REVEAL, HK_TOGGLE, HK_THEME, HK_MOTION, HK_WEB_FPS, HK_OPEN_LOGS, HK_OPEN_DATA,
     HK_RESTART_ENGINE, HK_NOTICE_CLOSE, HK_MONITOR, HK_USE_DEFAULT, HK_CHANGE, HK_GET_WEBVIEW, HK_LICENSES,
     HK_SCROLLBAR, HK_SLIDER, HK_DISC, HK_PCHECK, HK_PSLIDER, HK_PDOWN, HK_PCOLOR, HK_PTEXT, HK_RESET_LOOK,
     HK_RESET_PROPS, HK_LOOKVAL, HK_PVAL, HK_URL, HK_URL_TEXT, HK_URL_MODE, HK_URL_GO, HK_URL_CLOSE,
@@ -96,6 +96,7 @@ typedef struct Thumb {
     uint16_t         *delays;  /* ms per frame */
     int               frameCount, cur;
     double            nextAt;  /* time_ms when the next frame is due (0: not started) */
+    double            readyAt; /* first decoded frame arrival */
     uint32_t          used;    /* frame counter of last use */
 } Thumb;
 
@@ -111,10 +112,57 @@ typedef struct Ui {
     float                  w, h;           /* client size in DIPs */
     int                    backdrop;       /* system backdrop material active */
     Theme                  t;
+    Theme                  themeFrom, themeTarget;
+    double                 themeT0;
+    int                    themeReady, themeActive;
+    float                  themeDuration;
     float                  alpha;          /* global alpha multiplier (page transitions) */
 
     int                    page;
     float                  pageAnim;
+    int                    motion, motionSystem; /* resolved and OS animation preference */
+    struct { int id; float value; int target; uint32_t used; } hover[48];
+    struct { int id; float value; int active; uint32_t used; } chipMotion[48];
+    struct { wchar_t id[SP_ID_LEN]; float selection; int selected, current; double currentAt; uint32_t used; } cardMotion[48];
+    struct { int id; float fill, target; double lastAt; uint32_t used; } sliderMotion[48];
+    int                    pressId, focusId;
+    float                  pressAmt, focusAmt;
+    float                  navY, navFrom;
+    double                 navT0;
+    float                  pageDx;
+    int                    pageFrom;
+    double                 hoverBlockUntil;
+    struct { wchar_t id[SP_ID_LEN]; D2D1_RECT_F r; } flowOld[UI_MAX_HITS], flowDrawn[UI_MAX_HITS];
+    int                    flowOldCount, flowDrawnCount;
+    double                 flowT0;
+    D2D1_RECT_F            heroRect;
+    struct { wchar_t id[SP_ID_LEN]; D2D1_RECT_F from, to; double t0; int active; } ghost;
+    double                 heroFadeAt;
+    wchar_t                noticeText[256];
+    int                    noticeKind;
+    float                  noticeH, noticeFrom, noticeTo;
+    double                 noticeT0;
+    double                 brandAt, statusAt;
+    double                 emptyPulseAt;
+    double                 resetSweepAt, starAt;
+    wchar_t                starId[SP_ID_LEN];
+    int                    starOn;
+    double                 presetAt;
+    float                  urlH, urlFrom, urlTo;
+    double                 urlT0;
+    float                  depthListH, depthListFrom, depthListTo;
+    double                 depthListT0;
+    double                 storeSkeletonAt;
+    wchar_t                statusText[64];
+    float                  depthFill, depthTarget;
+    double                 depthFillAt;
+    struct { int id; float value, target; double lastAt; uint32_t used; } storeFill[48];
+    int                    progressId;
+    float                  progressFill;
+    struct { int kind; float pos, from; int to; double t0; } segment[12];
+    D2D1_RECT_F            filterPill, filterFrom, filterTo;
+    int                    filterPillId, filterPillReady;
+    double                 filterPillAt;
     float                  scroll[PAGE_COUNT], scrollTarget[PAGE_COUNT], contentH[PAGE_COUNT], viewTop, viewH;
 
     Hit                    hits[UI_MAX_HITS];
@@ -137,7 +185,7 @@ typedef struct Ui {
     float                  gridX, colW;    /* grid left edge and column pitch */
     float                  pressX, pressY; /* where the button went down */
     int                    cardDrag;       /* a library card is being dragged to a new place */
-    float                  tog[TOG_COUNT], togTarget[TOG_COUNT];
+    float                  tog[TOG_COUNT], togTarget[TOG_COUNT], togVelocity[TOG_COUNT];
     double                 showRequestedAt;
 
     Thumb                 *thumbs;
@@ -145,6 +193,7 @@ typedef struct Ui {
     int                    thumbTimer;     /* animated thumbnails on screen: frame timer running */
     uint32_t               frame;
     int                    animating;
+    int                    trace;
     double                 lastTick;
     int                    statsTimer;
     const wchar_t         *iconFont;
@@ -169,6 +218,7 @@ float        ui_text_width(const wchar_t *s, IDWriteTextFormat *f);
 float        ui_text_height(const wchar_t *s, IDWriteTextFormat *f, float w);   /* wrapped to w */
 void         ui_icon(wchar_t glyph, IDWriteTextFormat *f, D2D1_RECT_F r, D2D1_COLOR_F c);
 void         ui_glass(D2D1_RECT_F r, float radius, int hover, int elevated);
+void         ui_glass_amount(D2D1_RECT_F r, float radius, float hover, float elevated);
 void         ui_hit(int id, D2D1_RECT_F r, int focusable, int cursor);
 int          ui_is_hot(int id);
 int          ui_is_down(int id);
@@ -177,6 +227,10 @@ void         ui_push_clip(D2D1_RECT_F r);
 void         ui_pop_clip(void);
 void         ui_invalidate(void);
 void         ui_animate(void);
+void         ui_refresh_motion(void);
+float        ui_motion_hover(int id, int hot);
+float        ui_motion_curve(float p, int curve);
+D2D1_COLOR_F ui_motion_color(D2D1_COLOR_F a, D2D1_COLOR_F b, float p);
 void         ui_refresh_theme(void);
 void         ui_draw_thumb(const WallpaperEntry *e, D2D1_RECT_F r, float radius, int large);
 const wchar_t *ui_type_icon(WallpaperType t);

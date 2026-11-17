@@ -16,6 +16,10 @@
 #endif
 #include <stdlib.h>
 #include <math.h>
+#include <string.h>
+#ifndef _WIN32
+#include <stdio.h>
+#endif
 
 #define SP_DWMWA_DARK      20
 #define SP_DWMWA_CORNER    33
@@ -77,7 +81,7 @@ static int system_dark(void)
 static void theme_build(Ui *u)
 {
     int dark = g_app.cfg.s.theme == THEME_DARK || (g_app.cfg.s.theme == THEME_SYSTEM && system_dark());
-    Theme *t = &u->t;
+    Theme built = { 0 }, *t = &built;
     t->dark = dark;
     if (dark) {
         t->bg = col(0x1C1C1E, 1.0f);
@@ -131,6 +135,21 @@ static void theme_build(Ui *u)
     BOOL d = dark;
     if (u->hwnd) DwmSetWindowAttribute(u->hwnd, SP_DWMWA_DARK, &d, sizeof d);
 #endif
+    if (!u->themeReady || u->motion == 2) {
+        u->t = built;
+        u->themeTarget = built;
+        u->themeActive = 0;
+        u->themeReady = 1;
+    } else {
+        int accentOnly = u->t.dark == built.dark;
+        u->themeFrom = u->t;
+        u->themeTarget = built;
+        u->themeT0 = time_ms();
+        u->themeDuration = u->motion == 1 ? 120.0f : accentOnly ? 320.0f : 260.0f;
+        u->themeActive = 1;
+        u->t.dark = built.dark;
+        ui_animate();
+    }
 }
 
 #ifdef _WIN32
@@ -352,22 +371,27 @@ void ui_icon(wchar_t glyph, IDWriteTextFormat *f, D2D1_RECT_F r, D2D1_COLOR_F c)
     ui_text(s, f, r, c);
 }
 
-void ui_glass(D2D1_RECT_F r, float radius, int hover, int elevated)
+void ui_glass_amount(D2D1_RECT_F r, float radius, float hover, float elevated)
 {
     Theme *t = &g_ui->t;
-    if (elevated) {
+    if (elevated > 0.01f) {
         for (int i = 0; i < 3; i++) {
             float o = 3.0f + i * 3.0f, g = (float)i * 1.5f;
             D2D1_RECT_F s = { r.left - g, r.top + o - g, r.right + g, r.bottom + o + g };
-            ui_rrect(s, radius + g, col_a(t->shadow, t->shadow.a * (0.30f - i * 0.09f)));
+            ui_rrect(s, radius + g, col_a(t->shadow, t->shadow.a * (0.30f - i * 0.09f) * elevated));
         }
     }
-    ui_rrect(r, radius, hover ? t->panelHover : t->panel);
-    ui_rrect_stroke(r, radius, 1.0f, t->border);
+    ui_rrect(r, radius, ui_motion_color(t->panel, t->panelHover, hover));
+    ui_rrect_stroke(r, radius, 1.0f, col_a(t->border, t->border.a + hover * 0.05f));
     if (t->dark) {   /* thin specular edge: the "glass" rim */
         D2D1_RECT_F hl = { r.left + radius, r.top + 1.0f, r.right - radius, r.top + 2.0f };
         ui_fill(hl, t->highlight);
     }
+}
+
+void ui_glass(D2D1_RECT_F r, float radius, int hover, int elevated)
+{
+    ui_glass_amount(r, radius, hover ? 1.0f : 0.0f, elevated ? 1.0f : 0.0f);
 }
 
 void ui_push_clip(D2D1_RECT_F r)
@@ -405,11 +429,55 @@ void ui_hit(int id, D2D1_RECT_F r, int focusable, int cursor)
 int ui_is_hot(int id) { return g_ui->hot == id; }
 int ui_is_down(int id) { return g_ui->pressed == id && g_ui->hot == id; }
 
+float ui_motion_curve(float p, int curve)
+{
+    p = SP_CLAMP(p, 0.0f, 1.0f);
+    if (curve == 1) return p * p * (3.0f - 2.0f * p); /* move */
+    if (curve == 2) return p * p;                      /* exit */
+    return 1.0f - (1.0f - p) * (1.0f - p) * (1.0f - p); /* standard enter */
+}
+
+D2D1_COLOR_F ui_motion_color(D2D1_COLOR_F a, D2D1_COLOR_F b, float p)
+{
+    D2D1_COLOR_F c = { a.r + (b.r - a.r) * p, a.g + (b.g - a.g) * p,
+                       a.b + (b.b - a.b) * p, a.a + (b.a - a.a) * p };
+    return c;
+}
+
+float ui_motion_hover(int id, int hot)
+{
+    Ui *u = g_ui;
+    if (u->motion == 2) return hot ? 1.0f : 0.0f;
+    if (time_ms() < u->hoverBlockUntil) hot = 0;
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < (int)SP_COUNTOF(u->hover); i++) {
+        if (u->hover[i].id == id) { slot = i; break; }
+        if (!u->hover[i].id) oldest = i;
+        else if (u->hover[i].used < u->hover[oldest].used) oldest = i;
+    }
+    if (slot < 0) {
+        if (!hot) return 0.0f;
+        slot = oldest;
+        u->hover[slot].id = id;
+        u->hover[slot].value = 0.0f;
+    }
+    u->hover[slot].used = u->frame;
+    u->hover[slot].target = hot;
+    if (fabsf(u->hover[slot].value - (float)hot) > 0.01f) ui_animate();
+    return u->hover[slot].value;
+}
+
 void ui_focus_ring(D2D1_RECT_F r, float radius, int id)
 {
-    if (!g_ui->focusVisible || g_ui->focus != id) return;
-    D2D1_RECT_F o = { r.left - 3, r.top - 3, r.right + 3, r.bottom + 3 };
-    ui_rrect_stroke(o, radius + 3, 2.0f, g_ui->t.accent);
+    Ui *u = g_ui;
+    int current = u->focusVisible && u->focus == id;
+    if (current && u->focusId != id) { u->focusId = id; u->focusAmt = 0.0f; ui_animate(); }
+    if (!current && u->focusId != id) return;
+    float p = u->motion == 2 ? (float)current : u->focusAmt;
+    if (p <= 0.01f) return;
+    float grow = u->motion == 0 ? 3.0f * p : 3.0f;
+    D2D1_RECT_F o = { r.left - grow, r.top - grow, r.right + grow, r.bottom + grow };
+    ui_rrect_stroke(o, radius + grow, 2.0f, col_a(u->t.accent, p));
 }
 
 void ui_invalidate(void)
@@ -417,10 +485,139 @@ void ui_invalidate(void)
     if (g_ui && g_ui->hwnd) InvalidateRect(g_ui->hwnd, NULL, FALSE);
 }
 
+static int motion_pending(Ui *u)
+{
+    if (u->themeActive) return 1;
+    if (fabsf(u->depthFill - u->depthTarget) > 0.002f) return 1;
+    if (u->pageAnim < 1.0f) return 1;
+    if (fabsf(u->pressAmt - (u->pressed == u->pressId && u->pressId ? 1.0f : 0.0f)) > 0.01f) return 1;
+    if (fabsf(u->focusAmt - (u->focusVisible && u->focus == u->focusId ? 1.0f : 0.0f)) > 0.01f) return 1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->hover); i++)
+        if (u->hover[i].id && fabsf(u->hover[i].value -
+            (u->hover[i].used == u->frame ? (float)u->hover[i].target : 0.0f)) > 0.01f) return 1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->cardMotion); i++)
+        if (u->cardMotion[i].id[0] && fabsf(u->cardMotion[i].selection - (float)u->cardMotion[i].selected) > 0.01f) return 1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->chipMotion); i++)
+        if (u->chipMotion[i].id && fabsf(u->chipMotion[i].value - (float)u->chipMotion[i].active) > 0.01f) return 1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++)
+        if (u->sliderMotion[i].id && fabsf(u->sliderMotion[i].fill - u->sliderMotion[i].target) > 0.001f) return 1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->storeFill); i++)
+        if (u->storeFill[i].id && fabsf(u->storeFill[i].value - u->storeFill[i].target) > 0.002f) return 1;
+    for (int p = 0; p < PAGE_COUNT; p++)
+        if (fabsf(u->scrollTarget[p] - u->scroll[p]) > 0.5f) return 1;
+    for (int i = 0; i < TOG_COUNT; i++)
+        if (fabsf(u->togTarget[i] - u->tog[i]) > 0.005f || fabsf(u->togVelocity[i]) > 0.02f) return 1;
+    return 0;
+}
+
+static void motion_stop(Ui *u)
+{
+    if (u->animating) KillTimer(u->hwnd, TM_ANIM);
+    u->animating = 0;
+}
+
+static void motion_snap(Ui *u)
+{
+    int changed = motion_pending(u);
+    if (u->themeActive) { u->t = u->themeTarget; u->themeActive = 0; }
+    u->depthFill = u->depthTarget;
+    u->pageAnim = 1.0f;
+    for (int p = 0; p < PAGE_COUNT; p++) u->scroll[p] = u->scrollTarget[p];
+    for (int i = 0; i < TOG_COUNT; i++) { u->tog[i] = u->togTarget[i]; u->togVelocity[i] = 0.0f; }
+    for (int i = 0; i < (int)SP_COUNTOF(u->hover); i++)
+        u->hover[i].value = (float)u->hover[i].target;
+    for (int i = 0; i < (int)SP_COUNTOF(u->cardMotion); i++)
+        u->cardMotion[i].selection = (float)u->cardMotion[i].selected;
+    for (int i = 0; i < (int)SP_COUNTOF(u->chipMotion); i++)
+        u->chipMotion[i].value = (float)u->chipMotion[i].active;
+    for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++) u->sliderMotion[i].fill = u->sliderMotion[i].target;
+    for (int i = 0; i < (int)SP_COUNTOF(u->storeFill); i++) u->storeFill[i].value = u->storeFill[i].target;
+    u->pressAmt = 0.0f;
+    u->focusAmt = u->focusVisible ? 1.0f : 0.0f;
+    motion_stop(u);
+    if (changed) ui_invalidate();
+}
+
+#ifndef _WIN32
+static int motion_file_enabled(const char *path, const char *key)
+{
+    FILE *f = fopen(path, "r");
+    if (!f) return 1;
+    char line[256];
+    int enabled = 1;
+    size_t n = strlen(key);
+    while (fgets(line, sizeof line, f)) {
+        char *p = line;
+        while (*p == ' ' || *p == '\t') p++;
+        if (strncmp(p, key, n) != 0) continue;
+        p += n;
+        while (*p == ' ' || *p == '\t') p++;
+        if (*p++ != '=') continue;
+        while (*p == ' ' || *p == '\t') p++;
+        char *end = NULL;
+        double factor = strtod(p, &end);
+        if (strncmp(p, "false", 5) == 0 || (end != p && factor == 0.0)) enabled = 0;
+    }
+    fclose(f);
+    return enabled;
+}
+
+static int linux_motion_enabled(void)
+{
+    const char *cfg = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
+    char base[1024], path[1200];
+    if (cfg && *cfg) snprintf(base, sizeof base, "%s", cfg);
+    else if (home && *home) snprintf(base, sizeof base, "%s/.config", home);
+    else return 1;
+    snprintf(path, sizeof path, "%s/gtk-3.0/settings.ini", base);
+    if (!motion_file_enabled(path, "gtk-enable-animations")) return 0;
+    snprintf(path, sizeof path, "%s/gtk-4.0/settings.ini", base);
+    if (!motion_file_enabled(path, "gtk-enable-animations")) return 0;
+    snprintf(path, sizeof path, "%s/kdeglobals", base);
+    return motion_file_enabled(path, "AnimationDurationFactor");
+}
+#endif
+
+void ui_refresh_motion(void)
+{
+    Ui *u = g_ui;
+    if (!u) return;
+    u->motionSystem = 1;
+#ifdef _WIN32
+    BOOL client = TRUE;
+    ANIMATIONINFO info = { sizeof info };
+    if (SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &client, 0) && !client) u->motionSystem = 0;
+    if (SystemParametersInfoW(SPI_GETANIMATION, sizeof info, &info, 0) && !info.iMinAnimate) u->motionSystem = 0;
+#else
+    u->motionSystem = linux_motion_enabled();
+#endif
+    u->motion = g_app.cfg.s.uiMotion;
+    if (u->motion == 0 && !u->motionSystem) u->motion = 1;
+    if (u->motion == 2) motion_snap(u);
+    else if (motion_pending(u)) ui_animate();
+}
+
+void ui_motion_system_changed(void) { ui_refresh_motion(); }
+
 void ui_animate(void)
 {
     Ui *u = g_ui;
-    if (!u || u->animating) return;
+    if (!u || !u->hwnd) return;
+    if (u->motion == 2) { motion_snap(u); return; }
+    if (u->motion == 1) {
+        int changed = 0;
+        for (int p = 0; p < PAGE_COUNT; p++) {
+            if (u->scroll[p] != u->scrollTarget[p]) changed = 1;
+            u->scroll[p] = u->scrollTarget[p];
+        }
+        for (int i = 0; i < TOG_COUNT; i++) {
+            if (u->tog[i] != u->togTarget[i]) changed = 1;
+            u->tog[i] = u->togTarget[i];
+            u->togVelocity[i] = 0.0f;
+        }
+        if (changed) ui_invalidate();
+    }
+    if (u->animating || !IsWindowVisible(u->hwnd) || IsIconic(u->hwnd)) return;
     u->animating = 1;
     u->lastTick = time_ms();
     SetTimer(u->hwnd, TM_ANIM, 15, NULL);
@@ -446,32 +643,39 @@ float ui_button_width(const wchar_t *label, wchar_t icon)
 void ui_button(int id, D2D1_RECT_F r, const wchar_t *label, wchar_t icon, int style)
 {
     Theme *t = &g_ui->t;
-    int hot = ui_is_hot(id), down = ui_is_down(id);
+    int hot = ui_is_hot(id);
+    float hp = ui_motion_hover(id, hot);
     D2D1_COLOR_F bg, fg = t->text;
     float radius = 9.0f;
     switch (style) {
     case BTN_PRIMARY:
-        bg = t->accent;
-        if (hot) bg = col_a(bg, 0.88f);
-        if (down) bg = col_a(bg, 0.76f);
+        bg = col_a(t->accent, 1.0f - hp * 0.12f);
         fg = t->onAccent;
         break;
     case BTN_GHOST:
-        bg = hot ? t->chip : col_a(t->chip, 0.0f);
-        fg = t->text2;
-        if (hot) fg = t->text;
+        bg = col_a(t->chip, t->chip.a * hp);
+        fg = ui_motion_color(t->text2, t->text, hp);
         break;
     case BTN_DANGER:
-        bg = hot ? col_a(t->danger, 0.22f) : col_a(t->danger, 0.14f);
+        bg = col_a(t->danger, 0.14f + hp * 0.08f);
         fg = t->danger;
         break;
     default:
-        bg = hot ? t->panelHover : t->chip;
-        if (down) bg = t->chip;
+        bg = ui_motion_color(t->chip, t->panelHover, hp);
         break;
     }
+    float press = g_ui->motion == 0 && g_ui->pressId == id ? g_ui->pressAmt : 0.0f;
+    float scale = 1.0f - press * 0.015f;
+    if (press > 0.001f) {
+        float cx = (r.left + r.right) * 0.5f, cy0 = (r.top + r.bottom) * 0.5f;
+        D2D1_MATRIX_3X2_F m = { scale, 0, 0, scale, cx * (1.0f - scale), cy0 * (1.0f - scale) };
+        ID2D1RenderTarget_SetTransform(RT, &m);
+    }
     ui_rrect(r, radius, bg);
-    if (style == BTN_SECONDARY) ui_rrect_stroke(r, radius, 1.0f, t->border);
+    if (g_ui->progressId == id && g_ui->progressFill > 0.0f)
+        ui_rrect(rectf(r.left, r.top, (r.right - r.left) * g_ui->progressFill, r.bottom - r.top), radius,
+                 col_a(t->accent, 0.22f));
+    if (style == BTN_SECONDARY) ui_rrect_stroke(r, radius, 1.0f, col_a(t->border, t->border.a + hp * 0.05f));
     float cy = r.top, h = r.bottom - r.top;
     if (label && label[0]) {
         float tw = ui_text_width(label, g_ui->fCenter);
@@ -485,6 +689,10 @@ void ui_button(int id, D2D1_RECT_F r, const wchar_t *label, wchar_t icon, int st
     } else if (icon) {
         ui_icon(icon, g_ui->fIcon, r, fg);
     }
+    if (press > 0.001f) {
+        D2D1_MATRIX_3X2_F identity = { 1, 0, 0, 1, 0, 0 };
+        ID2D1RenderTarget_SetTransform(RT, &identity);
+    }
     ui_hit(id, r, 1, 1);
     ui_focus_ring(r, radius, id);
 }
@@ -493,11 +701,29 @@ void ui_chip(int id, D2D1_RECT_F r, const wchar_t *label, int active)
 {
     Theme *t = &g_ui->t;
     int hot = ui_is_hot(id);
+    float hp = ui_motion_hover(id, hot);
+    int slot = -1, oldest = 0;
+    for (int i = 0; i < (int)SP_COUNTOF(g_ui->chipMotion); i++) {
+        if (g_ui->chipMotion[i].id == id) { slot = i; break; }
+        if (!g_ui->chipMotion[i].id) oldest = i;
+        else if (g_ui->chipMotion[i].used < g_ui->chipMotion[oldest].used) oldest = i;
+    }
+    if (slot < 0) {
+        slot = oldest;
+        g_ui->chipMotion[slot].id = id;
+        g_ui->chipMotion[slot].value = (float)active;
+        g_ui->chipMotion[slot].active = active;
+    }
+    g_ui->chipMotion[slot].used = g_ui->frame;
+    if (g_ui->chipMotion[slot].active != active) {
+        g_ui->chipMotion[slot].active = active;
+        ui_animate();
+    }
+    float fill = g_ui->motion == 2 ? (float)active : g_ui->chipMotion[slot].value;
     float radius = (r.bottom - r.top) * 0.5f;
-    if (active) ui_rrect(r, radius, t->accent);
-    else ui_rrect(r, radius, hot ? t->panelHover : t->chip);
-    if (!active) ui_rrect_stroke(r, radius, 1.0f, col_a(t->border, t->border.a * 0.8f));
-    ui_text(label, g_ui->fCenter, r, active ? t->onAccent : (hot ? t->text : t->text2));
+    ui_rrect(r, radius, ui_motion_color(ui_motion_color(t->chip, t->panelHover, hp), t->accent, fill));
+    if (fill < 0.99f) ui_rrect_stroke(r, radius, 1.0f, col_a(t->border, t->border.a * 0.8f * (1.0f - fill)));
+    ui_text(label, g_ui->fCenter, r, ui_motion_color(ui_motion_color(t->text2, t->text, hp), t->onAccent, fill));
     ui_hit(id, r, 1, 1);
     ui_focus_ring(r, radius, id);
 }
@@ -510,13 +736,14 @@ void ui_toggle(int id, float x, float y, int index, int on)
     if (index >= 0 && index < TOG_COUNT) {
         if (u->tog[index] < 0.0f) u->tog[index] = target;   /* first frame: no animation */
         u->togTarget[index] = target;
+        if (u->motion != 0) { u->tog[index] = target; u->togVelocity[index] = 0.0f; }
         if (fabsf(u->tog[index] - target) > 0.001f) ui_animate();
     }
     float p = index >= 0 && index < TOG_COUNT ? u->tog[index] : target;
+    float cp = SP_CLAMP(p, 0.0f, 1.0f);
     D2D1_RECT_F track = rectf(x, y, 42.0f, 24.0f);
     D2D1_COLOR_F off = t->track, onc = t->accent;
-    D2D1_COLOR_F c = { off.r + (onc.r - off.r) * p, off.g + (onc.g - off.g) * p, off.b + (onc.b - off.b) * p,
-                       off.a + (onc.a - off.a) * p };
+    D2D1_COLOR_F c = ui_motion_color(off, onc, cp);
     ui_rrect(track, 12.0f, c);
     float kx = x + 12.0f + p * 18.0f;
     ui_circle(kx, y + 12.5f, 10.0f, col(0x000000, 0.12f));
@@ -575,14 +802,52 @@ void ui_slider(int id, D2D1_RECT_F r, float v)
     Theme *t = &u->t;
     v = SP_CLAMP(v, 0.0f, 1.0f);
     int hot = ui_is_hot(id), down = u->pressed == id;
+    float hp = ui_motion_hover(id, hot || down);
+    float fill = v;
+    if (down) {
+        for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++)
+            if (u->sliderMotion[i].id == id) {
+                u->sliderMotion[i].fill = u->sliderMotion[i].target = v;
+                u->sliderMotion[i].lastAt = time_ms();
+                break;
+            }
+    }
+    if (u->motion == 0 && !down) {
+        int slot = -1, oldest = 0;
+        for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++) {
+            if (u->sliderMotion[i].id == id) { slot = i; break; }
+            if (!u->sliderMotion[i].id) oldest = i;
+            else if (u->sliderMotion[i].used < u->sliderMotion[oldest].used) oldest = i;
+        }
+        if (slot < 0) {
+            slot = oldest;
+            u->sliderMotion[slot].id = id;
+            u->sliderMotion[slot].fill = v;
+            u->sliderMotion[slot].target = v;
+        }
+        double now = time_ms();
+        if (fabsf(u->sliderMotion[slot].target - v) > 0.001f) {
+            u->sliderMotion[slot].target = v;
+            u->sliderMotion[slot].lastAt = now;
+        }
+        float dt = (float)SP_CLAMP(now - u->sliderMotion[slot].lastAt, 0.0, 50.0) / 1000.0f;
+        float d = v - u->sliderMotion[slot].fill;
+        if (fabsf(d) > 0.001f) {
+            u->sliderMotion[slot].fill += d * SP_MIN(1.0f, dt * 10.0f);
+            ui_animate();
+        } else u->sliderMotion[slot].fill = v;
+        u->sliderMotion[slot].lastAt = now;
+        u->sliderMotion[slot].used = u->frame;
+        fill = u->sliderMotion[slot].fill;
+    }
     float cy = (r.top + r.bottom) * 0.5f, inset = 11.0f;
     D2D1_RECT_F track = rectf(r.left + inset, cy - 2.0f, (r.right - r.left) - inset * 2.0f, 4.0f);
     ui_rrect(track, 2.0f, t->track);
-    ui_rrect(rectf(track.left, cy - 2.0f, (track.right - track.left) * v, 4.0f), 2.0f, t->accent);
+    ui_rrect(rectf(track.left, cy - 2.0f, (track.right - track.left) * fill, 4.0f), 2.0f, t->accent);
     float kx = track.left + (track.right - track.left) * v;
     ui_circle(kx, cy + 0.5f, 10.5f, col(0x000000, t->dark ? 0.40f : 0.14f));
     ui_circle(kx, cy, 10.0f, t->dark ? col(0x454545, 1.0f) : col(0xFFFFFF, 1.0f));
-    ui_circle(kx, cy, down ? 4.5f : hot ? 6.5f : 5.5f, t->accent);
+    ui_circle(kx, cy, down ? 7.5f : 5.5f + hp, t->accent);
     ui_hit(id, r, 1, 1);
     ui_focus_ring(track, 4.0f, id);
 }
@@ -703,9 +968,7 @@ void ui_draw_thumb(const WallpaperEntry *e, D2D1_RECT_F r, float radius, int lar
     if (th && th->state == 2 && th->brush) {
         if (th->frameCount > 1) {
             ID2D1BitmapBrush_SetBitmap(th->brush, th->frames[th->cur]);
-            BOOL motion = TRUE;      /* Windows "Animation effects" off: stay on the first frame */
-            SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &motion, 0);
-            if (motion && !u->thumbTimer) {
+            if (u->motion == 0 && !u->thumbTimer) {
                 u->thumbTimer = 1;
                 SetTimer(u->hwnd, TM_THUMBS, 33, NULL);   /* ~30 Hz: due frames advance together */
             }
@@ -713,7 +976,13 @@ void ui_draw_thumb(const WallpaperEntry *e, D2D1_RECT_F r, float radius, int lar
         float s = SP_MAX(rw / th->w, rh / th->h);
         D2D1_MATRIX_3X2_F m = { s, 0, 0, s, r.left + (rw - th->w * s) * 0.5f, r.top + (rh - th->h * s) * 0.5f };
         ID2D1BitmapBrush_SetTransform(th->brush, &m);
-        ID2D1BitmapBrush_SetOpacity(th->brush, u->alpha);
+        float fade = 1.0f;
+        if (u->motion != 2 && th->readyAt > 0) {
+            float p = (float)((time_ms() - th->readyAt) / 180.0);
+            fade = ui_motion_curve(p, 0);
+            if (p < 1.0f) ui_animate();
+        }
+        ID2D1BitmapBrush_SetOpacity(th->brush, u->alpha * fade);
         D2D1_ROUNDED_RECT rr = { r, radius, radius };
         ID2D1RenderTarget_FillRoundedRectangle(RT, &rr, (ID2D1Brush *)th->brush);
         return;
@@ -763,6 +1032,7 @@ static void set_animation(Ui *u, Thumb *t, ThumbResult *res)
     t->w = res->w;
     t->h = res->h;
     t->state = 2;
+    if (!t->readyAt) t->readyAt = time_ms();
     ui_invalidate();
 }
 
@@ -812,6 +1082,7 @@ static void on_thumb(Ui *u, ThumbResult *res)
                     t->w = res->w;
                     t->h = res->h;
                     t->state = 2;
+                    if (!t->readyAt) t->readyAt = time_ms();
                 }
             }
         }
@@ -825,6 +1096,7 @@ static void on_thumb(Ui *u, ThumbResult *res)
 
 static void paint(Ui *u)
 {
+    double paintAt = time_ms();
     if (!create_device_resources(u)) return;
     u->frame++;
     u->hitCount = 0;
@@ -838,6 +1110,10 @@ static void paint(Ui *u)
     if (u->backdrop) ui_fill(rectf(0, 0, u->w, u->h), u->t.tint);
     pages_draw();
     HRESULT hr = ID2D1RenderTarget_EndDraw(RT, NULL, NULL);
+    if (u->trace)
+        LOGI(L"ui trace: paint %.2f ms; page=%d scroll=%d theme=%d flow=%d ghost=%d notice=%d timer=%d",
+             time_ms() - paintAt, u->pageAnim < 1.0f, motion_pending(u), u->themeActive,
+             u->flowT0 > 0, u->ghost.active, u->noticeT0 > 0, u->animating);
     if (hr == D2DERR_RECREATE_TARGET) {
         LOGW(L"ui: render target lost; recreating");
         discard_device_resources(u);
@@ -852,16 +1128,98 @@ static void paint(Ui *u)
 
 static void anim_step(Ui *u)
 {
+    if (!IsWindowVisible(u->hwnd) || IsIconic(u->hwnd)) { motion_stop(u); return; }
     double now = time_ms();
     float dt = (float)SP_MIN(now - u->lastTick, 50.0) / 1000.0f;
     u->lastTick = now;
     int active = 0;
+    if (fabsf(u->depthFill - u->depthTarget) > 0.002f) active = 1;
+    if (u->flowT0 > 0 && now - u->flowT0 < 220.0) active = 1;
+    if (u->ghost.active && now - u->ghost.t0 < 320.0) active = 1;
+    if (u->heroFadeAt > 0 && now - u->heroFadeAt < 180.0) active = 1;
+    if (u->brandAt > 0 && now - u->brandAt < 580.0) active = 1;
+    if (u->emptyPulseAt > 0 && now - u->emptyPulseAt < 2400.0 && u->motion == 0) active = 1;
+    if (u->presetAt > 0 && now - u->presetAt < (u->motion == 0 ? 640.0 : 120.0) && u->motion != 2) active = 1;
+    if (u->statusAt > 0 && now - u->statusAt < 8000.0 && u->motion == 0) active = 1;
+    if (u->navT0 > 0 && now - u->navT0 < 220.0) active = 1;
+    if (u->filterPillAt > 0 && now - u->filterPillAt < 200.0) active = 1;
+    if (u->noticeT0 > 0 && now - u->noticeT0 < 220.0) active = 1;
+    if (u->urlT0 > 0 && now - u->urlT0 < 220.0) active = 1;
+    if (u->depthListT0 > 0 && now - u->depthListT0 < 220.0) active = 1;
+    if (u->page == PAGE_STORE && u->storeSkeletonAt > 0 && now - u->storeSkeletonAt < 8000.0 && u->motion == 0) active = 1;
+    if (g_app.noticeKind == NOTICE_INFO && !g_app.noticeHover && u->motion != 2 &&
+        now - g_app.noticeAt < g_app.noticeRemaining) active = 1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->segment); i++)
+        if (u->segment[i].t0 > 0 && now - u->segment[i].t0 < 200.0) active = 1;
+    if (u->themeActive) {
+        float p = (float)((now - u->themeT0) / u->themeDuration);
+        float eased = ui_motion_curve(p, 0);
+        D2D1_COLOR_F *dst = &u->t.bg;
+        const D2D1_COLOR_F *a = &u->themeFrom.bg, *b = &u->themeTarget.bg;
+        for (size_t i = 0; i < (sizeof(Theme) - offsetof(Theme, bg)) / sizeof(D2D1_COLOR_F); i++)
+            dst[i] = ui_motion_color(a[i], b[i], eased);
+        u->t.dark = u->themeTarget.dark;
+        if (p >= 1.0f) { u->t = u->themeTarget; u->themeActive = 0; }
+        else active = 1;
+    }
+    float pressTarget = u->pressId && u->pressed == u->pressId ? 1.0f : 0.0f;
+    if (fabsf(u->pressAmt - pressTarget) > 0.01f) {
+        u->pressAmt += (pressTarget - u->pressAmt) * SP_MIN(1.0f, dt * (pressTarget ? 20.0f : 15.0f));
+        active = 1;
+    } else {
+        u->pressAmt = pressTarget;
+        if (!pressTarget) u->pressId = 0;
+    }
+    float focusTarget = u->focusId && u->focusVisible && u->focus == u->focusId ? 1.0f : 0.0f;
+    if (fabsf(u->focusAmt - focusTarget) > 0.01f) {
+        u->focusAmt += (focusTarget - u->focusAmt) * SP_MIN(1.0f, dt * (focusTarget ? 18.0f : 12.0f));
+        active = 1;
+    } else {
+        u->focusAmt = focusTarget;
+        if (!focusTarget) u->focusId = 0;
+    }
+    for (int i = 0; i < (int)SP_COUNTOF(u->hover); i++) {
+        if (!u->hover[i].id) continue;
+        if (u->hover[i].used != u->frame) u->hover[i].target = 0;
+        float target = u->hover[i].target && now >= u->hoverBlockUntil ? 1.0f : 0.0f;
+        float d = target - u->hover[i].value;
+        if (fabsf(d) > 0.01f) {
+            u->hover[i].value += d * SP_MIN(1.0f, dt * (now < u->hoverBlockUntil ? 18.0f : 12.0f));
+            active = 1;
+        } else {
+            u->hover[i].value = target;
+            if (!target && u->hover[i].used + 5 < u->frame) u->hover[i].id = 0;
+        }
+    }
+    for (int i = 0; i < (int)SP_COUNTOF(u->cardMotion); i++) {
+        if (!u->cardMotion[i].id[0]) continue;
+        float target = (float)u->cardMotion[i].selected;
+        float d = target - u->cardMotion[i].selection;
+        if (fabsf(d) > 0.01f) {
+            u->cardMotion[i].selection += d * SP_MIN(1.0f, dt * 30.0f);
+            active = 1;
+        } else u->cardMotion[i].selection = target;
+    }
+    for (int i = 0; i < (int)SP_COUNTOF(u->chipMotion); i++) {
+        if (!u->chipMotion[i].id) continue;
+        float target = (float)u->chipMotion[i].active;
+        float d = target - u->chipMotion[i].value;
+        if (fabsf(d) > 0.01f) {
+            u->chipMotion[i].value += d * SP_MIN(1.0f, dt * 18.0f);
+            active = 1;
+        } else u->chipMotion[i].value = target;
+    }
+    for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++)
+        if (u->sliderMotion[i].id && fabsf(u->sliderMotion[i].fill - u->sliderMotion[i].target) > 0.001f) active = 1;
+    for (int i = 0; i < (int)SP_COUNTOF(u->storeFill); i++)
+        if (u->storeFill[i].id && fabsf(u->storeFill[i].value - u->storeFill[i].target) > 0.002f) active = 1;
     if (u->pageAnim < 1.0f) {
-        u->pageAnim = SP_MIN(1.0f, u->pageAnim + dt / 0.18f);
+        u->pageAnim = SP_MIN(1.0f, u->pageAnim + dt / (u->motion == 1 ? 0.12f : 0.22f));
         active = 1;
     }
     for (int p = 0; p < PAGE_COUNT; p++) {
         float d = u->scrollTarget[p] - u->scroll[p];
+        if (u->motion == 1) { u->scroll[p] = u->scrollTarget[p]; continue; }
         if (fabsf(d) > 0.5f) {
             u->scroll[p] += d * SP_MIN(1.0f, dt * 14.0f);
             active = 1;
@@ -871,17 +1229,17 @@ static void anim_step(Ui *u)
     }
     for (int i = 0; i < TOG_COUNT; i++) {
         float d = u->togTarget[i] - u->tog[i];
-        if (fabsf(d) > 0.01f) {
-            u->tog[i] += d * SP_MIN(1.0f, dt * 16.0f);
+        if (u->motion == 1) { u->tog[i] = u->togTarget[i]; u->togVelocity[i] = 0.0f; continue; }
+        if (fabsf(d) > 0.005f || fabsf(u->togVelocity[i]) > 0.02f) {
+            u->togVelocity[i] += (d * 850.0f - u->togVelocity[i] * 42.0f) * dt;
+            u->tog[i] = SP_CLAMP(u->tog[i] + u->togVelocity[i] * dt, -0.03f, 1.03f);
             active = 1;
         } else {
             u->tog[i] = u->togTarget[i];
+            u->togVelocity[i] = 0.0f;
         }
     }
-    if (!active) {
-        u->animating = 0;
-        KillTimer(u->hwnd, TM_ANIM);
-    }
+    if (!active) motion_stop(u);
     ui_invalidate();
 }
 
@@ -1069,6 +1427,7 @@ static void tip_update(Ui *u)
 static void on_wheel(Ui *u, int delta)
 {
     int p = u->page;
+    u->hoverBlockUntil = time_ms() + 90.0;
     float maxScroll = SP_MAX(0.0f, u->contentH[p] - u->viewH);
     u->scrollTarget[p] = SP_CLAMP(u->scrollTarget[p] - (float)delta / WHEEL_DELTA * 96.0f, 0.0f, maxScroll);
     ui_animate();
@@ -1095,6 +1454,8 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             D2D1_SIZE_U sz = { w, hh };
             ID2D1HwndRenderTarget_Resize(u->rt, &sz);
         }
+        if (IsIconic(h)) motion_stop(u);
+        else if (motion_pending(u)) ui_animate();
         ui_invalidate();
         return 0;
     }
@@ -1166,6 +1527,8 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_LBUTTONDOWN:
         SetCapture(h);
         u->pressed = u->hot;
+        u->pressId = u->pressed;
+        if (u->pressId) ui_animate();
         u->pressedRect = rectf(0, 0, 0, 0);
         u->pressX = u->mx;
         u->pressY = u->my;
@@ -1191,6 +1554,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_LBUTTONUP: {
         int id = u->pressed, dragged = u->cardDrag;
         u->pressed = 0;
+        if (u->pressId) ui_animate();
         u->cardDrag = 0;
         ReleaseCapture();
         if (pages_marquee_active()) {
@@ -1265,12 +1629,14 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_SETTINGCHANGE:
+        ui_refresh_motion();
         if (lp && wcscmp((const wchar_t *)lp, L"ImmersiveColorSet") == 0) {
             theme_build(u);
             ui_invalidate();
         }
         return 0;
     case WM_ACTIVATE:
+        if (motion_pending(u)) ui_animate();
         ui_invalidate();
         break;
     case WM_SP_PREVIEW: {        /* a recorded preview arrived: reload that wallpaper's thumbnails */
@@ -1325,10 +1691,12 @@ BOOL ui_show(void)
     if (!u) return FALSE;
     g_ui = u;
     u->showRequestedAt = time_ms();
+    u->trace = getenv("SCREENPLUS_UI_TRACE") && strcmp(getenv("SCREENPLUS_UI_TRACE"), "1") == 0;
     u->target = -1;
     u->textFocus = 0;    /* no Customise field is being typed into */
     u->alpha = 1.0f;
-    u->pageAnim = 1.0f;
+    u->pageAnim = g_app.uiReadyMs ? 1.0f : 0.0f;
+    if (!g_app.uiReadyMs) u->brandAt = time_ms();
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &SP_IID_ID2D1Factory, NULL, (void **)&u->d2d);
     if (SUCCEEDED(hr)) hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, &SP_IID_IDWriteFactory, (IUnknown **)&u->dw);
     if (FAILED(hr) || !create_text_formats(u)) {
@@ -1390,6 +1758,7 @@ BOOL ui_show(void)
     setup_backdrop(u);
 #endif
     theme_build(u);
+    ui_refresh_motion();
     for (int i = 0; i < TOG_COUNT; i++) u->tog[i] = u->togTarget[i] = -1.0f;   /* snap on first frame */
     DragAcceptFiles(u->hwnd, TRUE);
     thumbs_start(u->hwnd);
@@ -1397,6 +1766,7 @@ BOOL ui_show(void)
     SetTimer(u->hwnd, TM_STATS, 1500, NULL);
     supervisor_sample_stats();
     ShowWindow(u->hwnd, SW_SHOWNORMAL);
+    if (u->pageAnim < 1.0f) ui_animate();
     SetForegroundWindow(u->hwnd);
     UpdateWindow(u->hwnd);
     return TRUE;
@@ -1445,6 +1815,7 @@ void ui_refresh_theme(void)
 void ui_on_config_changed(void)
 {
     if (!g_ui) return;
+    ui_refresh_motion();
     pages_rebuild_view();
     theme_build(g_ui);   /* the theme setting may have changed (CLI) */
     ui_invalidate();

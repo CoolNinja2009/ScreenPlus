@@ -271,6 +271,7 @@ static struct {
     void (*destroy)(void);
     BOOL (*is_open)(void);
     void (*on_config)(void);
+    void (*on_motion)(void);
     void (*on_customise)(void);
     void (*on_status)(void);
     void (*pump)(void);
@@ -294,6 +295,7 @@ static int ui_load(void)
     *(void **)&g_ui_mod.destroy = dlsym(lib, "ui_destroy");
     *(void **)&g_ui_mod.is_open = dlsym(lib, "ui_is_open");
     *(void **)&g_ui_mod.on_config = dlsym(lib, "ui_on_config_changed");
+    *(void **)&g_ui_mod.on_motion = dlsym(lib, "ui_motion_system_changed");
     *(void **)&g_ui_mod.on_customise = dlsym(lib, "ui_on_customise_changed");
     *(void **)&g_ui_mod.on_status = dlsym(lib, "ui_on_status");
     *(void **)&g_ui_mod.pump = dlsym(lib, "ui_pump");
@@ -322,7 +324,18 @@ void app_notice(int kind, const wchar_t *fmt, ...)
     str_copy(g_app.notice, SP_COUNTOF(g_app.notice), buf);
     g_app.noticeKind = kind;
     g_noticeAt = time_ms();
+    g_app.noticeAt = g_noticeAt;
+    g_app.noticeRemaining = NOTICE_INFO_MS;
+    g_app.noticeHover = 0;
     log_write(kind == NOTICE_ERROR ? LOG_ERROR : kind == NOTICE_WARN ? LOG_WARN : LOG_INFO, L"%ls", buf);
+}
+
+void app_notice_hover(int hot)
+{
+    if (g_app.noticeKind != NOTICE_INFO || g_app.noticeHover == hot) return;
+    g_app.noticeHover = hot;
+    if (hot) g_app.noticeRemaining = SP_MAX(0.0, g_app.noticeRemaining - (time_ms() - g_app.noticeAt));
+    else g_app.noticeAt = time_ms();
 }
 
 const IpcMonitorStatus *app_monitor_status(const wchar_t *monitorId)
@@ -642,7 +655,9 @@ int service_main(void)
         }
         if (time_ms() >= nextPoll) {
             nextPoll = time_ms() + (g_app.monCount ? 5000 : 200);      /* the session is still starting: be quick */
-            if (g_app.notice[0] && g_app.noticeKind == NOTICE_INFO && time_ms() - g_noticeAt >= NOTICE_INFO_MS) {
+            if (g_ui_mod.on_motion) g_ui_mod.on_motion();
+            if (g_app.notice[0] && g_app.noticeKind == NOTICE_INFO && !g_app.noticeHover &&
+                time_ms() - g_app.noticeAt >= g_app.noticeRemaining) {
                 app_notice(NOTICE_NONE, NULL);      /* warnings and errors stay until closed */
                 ui_on_config_changed();
             }

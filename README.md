@@ -71,7 +71,7 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
   Redistributable 14.44 or newer. Motion in pictures uses one more model (238 MB, downloaded once).
   The record button on **Look & colour** or the wallpaper's properties records what you change until you stop it,
   then plays it on a loop; edit it as graphs (speed, smoothing, draw over a line) or delete it.
-- **Settings**: startup, screensaver, pausing, app rules, audio and updates.
+- **Settings**: startup, screensaver, pausing, app rules, audio, updates and window animation preference (Full, Reduced or Off).
 
 | Type | Formats |
 | --- | --- |
@@ -125,6 +125,9 @@ a `.deb` (Ubuntu 24.04+ and KDE neon, or Debian 13+) and an `.rpm` (Fedora). The
 screenplus start
 screenplus import ~/Videos/rain.mp4 --apply
 ```
+
+Tar installs update in place. Fedora RPM installs can download a verified update from Settings and install it through
+DNF after a Polkit authorization prompt. Debian packages update through the system package manager.
 
 `screenplus help` lists the commands. Video links need yt-dlp.
 

@@ -68,7 +68,7 @@ pack_tar() {        # after stage: the installed tree, whose RUNPATHs are $ORIGI
 }
 
 # The tree both packages hold: the app in /usr/lib/screenplus, which finds its files next to itself.
-# No update.sh there, so the package manager does the updating.
+# The RPM adds update-rpm.sh in pack_rpm; it installs verified releases through DNF with Polkit.
 stage() {
     pkg=$PWD/pkg
     DESTDIR=$pkg cmake --install build-linux --strip
@@ -132,6 +132,8 @@ CONTROL
 
 pack_rpm() {
     stage
+    cp src/linux/update-rpm.sh "$pkg/usr/lib/screenplus/update-rpm.sh"
+    chmod +x "$pkg/usr/lib/screenplus/update-rpm.sh"
     cat > screenplus.spec <<SPEC
 Name: screenplus
 Version: $VERSION
@@ -141,6 +143,7 @@ License: MIT
 URL: https://gitlab.com/screenplus-group/screenplus
 Requires: /usr/bin/ffmpeg
 Requires: curl
+Requires: /usr/bin/pkexec
 Recommends: bsdtar
 Recommends: yt-dlp
 Recommends: qt6-qtmultimedia
@@ -164,6 +167,8 @@ SPEC
     rpmbuild -bb --define "_rpmdir $PWD/rpms" screenplus.spec
     cp rpms/x86_64/*.rpm "release/ScreenPlus-$ver-fedora-x86_64.rpm"
     dnf install -y "./release/ScreenPlus-$ver-fedora-x86_64.rpm"
+    test -x /usr/lib/screenplus/update-rpm.sh
+    sh -n /usr/lib/screenplus/update-rpm.sh
 }
 
 case $kind in

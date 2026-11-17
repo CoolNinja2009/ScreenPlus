@@ -17,6 +17,8 @@ enum { T_ENGINE_RESTART = 1 };
 
 void app_notice(int kind, const wchar_t *fmt, ...)
 {
+    if (g_app.shellWnd) KillTimer(g_app.shellWnd, T_SHELL_NOTICE);
+    g_app.noticeHover = 0;
     if (kind == NOTICE_NONE || !fmt) {
         g_app.notice[0] = 0;
         g_app.noticeKind = NOTICE_NONE;
@@ -26,8 +28,26 @@ void app_notice(int kind, const wchar_t *fmt, ...)
         _vsnwprintf_s(g_app.notice, SP_COUNTOF(g_app.notice), _TRUNCATE, fmt, ap);
         va_end(ap);
         g_app.noticeKind = kind;
+        if (kind == NOTICE_INFO) {
+            g_app.noticeAt = time_ms();
+            g_app.noticeRemaining = 10000.0;
+            if (g_app.shellWnd) SetTimer(g_app.shellWnd, T_SHELL_NOTICE, 10000, NULL);
+        }
     }
     ui_on_status();
+}
+
+void app_notice_hover(int hot)
+{
+    if (g_app.noticeKind != NOTICE_INFO || g_app.noticeHover == hot) return;
+    g_app.noticeHover = hot;
+    if (hot) {
+        g_app.noticeRemaining = SP_MAX(0.0, g_app.noticeRemaining - (time_ms() - g_app.noticeAt));
+        if (g_app.shellWnd) KillTimer(g_app.shellWnd, T_SHELL_NOTICE);
+    } else {
+        g_app.noticeAt = time_ms();
+        if (g_app.shellWnd) SetTimer(g_app.shellWnd, T_SHELL_NOTICE, (UINT)SP_MAX(1.0, g_app.noticeRemaining), NULL);
+    }
 }
 
 void app_refresh_monitors(void)
@@ -287,6 +307,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             KillTimer(h, T_SHELL_STARTUP);
             startup_sync();
             ui_on_status();
+        } else if (wp == T_SHELL_NOTICE) {
+            KillTimer(h, T_SHELL_NOTICE);
+            if (g_app.noticeKind == NOTICE_INFO && !g_app.noticeHover) app_notice(NOTICE_NONE, NULL);
         }
         return 0;
     case WM_DISPLAYCHANGE:

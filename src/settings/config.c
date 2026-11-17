@@ -178,6 +178,7 @@ void config_defaults(Config *c)
     c->s.depthAll = 0;
     str_copy(c->s.depthModel, SP_COUNTOF(c->s.depthModel), L"da2-small");
     c->s.theme = THEME_SYSTEM;
+    c->s.uiMotion = 0;
     c->s.accentColor = 0x0A84FF;
     c->s.displayMode = DM_INDEPENDENT;
     c->s.scrAudio = 0;
@@ -568,6 +569,11 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"library_sort")) s->librarySort = SP_CLAMP(_wtoi(val), 0, LIBSORT_COUNT - 1);
             else if (str_ieq(key, L"theme"))
                 s->theme = str_ieq(val, L"light") ? THEME_LIGHT : str_ieq(val, L"dark") ? THEME_DARK : THEME_SYSTEM;
+            else if (str_ieq(key, L"ui_motion")) {
+                if (str_ieq(val, L"full")) s->uiMotion = 0;
+                else if (str_ieq(val, L"reduced")) s->uiMotion = 1;
+                else if (str_ieq(val, L"off")) s->uiMotion = 2;
+            }
             else if (str_ieq(key, L"accent_color")) {
                 wchar_t *end = NULL;
                 unsigned long rgb = wcstoul(val[0] == L'#' ? val + 1 : val, &end, 16);
@@ -697,14 +703,15 @@ BOOL config_save(const Config *c, const wchar_t *path)
                   "pause_when_covered=%d\r\nsuspend_on_lock=%d\r\npause_on_battery=%d\r\naudio=%d\r\n"
                   "auto_recover=%d\r\npaused=%d\r\nhtml_mouse=%d\r\nhtml_audio=%d\r\nweb_fps=%d\r\nlively_auto_import=%d\r\n"
                   "url_import=%d\r\ninteractive_images=%d\r\ndisplay_mode=%s\r\nscreensaver_audio=%d\r\n"
-                  "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\nauto_update=%d\r\nauto_update_samples=%d\r\ntheme=%s\r\naccent_color=#%06X\r\n",
+                  "screensaver_displays=%s\r\nscreensaver_exit_on_mouse=%d\r\nauto_update=%d\r\nauto_update_samples=%d\r\ntheme=%s\r\nui_motion=%s\r\naccent_color=#%06X\r\n",
               s->startWithWindows, s->launchToTray, s->stillWallpaper, s->pauseOnFullscreen, s->pauseWhenCovered, s->suspendOnLock,
               s->pauseOnBattery, s->audio, s->autoRecover, s->paused, s->htmlMouse, s->htmlAudio, s->webFps, s->livelyImport,
               s->urlImport, s->depthAll,
               s->displayMode == DM_SPAN ? "span" : s->displayMode == DM_DUPLICATE ? "duplicate" : "independent",
               s->scrAudio, s->scrDisplays == SCRD_SPAN ? "span" : s->scrDisplays == SCRD_PRIMARY ? "primary" : "all",
               s->scrExitOnMouse, s->autoUpdate, s->autoUpdateSamples,
-              s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system", s->accentColor & 0xFFFFFF);
+              s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system",
+              s->uiMotion == 1 ? "reduced" : s->uiMotion == 2 ? "off" : "full", s->accentColor & 0xFFFFFF);
     sb_puts(&b, "depth_model=");     /* its own line: sb_printf formats into 512 bytes */
     sb_put_wide(&b, s->depthModel);
     sb_puts(&b, "\r\npause_apps=");

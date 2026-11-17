@@ -19,6 +19,7 @@
 #define WM_SP_SAMPLES       (WM_APP + 67)   /* wParam 0: progress, 1: check finished (lParam: the job) */
 #define T_SHELL_SAMPLES     4               /* shell window timer: the next sample wallpaper update check */
 #define T_SHELL_ROTATE      5               /* shell window timer: slideshow and schedule check (rotate.c) */
+#define T_SHELL_NOTICE      6               /* one-shot info notice dismissal */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 #define WM_SP_PPTX          (WM_APP + 68)   /* wParam 1: a PowerPoint job finished (lParam: the job; pptx.c) */
 #define WM_SP_ENGINE_RESYNC (WM_APP + 71)   /* the engine connected after commands went unsent */
@@ -62,6 +63,8 @@ typedef struct AppState {
 
     wchar_t          notice[256];
     int              noticeKind;
+    double           noticeAt, noticeRemaining;
+    int              noticeHover;
     int              exiting;
     int              startHidden;
 } AppState;
@@ -84,6 +87,7 @@ void app_restart_renderer(void);
 void app_exit(void);
 void app_show_ui(void);
 void app_notice(int kind, const wchar_t *fmt, ...);
+void app_notice_hover(int hot);
 void app_refresh_monitors(void);
 const IpcMonitorStatus *app_monitor_status(const wchar_t *monitorId);
 const wchar_t *app_engine_state_text(int *severity);         /* severity: 0 ok, 1 paused, 2 warn, 3 error */

@@ -1291,13 +1291,14 @@ static void cmd_props(Reply *r, const Req *q)
 
 /* Enumerations: the value is the index of its name. */
 static const wchar_t *const k_themeNames[] = { L"system", L"light", L"dark", NULL };
+static const wchar_t *const k_motionNames[] = { L"full", L"reduced", L"off", NULL };
 static const wchar_t *const k_modeNames[] = { L"independent", L"duplicate", L"span", NULL };
 static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary", NULL };
 static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
 static const wchar_t *const k_sortKeyNames[] = { L"custom", L"name", L"added", L"type", L"size", NULL };   /* LIBSORT_* */
-enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM, SK_SORT, SK_HEX };
+enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM, SK_SORT, SK_HEX, SK_MOTION };
 static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames, NULL,
-                                                     k_sortKeyNames, NULL };
+                                                     k_sortKeyNames, NULL, k_motionNames };
 #ifdef _WIN32
 #define SP_LAUNCH_DESC L"Keep the window closed when it starts with Windows"
 #else
@@ -1332,6 +1333,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
     { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
+    { L"ui_motion",           offsetof(Settings, uiMotion),          SK_MOTION, L"Window animations: full, reduced or off" },
     { L"accent_color",        offsetof(Settings, accentColor),       SK_HEX,   L"UI accent colour as #RRGGBB" },
     { L"library_sort",        offsetof(Settings, librarySort),       SK_SORT,  L"Library order: custom, name, added, type or size" },
     { L"display_mode",        offsetof(Settings, displayMode),       SK_MODE,  L"Displays: independent, duplicate or span" },
