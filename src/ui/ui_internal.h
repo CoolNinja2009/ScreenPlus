@@ -124,7 +124,6 @@ typedef struct Ui {
     struct { int id; float value; int target; uint32_t used; } hover[48];
     struct { int id; float value; int active; uint32_t used; } chipMotion[48];
     struct { wchar_t id[SP_ID_LEN]; float selection; int selected, current; double currentAt; uint32_t used; } cardMotion[48];
-    struct { int id; float fill, target; double lastAt; uint32_t used; } sliderMotion[48];
     int                    pressId, focusId;
     float                  pressAmt, focusAmt;
     float                  navY, navFrom;
@@ -163,6 +162,7 @@ typedef struct Ui {
     D2D1_RECT_F            filterPill, filterFrom, filterTo;
     int                    filterPillId, filterPillReady;
     double                 filterPillAt;
+    float                  filterScrollLag;
     float                  scroll[PAGE_COUNT], scrollTarget[PAGE_COUNT], contentH[PAGE_COUNT], viewTop, viewH;
 
     Hit                    hits[UI_MAX_HITS];

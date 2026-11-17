@@ -563,11 +563,29 @@ static float draw_filters(Ui *u, float x, float y, float w)
         if (!u->filterPillReady || u->motion != 0) {
             u->filterPill = selected;
             u->filterPillReady = 1;
-        } else if (selectedId != u->filterPillId ||
-                   fabsf(u->filterTo.left - selected.left) > 0.5f || fabsf(u->filterTo.top - selected.top) > 0.5f) {
+            u->filterScrollLag = 0.0f;
+        } else if (selectedId != u->filterPillId) {
             u->filterFrom = u->filterPill;
             u->filterPillAt = time_ms();
+            u->filterScrollLag = 0.0f;
             ui_animate();
+        } else {
+            /* Keep the pill attached to the row, with at most 3 DIP of scroll follow-through. */
+            float dx = selected.left - u->filterTo.left, dy = selected.top - u->filterTo.top;
+            if (u->motion == 0 && fabsf(dy) > 0.1f) {
+                u->filterScrollLag = SP_CLAMP(u->filterScrollLag - dy * 0.06f, -3.0f, 3.0f);
+                ui_animate();
+            }
+            u->filterFrom.left += dx; u->filterFrom.right += dx;
+            u->filterFrom.top += dy; u->filterFrom.bottom += dy;
+            u->filterPill.left += dx; u->filterPill.right += dx;
+            u->filterPill.top += dy; u->filterPill.bottom += dy;
+            if (fabsf(selected.right - u->filterTo.right) > 0.5f ||
+                fabsf(selected.bottom - u->filterTo.bottom) > 0.5f) {
+                u->filterPill = selected;
+                u->filterFrom = selected;
+                u->filterPillAt = 0;
+            }
         }
         u->filterPillId = selectedId;
         u->filterTo = selected;
@@ -598,7 +616,12 @@ static float draw_filters(Ui *u, float x, float y, float w)
                              u->filter == 6 && str_ieq(u->coll, names[k]), pass);
             cx += chipW + 8;
         }
-        if (pass == 0 && selectedId) ui_rrect(u->filterPill, 15, u->t.accent);
+        if (pass == 0 && selectedId) {
+            D2D1_RECT_F pill = u->filterPill;
+            pill.top += u->filterScrollLag;
+            pill.bottom += u->filterScrollLag;
+            ui_rrect(pill, 15, u->t.accent);
+        }
     }
     if (u->textFocus == HIT_ID(HK_COLL_TEXT, 0)) {
         if (cx + 200 > right && cx > x) { cx = x; y += 38; }

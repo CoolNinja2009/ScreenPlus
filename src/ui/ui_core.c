@@ -488,6 +488,7 @@ void ui_invalidate(void)
 static int motion_pending(Ui *u)
 {
     if (u->themeActive) return 1;
+    if (fabsf(u->filterScrollLag) > 0.05f) return 1;
     if (fabsf(u->depthFill - u->depthTarget) > 0.002f) return 1;
     if (u->pageAnim < 1.0f) return 1;
     if (fabsf(u->pressAmt - (u->pressed == u->pressId && u->pressId ? 1.0f : 0.0f)) > 0.01f) return 1;
@@ -499,8 +500,6 @@ static int motion_pending(Ui *u)
         if (u->cardMotion[i].id[0] && fabsf(u->cardMotion[i].selection - (float)u->cardMotion[i].selected) > 0.01f) return 1;
     for (int i = 0; i < (int)SP_COUNTOF(u->chipMotion); i++)
         if (u->chipMotion[i].id && fabsf(u->chipMotion[i].value - (float)u->chipMotion[i].active) > 0.01f) return 1;
-    for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++)
-        if (u->sliderMotion[i].id && fabsf(u->sliderMotion[i].fill - u->sliderMotion[i].target) > 0.001f) return 1;
     for (int i = 0; i < (int)SP_COUNTOF(u->storeFill); i++)
         if (u->storeFill[i].id && fabsf(u->storeFill[i].value - u->storeFill[i].target) > 0.002f) return 1;
     for (int p = 0; p < PAGE_COUNT; p++)
@@ -521,6 +520,7 @@ static void motion_snap(Ui *u)
     int changed = motion_pending(u);
     if (u->themeActive) { u->t = u->themeTarget; u->themeActive = 0; }
     u->depthFill = u->depthTarget;
+    u->filterScrollLag = 0.0f;
     u->pageAnim = 1.0f;
     for (int p = 0; p < PAGE_COUNT; p++) u->scroll[p] = u->scrollTarget[p];
     for (int i = 0; i < TOG_COUNT; i++) { u->tog[i] = u->togTarget[i]; u->togVelocity[i] = 0.0f; }
@@ -530,7 +530,6 @@ static void motion_snap(Ui *u)
         u->cardMotion[i].selection = (float)u->cardMotion[i].selected;
     for (int i = 0; i < (int)SP_COUNTOF(u->chipMotion); i++)
         u->chipMotion[i].value = (float)u->chipMotion[i].active;
-    for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++) u->sliderMotion[i].fill = u->sliderMotion[i].target;
     for (int i = 0; i < (int)SP_COUNTOF(u->storeFill); i++) u->storeFill[i].value = u->storeFill[i].target;
     u->pressAmt = 0.0f;
     u->focusAmt = u->focusVisible ? 1.0f : 0.0f;
@@ -803,47 +802,10 @@ void ui_slider(int id, D2D1_RECT_F r, float v)
     v = SP_CLAMP(v, 0.0f, 1.0f);
     int hot = ui_is_hot(id), down = u->pressed == id;
     float hp = ui_motion_hover(id, hot || down);
-    float fill = v;
-    if (down) {
-        for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++)
-            if (u->sliderMotion[i].id == id) {
-                u->sliderMotion[i].fill = u->sliderMotion[i].target = v;
-                u->sliderMotion[i].lastAt = time_ms();
-                break;
-            }
-    }
-    if (u->motion == 0 && !down) {
-        int slot = -1, oldest = 0;
-        for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++) {
-            if (u->sliderMotion[i].id == id) { slot = i; break; }
-            if (!u->sliderMotion[i].id) oldest = i;
-            else if (u->sliderMotion[i].used < u->sliderMotion[oldest].used) oldest = i;
-        }
-        if (slot < 0) {
-            slot = oldest;
-            u->sliderMotion[slot].id = id;
-            u->sliderMotion[slot].fill = v;
-            u->sliderMotion[slot].target = v;
-        }
-        double now = time_ms();
-        if (fabsf(u->sliderMotion[slot].target - v) > 0.001f) {
-            u->sliderMotion[slot].target = v;
-            u->sliderMotion[slot].lastAt = now;
-        }
-        float dt = (float)SP_CLAMP(now - u->sliderMotion[slot].lastAt, 0.0, 50.0) / 1000.0f;
-        float d = v - u->sliderMotion[slot].fill;
-        if (fabsf(d) > 0.001f) {
-            u->sliderMotion[slot].fill += d * SP_MIN(1.0f, dt * 10.0f);
-            ui_animate();
-        } else u->sliderMotion[slot].fill = v;
-        u->sliderMotion[slot].lastAt = now;
-        u->sliderMotion[slot].used = u->frame;
-        fill = u->sliderMotion[slot].fill;
-    }
     float cy = (r.top + r.bottom) * 0.5f, inset = 11.0f;
     D2D1_RECT_F track = rectf(r.left + inset, cy - 2.0f, (r.right - r.left) - inset * 2.0f, 4.0f);
     ui_rrect(track, 2.0f, t->track);
-    ui_rrect(rectf(track.left, cy - 2.0f, (track.right - track.left) * fill, 4.0f), 2.0f, t->accent);
+    ui_rrect(rectf(track.left, cy - 2.0f, (track.right - track.left) * v, 4.0f), 2.0f, t->accent);
     float kx = track.left + (track.right - track.left) * v;
     ui_circle(kx, cy + 0.5f, 10.5f, col(0x000000, t->dark ? 0.40f : 0.14f));
     ui_circle(kx, cy, 10.0f, t->dark ? col(0x454545, 1.0f) : col(0xFFFFFF, 1.0f));
@@ -1142,6 +1104,10 @@ static void anim_step(Ui *u)
     if (u->presetAt > 0 && now - u->presetAt < (u->motion == 0 ? 640.0 : 120.0) && u->motion != 2) active = 1;
     if (u->statusAt > 0 && now - u->statusAt < 8000.0 && u->motion == 0) active = 1;
     if (u->navT0 > 0 && now - u->navT0 < 220.0) active = 1;
+    if (fabsf(u->filterScrollLag) > 0.05f) {
+        u->filterScrollLag *= 1.0f - SP_MIN(1.0f, dt * 18.0f);
+        active = 1;
+    } else u->filterScrollLag = 0.0f;
     if (u->filterPillAt > 0 && now - u->filterPillAt < 200.0) active = 1;
     if (u->noticeT0 > 0 && now - u->noticeT0 < 220.0) active = 1;
     if (u->urlT0 > 0 && now - u->urlT0 < 220.0) active = 1;
@@ -1209,8 +1175,6 @@ static void anim_step(Ui *u)
             active = 1;
         } else u->chipMotion[i].value = target;
     }
-    for (int i = 0; i < (int)SP_COUNTOF(u->sliderMotion); i++)
-        if (u->sliderMotion[i].id && fabsf(u->sliderMotion[i].fill - u->sliderMotion[i].target) > 0.001f) active = 1;
     for (int i = 0; i < (int)SP_COUNTOF(u->storeFill); i++)
         if (u->storeFill[i].id && fabsf(u->storeFill[i].value - u->storeFill[i].target) > 0.002f) active = 1;
     if (u->pageAnim < 1.0f) {
