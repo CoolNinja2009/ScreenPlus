@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 160">
+  <rect x="8" y="8" width="144" height="144" rx="36" fill="#0a84ff"/>
+  <rect x="31" y="36" width="98" height="73" rx="18" fill="#fff"/>
+  <rect x="42" y="47" width="76" height="51" rx="10" fill="#0a84ff"/>
+  <path d="M80 56v33M64 72h33M74 109v12M57 128h47" fill="none" stroke="#fff" stroke-width="9" stroke-linecap="round"/>
+  <text x="180" y="112" font-family="Segoe UI,Arial,sans-serif" font-size="86" font-weight="650" fill="#262629">Screen+</text>
+</svg>

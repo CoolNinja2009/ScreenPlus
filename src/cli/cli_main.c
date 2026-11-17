@@ -321,6 +321,7 @@ static const wchar_t k_help[] =
     L"  show | hide                            open or close the window\n"
     L"  stop                                   quit Screen+\n"
     L"  settings [set <key> <value>]           app settings, e.g. settings set pause_on_battery off\n"
+    L"      accent_color #RRGGBB               set the app's accent colour\n"
     L"  rules                                  app rules: which apps pause or mute the wallpaper\n"
     L"  rules pause add|remove <app.exe>       pause while that app is in front\n"
     L"  rules mute add|remove <app.exe | *>    mute while that app uses the microphone (calls); *: any app\n"

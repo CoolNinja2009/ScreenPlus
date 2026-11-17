@@ -108,6 +108,7 @@ typedef struct Settings {
     int       depthAll;       /* make every image wallpaper interactive (depth.c) when it is applied */
     wchar_t   depthModel[32]; /* the depth model's key (depth.c's table; unknown: the default) */
     ThemeMode theme;
+    uint32_t  accentColor;    /* 0xRRGGBB: UI accent */
     DisplayMode displayMode;
     int       scrAudio;       /* screensaver sound (muted by default) */
     ScrDisplays scrDisplays;

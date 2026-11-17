@@ -19,6 +19,8 @@
 #include <windowsx.h>
 #include <commdlg.h>
 #include <colordlg.h>
+#else
+int sp_pick_colour(uint32_t *rgb);
 #endif
 
 #define SIDEBAR_W 232.0f
@@ -156,6 +158,8 @@ static void draw_sidebar(Ui *u)
     D2D1_RECT_F mark = rectf(24, 22, 30, 30);
     ui_rrect(mark, 9, t->accent);
     ui_rrect_stroke(rectf(31, 30, 16, 12), 3, 1.6f, t->onAccent);
+    ui_line(39, 32, 39, 40, 1.4f, t->onAccent);
+    ui_line(35, 36, 43, 36, 1.4f, t->onAccent);
     ui_line(39, 42, 39, 45.5f, 1.6f, t->onAccent);
     ui_line(35, 46, 43, 46, 1.6f, t->onAccent);
     ui_text(L"Screen+", u->fBrand, rectf(64, 22, 150, 30), t->text);
@@ -1254,6 +1258,7 @@ static void pick_rule_app(int which)
 static void draw_settings(Ui *u, float cx, float cw)
 {
     Settings *s = &g_app.cfg.s;
+    Theme *t = &u->t;
     float x = cx + PAD, w = SP_MIN(cw - PAD * 2, 860.0f);
     draw_title(u, x, L"Settings", NULL);
     {
@@ -1314,6 +1319,20 @@ static void draw_settings(Ui *u, float cx, float cw)
         row_label(u, x, y, w - 300, L"Appearance", NULL);
         static const wchar_t *opts[] = { L"System", L"Light", L"Dark" };
         segmented(u, x + w - 18 - 78 * 3, y + 15, HK_THEME, opts, 3, (int)s->theme, 78, NULL);
+        y += 62 + 10;
+    }
+    if (sf_want(u, L"Accent colour", L"accent color blue green custom hex")) {
+        y = sf_place(u, x, y);
+        wchar_t hex[16];
+        str_printf(hex, SP_COUNTOF(hex), L"#%06X", s->accentColor & 0xFFFFFF);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 150, L"Accent colour", L"Changes highlights throughout Screen+");
+        D2D1_RECT_F swatch = rectf(x + w - 132, y + 14, 114, 34);
+        ui_rrect(swatch, 8, t->field);
+        ui_rrect(rectf(swatch.left + 7, swatch.top + 6, 22, 22), 6, col(s->accentColor, 1));
+        ui_text(hex, u->fBodyB, rectf(swatch.left + 34, swatch.top + 7, 72, 20), t->text);
+        ui_hit(HIT_ID(HK_ACCENT_COLOR, 0), swatch, 1, 1);
+        ui_focus_ring(swatch, 8, HIT_ID(HK_ACCENT_COLOR, 0));
         y += 62 + 10;
     }
 
@@ -4156,6 +4175,26 @@ void pages_activate(int id, int dbl)
         app_save_config();
         ui_refresh_theme();
         break;
+    case HK_ACCENT_COLOR: {
+        uint32_t rgb = g_app.cfg.s.accentColor;
+#ifdef _WIN32
+        static COLORREF custom[16];
+        CHOOSECOLORW cc = { sizeof cc };
+        cc.hwndOwner = u->hwnd;
+        cc.lpCustColors = custom;
+        cc.rgbResult = RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+        cc.Flags = CC_FULLOPEN | CC_RGBINIT;
+        if (ChooseColorW(&cc)) rgb = ((uint32_t)GetRValue(cc.rgbResult) << 16) |
+                                     ((uint32_t)GetGValue(cc.rgbResult) << 8) | GetBValue(cc.rgbResult);
+        else break;
+#else
+        if (!sp_pick_colour(&rgb)) break;
+#endif
+        g_app.cfg.s.accentColor = rgb & 0xFFFFFF;
+        app_save_config();
+        ui_refresh_theme();
+        break;
+    }
     case HK_OPEN_LOGS:     shell_open(paths_logs()); break;
     case HK_OPEN_DATA:     shell_open(paths_root()); break;
     case HK_NOTICE_CLOSE:  app_notice(NOTICE_NONE, NULL); break;

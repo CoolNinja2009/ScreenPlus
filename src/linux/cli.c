@@ -58,7 +58,7 @@ static const char k_help[] =
     "  look [set <key> <value>... | reset]   Colour grading of what's showing\n"
     "  upscale [off|smooth|sharp]            Upscaling of a video or image smaller than the display\n"
     "  props [set <name> <value> | reset]    Settings of the wallpaper that's showing\n"
-    "  settings [get <key> | set <key> <value>]\n"
+    "  settings [get <key> | set <key> <value>] (accent_color #RRGGBB)\n"
     "  rules [pause|mute add|remove <app>]   Pause while an app is in front, mute while one uses the mic (* any)\n"
     "\n"
     "Other\n"

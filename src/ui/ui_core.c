@@ -91,7 +91,7 @@ static void theme_build(Ui *u)
         t->text = col(0xF5F5F7, 1.0f);
         t->text2 = col(0xEBEBF5, 0.62f);
         t->text3 = col(0xEBEBF5, 0.36f);
-        t->accent = col(0x0A84FF, 1.0f);
+        t->accent = col(g_app.cfg.s.accentColor, 1.0f);
         t->success = col(0x32D74B, 1.0f);
         t->warning = col(0xFF9F0A, 1.0f);
         t->danger = col(0xFF453A, 1.0f);
@@ -113,7 +113,7 @@ static void theme_build(Ui *u)
         t->text = col(0x1D1D1F, 1.0f);
         t->text2 = col(0x3C3C43, 0.70f);
         t->text3 = col(0x3C3C43, 0.44f);
-        t->accent = col(0x007AFF, 1.0f);
+        t->accent = col(g_app.cfg.s.accentColor, 1.0f);
         t->success = col(0x28A745, 1.0f);
         t->warning = col(0xE08600, 1.0f);
         t->danger = col(0xFF3B30, 1.0f);
@@ -124,7 +124,9 @@ static void theme_build(Ui *u)
         t->track = col(0x787880, 0.24f);
         t->shadow = col(0x000000, 0.10f);
     }
-    t->onAccent = col(0xFFFFFF, 1.0f);
+    uint32_t accent = g_app.cfg.s.accentColor & 0xFFFFFF;
+    unsigned luminance = ((accent >> 16) & 255) * 299 + ((accent >> 8) & 255) * 587 + (accent & 255) * 114;
+    t->onAccent = col(luminance > 170000 ? 0x000000 : 0xFFFFFF, 1.0f);
 #ifdef _WIN32
     BOOL d = dark;
     if (u->hwnd) DwmSetWindowAttribute(u->hwnd, SP_DWMWA_DARK, &d, sizeof d);

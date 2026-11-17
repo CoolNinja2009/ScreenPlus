@@ -14,14 +14,16 @@ static LRESULT CALLBACK id_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         HDC dc = BeginPaint(h, &ps);
         RECT rc;
         GetClientRect(h, &rc);
-        HBRUSH bg = CreateSolidBrush(RGB(0x0A, 0x84, 0xFF));
+        uint32_t accent = g_app.cfg.s.accentColor & 0xFFFFFF;
+        HBRUSH bg = CreateSolidBrush(RGB((accent >> 16) & 255, (accent >> 8) & 255, accent & 255));
         FillRect(dc, &rc, bg);
         DeleteObject(bg);
         HFONT f = CreateFontW(-(rc.bottom * 7 / 10), 0, 0, 0, FW_SEMIBOLD, 0, 0, 0, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0,
                               L"Segoe UI");
         HGDIOBJ old = SelectObject(dc, f);
         SetBkMode(dc, TRANSPARENT);
-        SetTextColor(dc, RGB(255, 255, 255));
+        unsigned luminance = ((accent >> 16) & 255) * 299 + ((accent >> 8) & 255) * 587 + (accent & 255) * 114;
+        SetTextColor(dc, luminance > 170000 ? RGB(0, 0, 0) : RGB(255, 255, 255));
         wchar_t num[8];
         str_printf(num, SP_COUNTOF(num), L"%d", (int)GetWindowLongPtrW(h, GWLP_USERDATA));
         DrawTextW(dc, num, -1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE);

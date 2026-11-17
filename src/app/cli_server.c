@@ -1295,9 +1295,9 @@ static const wchar_t *const k_modeNames[] = { L"independent", L"duplicate", L"sp
 static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary", NULL };
 static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
 static const wchar_t *const k_sortKeyNames[] = { L"custom", L"name", L"added", L"type", L"size", NULL };   /* LIBSORT_* */
-enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM, SK_SORT };
+enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM, SK_SORT, SK_HEX };
 static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames, NULL,
-                                                     k_sortKeyNames };
+                                                     k_sortKeyNames, NULL };
 #ifdef _WIN32
 #define SP_LAUNCH_DESC L"Keep the window closed when it starts with Windows"
 #else
@@ -1332,6 +1332,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
     { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
+    { L"accent_color",        offsetof(Settings, accentColor),       SK_HEX,   L"UI accent colour as #RRGGBB" },
     { L"library_sort",        offsetof(Settings, librarySort),       SK_SORT,  L"Library order: custom, name, added, type or size" },
     { L"display_mode",        offsetof(Settings, displayMode),       SK_MODE,  L"Displays: independent, duplicate or span" },
     { L"screensaver_audio",   offsetof(Settings, scrAudio),          SK_BOOL,  L"Screensaver sound" },
@@ -1343,6 +1344,11 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
 
 static const wchar_t *setting_text(int kind, int v)
 {
+    if (kind == SK_HEX) {
+        static wchar_t hex[16];
+        str_printf(hex, SP_COUNTOF(hex), L"#%06X", (unsigned)v & 0xFFFFFF);
+        return hex;
+    }
     const wchar_t *const *names = k_enumNames[kind];
     if (kind == SK_NUM) {
         static wchar_t num[4][16];                       /* a few in flight in one reply */
@@ -1493,6 +1499,24 @@ static void cmd_settings(Reply *r, const Req *q)
         int *field = (int *)((char *)s + k_settings[i].off);
         const wchar_t *v = q->argv[3];
         const wchar_t *const *names = k_enumNames[k_settings[i].kind];
+        if (k_settings[i].kind == SK_HEX) {
+            const wchar_t *p = v[0] == L'#' ? v + 1 : v;
+            if (wcslen(p) != 6) { fail(r, L"%ls must be #RRGGBB.", k_settings[i].key); return; }
+            unsigned long rgb = 0;
+            for (int k = 0; k < 6; k++) {
+                wchar_t c = p[k];
+                unsigned digit = c >= L'0' && c <= L'9' ? (unsigned)(c - L'0')
+                                  : c >= L'a' && c <= L'f' ? (unsigned)(c - L'a' + 10)
+                                  : c >= L'A' && c <= L'F' ? (unsigned)(c - L'A' + 10) : 16;
+                if (digit > 15) { fail(r, L"%ls must be #RRGGBB.", k_settings[i].key); return; }
+                rgb = (rgb << 4) | digit;
+            }
+            *field = (int)rgb;
+            app_save_config();
+            ui_on_config_changed();
+            setting_reply(r, i, *field);
+            return;
+        }
         if (k_settings[i].kind == SK_NUM) {
             int lo = 0, hi = 100, n;
             if (field == &s->slideshowMin) { lo = 1; hi = 1440; }

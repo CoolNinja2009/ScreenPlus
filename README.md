@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="docs/media/icon.png" width="80" alt="">
-
-# Screen+
+<img src="docs/media/logo.png" width="300" alt="Screen+">
 
 Live wallpapers for Windows and Linux.
 
@@ -36,6 +34,7 @@ Linux support is experimental and may be unstable on some setups.
 - Make wallpaper cooler: turns a picture or video into a 3D wallpaper that follows the mouse, and makes the sky,
   water and plants in a picture move
 - Colour grading and wallpaper properties, and recordings of your changes that play on a loop
+- A customisable accent colour across the app
 - Upscaling for videos and pictures smaller than the display (Smooth or Sharp)
 - Pauses for fullscreen apps, covered desktops, the lock screen and battery power
 - App rules: pause while chosen apps are in front, mute while chosen apps use the microphone (calls)
