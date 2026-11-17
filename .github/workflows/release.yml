@@ -27,8 +27,6 @@ on:
       - 'build.cmd'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
-      - '.github/workflows/**'
-      - '.gitlab-ci.yml'
   pull_request:
     paths:
       - 'src/**'
@@ -37,8 +35,6 @@ on:
       - 'CMakeLists.txt'
       - 'build.cmd'
       - 'scripts/**'
-      - '.github/workflows/**'
-      - '.gitlab-ci.yml'
   workflow_dispatch:
 
 permissions:

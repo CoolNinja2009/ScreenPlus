@@ -1,0 +1,25 @@
+name: Validate CI configuration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.gitlab-ci.yml'
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.gitlab-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check CI YAML syntax
+        run: >-
+          ruby -e 'require "yaml"; ARGV.each { |path| YAML.load_file(path, aliases: true); puts "Valid YAML: #{path}" }'
+          .gitlab-ci.yml .github/workflows/*.yml

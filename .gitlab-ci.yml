@@ -2,15 +2,15 @@
 # portable zip and the samples (on the runner on the developer's PC, unsigned: SignPath runs on GitHub only),
 # and a tar.gz for any distribution with an install.sh that installs what is missing (built with the Ubuntu .deb), a
 # .deb each for Debian and Ubuntu (24.04 and newer) and an .rpm from Fedora (on GitLab's machines).
-# Relevant pushes to main get the next version, a vX.Y.Z tag releases that exact version, merge requests are built
-# but not released. Nothing is released unless every build passes. .github/workflows/release.yml mirrors these
-# builds and checks on GitHub.
+# App changes run the builds and publish a release; CI config changes run validation only. A vX.Y.Z tag releases
+# that exact version, and merge requests are built but not released. Nothing is released unless every build passes.
+# .github/workflows/release.yml mirrors the app builds and checks on GitHub.
 workflow:
   rules:
     - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/
     - if: $CI_PIPELINE_SOURCE == "web"
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-      changes: &app
+      changes: &app_changes
         - src/**/*
         - resources/**/*
         - installer/**/*
@@ -20,25 +20,49 @@ workflow:
         - build.cmd
         - LICENSE
         - THIRD_PARTY_NOTICES.md
-        - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
-      changes: *app
+      changes: *app_changes
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes: &ci_config_changes
+        - .gitlab-ci.yml
+      variables:
+        SCREENPLUS_PIPELINE_MODE: ci_validation
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_PIPELINE_SOURCE == "push"
+      changes: *ci_config_changes
+      variables:
+        SCREENPLUS_PIPELINE_MODE: ci_validation
 
-stages: [version, build, release]
+stages: [validate, version, build, release]
 
 # The Windows build runs on the runner on the developer's PC. For GitLab's own Windows machines instead,
 # start a pipeline by hand with BUILD_RUNNER set to saas-windows-medium-amd64. REBUILD_LIBS=1 compiles the Linux
 # packages' own FFmpeg, SDL3 and gtk4-layer-shell again instead of taking them from the cache.
 variables:
   BUILD_RUNNER: screenplus-pc
+  SCREENPLUS_PIPELINE_MODE: full
 
 default:
   tags: [saas-linux-small-amd64]
+
+.full-build-only:
+  rules:
+    - if: '$SCREENPLUS_PIPELINE_MODE == "full"'
+    - when: never
+
+validate-ci-config:
+  stage: validate
+  image: alpine:latest
+  rules:
+    - if: '$SCREENPLUS_PIPELINE_MODE == "ci_validation"'
+    - when: never
+  script:
+    - echo "GitLab accepted the updated CI configuration; full build and release jobs are skipped."
 
 # VERSION for every job: the tag's in a tag pipeline, else the next patch after the newest vX.Y.Z tag, or the
 # CMakeLists.txt version when that is higher. SKIP=1 when the tag is already released (publishing a release
 # creates its tag, which starts a tag pipeline with nothing left to do).
 version:
+  extends: .full-build-only
   stage: version
   image: alpine:latest
   variables:
@@ -53,6 +77,7 @@ version:
       dotenv: version.env
 
 windows:
+  extends: .full-build-only
   stage: build
   needs: [version]
   tags: [$BUILD_RUNNER]
@@ -72,6 +97,7 @@ windows:
     expire_in: 3 days
 
 .linux:
+  extends: .full-build-only
   stage: build
   needs: [version]
   timeout: 1h
@@ -122,6 +148,7 @@ ubuntu:
 
 # The same .deb on the newest Ubuntu
 ubuntu-newest:
+  extends: .full-build-only
   stage: build
   needs: [version, ubuntu]
   image: ubuntu:26.04
@@ -138,6 +165,7 @@ ubuntu-newest:
 
 # The tarball's install.sh on bare images: it must install what each distribution lacks (scripts/gitlab-install-test.sh)
 install-test:
+  extends: .full-build-only
   stage: build
   needs: [version, ubuntu]
   image: $IMAGE
@@ -168,11 +196,13 @@ fedora:
       paths: [ffmpeg-own/]
 
 release:
+  extends: .full-build-only
   stage: release
   image: alpine:latest
   needs: [version, windows, arch, debian, ubuntu, ubuntu-newest, install-test, fedora]
   rules:
-    - if: $CI_PIPELINE_SOURCE != "merge_request_event"
+    - if: '$SCREENPLUS_PIPELINE_MODE == "full" && $CI_PIPELINE_SOURCE != "merge_request_event"'
+    - when: never
   variables:
     GIT_DEPTH: "1"
   script:
@@ -186,7 +216,7 @@ clean:
   stage: .post
   tags: [$BUILD_RUNNER]
   rules:
-    - if: $BUILD_RUNNER == "screenplus-pc"
+    - if: '$SCREENPLUS_PIPELINE_MODE == "full" && $BUILD_RUNNER == "screenplus-pc"'
       when: always
   variables:
     GIT_STRATEGY: none

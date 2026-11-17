@@ -18,6 +18,7 @@ Screen+ sets videos, GIFs, pictures and web pages as your desktop wallpaper. It 
 and pauses rendering when the wallpaper is hidden. Most Lively Wallpaper wallpapers work without changes.
 
 **[Download](https://gitlab.com/screenplus-group/screenplus/-/releases/permalink/latest)** for Windows 10 or 11 (64-bit) and Linux (KDE Plasma 6 or Hyprland).
+Linux support is experimental and may be unstable on some setups.
 
 ## Features
 
