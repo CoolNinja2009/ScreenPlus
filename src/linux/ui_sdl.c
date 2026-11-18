@@ -345,7 +345,7 @@ static void SDLCALL pick_done(void *data, const char *const *list, int filter)
 int sp_pick_paths(int folder, wchar_t ***paths)
 {
     static const SDL_DialogFileFilter filters[] = {
-        { "Wallpapers", "mp4;webm;mkv;mov;avi;gif;jpg;jpeg;png;webp;bmp;html;htm" },
+        { "Wallpapers", "mp4;webm;mkv;mov;avi;gif;jpg;jpeg;png;webp;bmp;html;htm;spp;spf" },
         { "All files", "*" }
     };
     Pick p = { 0 };
@@ -367,6 +367,27 @@ void library_import_dialog(HWND owner, BOOL folder)
     if (n) library_import((const wchar_t *const *)paths, n, TRUE);
     for (int i = 0; i < n; i++) free(paths[i]);
     free(paths);
+}
+
+BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, wchar_t *path, size_t cap)
+{
+    (void)owner;
+    static const SDL_DialogFileFilter filters[] = { { "Screen+ playlist", "spp" } };
+    Pick p = { 0 };
+    (void)suggested;
+    SDL_ShowSaveFileDialog(pick_done, &p, g_win, filters, 1, NULL);
+    while (!p.done) {
+        SDL_Event e;
+        if (SDL_WaitEventTimeout(&e, 50) && e.type == SDL_EVENT_WINDOW_EXPOSED) g_dirty = 1;
+    }
+    BOOL ok = p.count > 0 && p.paths[0];
+    if (ok) {
+        str_copy(path, cap, p.paths[0]);
+        if (!str_ieq(path_ext(path), L".spp")) str_cat(path, cap, L".spp");
+    }
+    for (int i = 0; i < p.count; i++) free(p.paths[i]);
+    free(p.paths);
+    return ok;
 }
 
 /* ------------------------------------------------------------------ window */

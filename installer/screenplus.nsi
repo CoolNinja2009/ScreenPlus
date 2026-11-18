@@ -40,6 +40,9 @@ SetCompressor /SOLID lzma
 !ifndef VERSION
   !define VERSION "1.0.0"
 !endif
+!ifndef NUMERIC_VERSION
+  !define NUMERIC_VERSION "${VERSION}"
+!endif
 !ifndef STAGE
   !define STAGE "..\build"
 !endif
@@ -75,7 +78,7 @@ InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation"
 RequestExecutionLevel user
 BrandingText "${APP_NAME} ${VERSION}"
 
-VIProductVersion "${VERSION}.0"
+VIProductVersion "${NUMERIC_VERSION}.0"
 VIAddVersionKey "ProductName" "${APP_NAME}"
 VIAddVersionKey "CompanyName" "Screen+"
 VIAddVersionKey "OriginalFilename" "ScreenPlus-Setup-${VERSION}.exe"
@@ -280,7 +283,7 @@ Function .onInit
     ${IfNot} ${FileExists} "$DESKTOP\${APP_NAME}.lnk"
       StrCpy $OptDesktop 0
     ${EndIf}
-    ${VersionCompare} "${VERSION}" "$ExistingVer" $0
+    ${VersionCompare} "${NUMERIC_VERSION}" "$ExistingVer" $0
     ${If} $0 == 2
       ${If} ${Cmd} `MessageBox MB_YESNO|MB_ICONEXCLAMATION "A newer version of ${APP_NAME} ($ExistingVer) is installed in:$\r$\n$Existing$\r$\n$\r$\nReplace it with the older version ${VERSION}?" /SD IDYES IDNO`
         Abort
@@ -575,6 +578,14 @@ Section "Install"
   WriteRegStr HKCU "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD HKCU "${UNINST_KEY}" "NoRepair" 1
+  WriteRegStr HKCU "Software\Classes\.spf" "" "ScreenPlus.WallpaperFile"
+  WriteRegStr HKCU "Software\Classes\.spp" "" "ScreenPlus.Playlist"
+  WriteRegStr HKCU "Software\Classes\ScreenPlus.WallpaperFile" "" "Screen+ wallpaper file"
+  WriteRegStr HKCU "Software\Classes\ScreenPlus.WallpaperFile\DefaultIcon" "" '"$INSTDIR\${APP_EXE}",-2'
+  WriteRegStr HKCU "Software\Classes\ScreenPlus.WallpaperFile\shell\open\command" "" '"$INSTDIR\${APP_EXE}" --import "%1"'
+  WriteRegStr HKCU "Software\Classes\ScreenPlus.Playlist" "" "Screen+ playlist"
+  WriteRegStr HKCU "Software\Classes\ScreenPlus.Playlist\DefaultIcon" "" '"$INSTDIR\${APP_EXE}",-3'
+  WriteRegStr HKCU "Software\Classes\ScreenPlus.Playlist\shell\open\command" "" '"$INSTDIR\${APP_EXE}" --import "%1"'
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   WriteRegDWORD HKCU "${UNINST_KEY}" "EstimatedSize" $0
 SectionEnd
@@ -687,6 +698,10 @@ Section "Uninstall"
   DeleteRegValue HKCU "${APPROVED_KEY}" "ScreenPlus"
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "${APP_KEY}"
+  DeleteRegKey HKCU "Software\Classes\ScreenPlus.WallpaperFile"
+  DeleteRegKey HKCU "Software\Classes\ScreenPlus.Playlist"
+  DeleteRegKey HKCU "Software\Classes\.spf"
+  DeleteRegKey HKCU "Software\Classes\.spp"
 
   MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "Also remove your ${APP_NAME} settings, library and downloaded wallpapers?$\r$\n$\r$\nYour own wallpaper files are not deleted." /SD IDNO IDNO keep
     RMDir /r "$LOCALAPPDATA\ScreenPlus"

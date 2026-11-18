@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-screenplus-spf">
+    <comment>Screen+ wallpaper file</comment>
+    <glob pattern="*.spf"/>
+    <icon name="application-x-screenplus-spf"/>
+  </mime-type>
+  <mime-type type="application/x-screenplus-spp">
+    <comment>Screen+ playlist</comment>
+    <glob pattern="*.spp"/>
+    <icon name="application-x-screenplus-spp"/>
+  </mime-type>
+</mime-info>

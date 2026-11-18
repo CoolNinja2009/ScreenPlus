@@ -6,6 +6,7 @@
 #include "../common/paths.h"
 #include "../common/json.h"
 #include "../common/scrnsave.h"
+#include "../app/file_format.h"
 #ifdef _WIN32
 #include "../renderer/renderer.h"
 #include "../desktop/desktop_host.h"
@@ -4787,10 +4788,19 @@ void pages_context(int id, int sx, int sy)
         if (k < 0 || k >= n) return;
         HMENU m = CreatePopupMenu();
         if (!m) return;
+        AppendMenuW(m, MF_STRING, 2, L"Export playlist as .spp…");
+        AppendMenuW(m, MF_SEPARATOR, 0, NULL);
         AppendMenuW(m, MF_STRING, 1, L"Delete collection (keeps the wallpapers)");
         UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
         DestroyMenu(m);
-        if (cmd == 1) {
+        if (cmd == 2) {
+            wchar_t suggested[SP_NAME_LEN + 8], output[SP_MAX_PATH];
+            str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spp", names[k]);
+            if (sp_format_save_dialog(u->hwnd, suggested, output, SP_COUNTOF(output))) {
+                BOOL ok = spp_export(names[k], NULL, output);
+                app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Playlist export finished." : L"Could not export the playlist.");
+            }
+        } else if (cmd == 1) {
             for (int i = 0; i < g_app.cfg.count; i++) config_tag_set(&g_app.cfg.items[i], names[k], FALSE);
             if (wcscmp(g_app.cfg.s.slideshowFrom, names[k]) == 0) g_app.cfg.s.slideshowFrom[0] = 0;
             if (u->filter == 6 && str_ieq(u->coll, names[k])) { u->filter = 0; u->coll[0] = 0; }
@@ -4822,6 +4832,7 @@ void pages_context(int id, int sx, int sy)
     AppendMenuW(m, MF_STRING | ((e.flags & WPFLAG_FAV) ? MF_CHECKED : 0), 5, L"Favourite");
     AppendMenuW(m, MF_STRING, 6, L"Collections…");
     AppendMenuW(m, MF_STRING | ((e.uiMark & 1) ? MF_CHECKED : 0), 7, L"Select");
+    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 8, L"Export as .spp…");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, 3, link ? L"Remove from library" : download ? L"Remove from library and delete the download"
                                                                           : L"Remove from library (keeps the file)");
@@ -4838,6 +4849,14 @@ void pages_context(int id, int sx, int sy)
     else if (cmd == 7 && vi < u->viewCount) {
         g_app.cfg.items[u->view[vi]].uiMark ^= 1;
         u->selAnchor = vi;
+    }
+    else if (cmd == 8) {
+        wchar_t suggested[SP_NAME_LEN + 8], output[SP_MAX_PATH];
+        str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spp", e.name);
+        if (sp_format_save_dialog(u->hwnd, suggested, output, SP_COUNTOF(output))) {
+            BOOL ok = spp_export(NULL, &e, output);
+            app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Wallpaper export finished." : L"Could not export the wallpaper.");
+        }
     }
     ui_invalidate();
 }

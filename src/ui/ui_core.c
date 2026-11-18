@@ -5,6 +5,7 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../app/preview.h"
+#include "../app/file_format.h"
 #ifdef _WIN32
 #include "../../resources/resource.h"
 #include <dwmapi.h>
@@ -13,6 +14,7 @@
 #include <shellscalingapi.h>
 #include <commctrl.h>
 #include <uxtheme.h>
+#include <shlobj.h>
 #endif
 #include <stdlib.h>
 #include <math.h>
@@ -28,6 +30,43 @@
 
 #define RT ((ID2D1RenderTarget *)g_ui->rt)
 #define MAX_THUMBS 160
+
+static void export_card_drag(Ui *u)
+{
+    int vi = HIT_DATA(u->pressed);
+    if (u->page != PAGE_LIBRARY || vi < 0 || vi >= u->viewCount) return;
+    WallpaperEntry e = g_app.cfg.items[u->view[vi]];
+    if (e.missing || wallpaper_is_url(e.path)) return;
+#ifdef _WIN32
+    wchar_t dir[SP_MAX_PATH], id[SP_ID_LEN], file[SP_MAX_PATH];
+    path_join(dir, SP_COUNTOF(dir), paths_cache(), L"format-drag");
+    if (!dir_create_recursive(dir)) return;
+    random_id(id);
+    wchar_t safe[72], name[112];
+    str_copy(safe, SP_COUNTOF(safe), e.name);
+    for (wchar_t *p = safe; *p; p++)
+        if (*p < 32 || wcschr(L"<>:\"/\\|?*", *p)) *p = L'-';
+    str_printf(name, SP_COUNTOF(name), L"%ls-%ls.spp", safe[0] ? safe : L"Wallpaper", id);
+    path_join(file, SP_COUNTOF(file), dir, name);
+    if (!spp_export(NULL, &e, file)) return;
+    PIDLIST_ABSOLUTE item = NULL;
+    IDataObject *data = NULL;
+    DWORD effect = 0;
+    HRESULT hr = SHParseDisplayName(file, NULL, &item, 0, NULL);
+    if (SUCCEEDED(hr)) hr = SHCreateDataObject(NULL, 1, (PCUITEMID_CHILD_ARRAY)&item, NULL, &IID_IDataObject, (void **)&data);
+    if (SUCCEEDED(hr) && data) SHDoDragDrop(u->hwnd, data, NULL, DROPEFFECT_COPY, &effect);
+    if (data) IDataObject_Release(data);
+    if (item) CoTaskMemFree(item);
+    DeleteFileW(file);
+#else
+    wchar_t name[SP_NAME_LEN + 8], file[SP_MAX_PATH];
+    str_printf(name, SP_COUNTOF(name), L"%ls.spp", e.name);
+    if (sp_format_save_dialog(u->hwnd, name, file, SP_COUNTOF(file))) {
+        BOOL ok = spp_export(NULL, &e, file);
+        app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Wallpaper export finished." : L"Could not export the wallpaper.");
+    }
+#endif
+}
 #define MAX_ANIMATED 24   /* animations kept resident; more than a screenful, bounded memory */
 
 
@@ -1448,6 +1487,14 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         }
         if (pages_marquee_active()) {                   /* drag to select */
             pages_marquee_move(u->mx, u->my);
+            return 0;
+        }
+        if (HIT_KIND(u->pressed) == HK_CARD &&
+            (u->mx < 0 || u->mx >= u->w || u->my < 0 || u->my >= u->h)) {
+            ReleaseCapture();
+            export_card_drag(u);
+            u->pressed = u->hot = u->cardDrag = 0;
+            ui_invalidate();
             return 0;
         }
         if (HIT_KIND(u->pressed) == HK_CARD) {          /* a card dragged past a few pixels moves in the library */

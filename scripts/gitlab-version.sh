@@ -17,8 +17,11 @@ if [ -n "${CI_COMMIT_TAG:-}" ]; then
     exit 0
 fi
 
-base=$(sed -nE 's/^set\(SCREENPLUS_VERSION "([0-9]+\.[0-9]+\.[0-9]+)".*/\1/p' CMakeLists.txt)
+base=$(sed -nE 's/^set\(SCREENPLUS_VERSION "([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)".*/\1/p' CMakeLists.txt)
 [ -n "$base" ] || { echo "No version in CMakeLists.txt" >&2; exit 1; }
+case $base in
+    *-*) printf 'VERSION=%s\nSKIP=0\n' "$base"; exit 0 ;;
+esac
 latest=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed 's/^v//' | sort -V | tail -n 1)
 if [ -z "$latest" ]; then
     ver=$base

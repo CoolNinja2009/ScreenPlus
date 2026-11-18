@@ -24,7 +24,8 @@ enum {
     /* Terminal interface (ScreenPlus.com). wParam of the request is the CLI's reply window; the
      * shell answers with IPC_CLI_REPLY before the request's SendMessage returns. */
     IPC_CLI_REQUEST   = 0x53500005, /* CLI -> shell : UTF-8 JSON {"argv":["command", ...]} */
-    IPC_CLI_REPLY     = 0x53500006  /* shell -> CLI : UTF-8 JSON {"ok":bool,"text":"...","data":<json>} */
+    IPC_CLI_REPLY     = 0x53500006, /* shell -> CLI : UTF-8 JSON {"ok":bool,"text":"...","data":<json>} */
+    IPC_SHELL_IMPORT  = 0x53500007  /* file association -> shell : NUL-terminated UTF-16 path */
 };
 
 typedef enum IpcCommandId {

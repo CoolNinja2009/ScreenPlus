@@ -173,6 +173,7 @@ static int request(int argc, wchar_t **argv, JVal **reply)
         return EXIT_FAILED;
     }
     int pathArgs = argc && (str_ieq(argv[0], L"import") || str_ieq(argv[0], L"add"));
+    int exportPath = argc && str_ieq(argv[0], L"export");
     int maybePath = argc && (str_ieq(argv[0], L"apply") || str_ieq(argv[0], L"set"));
     StrBuf b = { 0 };
     sb_puts(&b, "{\"argv\":[");
@@ -180,7 +181,7 @@ static int request(int argc, wchar_t **argv, JVal **reply)
         wchar_t full[SP_MAX_PATH];
         const wchar_t *a = argv[i];
         if (i && a[0] != L'-' && !str_istarts(a, L"https://") && !str_istarts(a, L"http://") &&
-            (pathArgs || (maybePath && looks_like_path(a))) &&
+            (pathArgs || (exportPath && i == 2) || (maybePath && looks_like_path(a))) &&
             GetFullPathNameW(a, SP_COUNTOF(full), full, NULL))
             a = full;
         char *u = utf8_from_wide(a, NULL);
@@ -293,7 +294,9 @@ static const wchar_t k_help[] =
     L"  list [filter]                          wallpapers (* = on screen); filter: image video html lively\n"
     L"                                         missing active favourites slides, a collection, or part of a name\n"
     L"  apply <wallpaper> [--display N]        by name, number from 'list', id, or a file/folder path\n"
-    L"  import <path>... [--apply]             add files or folders to the library\n"
+    L"  import <path>... [--apply]             add files, folders, .spf or .spp to the library\n"
+    L"  export <wallpaper> <file.spp|file.spf>  export a wallpaper with its customisation\n"
+    L"  export collection:<name> <file.spp>   export a collection with slideshow interval\n"
     L"  import <link> [--download | --page]    a web link: long videos stream, short ones and images are saved\n"
     L"  remove <wallpaper>                     remove from the library (the file stays)\n"
     L"  move <wallpaper> <place>               reorder the library (1 = first; first, last)\n"

@@ -2,6 +2,8 @@
 #include "resource.h"
 
 IDI_APP ICON "app.ico"
+IDI_SPF ICON "spf.ico"
+IDI_SPP ICON "spp.ico"
 IDR_DEPTH_HTML RCDATA "depth.html"
 IDR_SPLAT_HTML RCDATA "splat.html"
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "screenplus.manifest"
