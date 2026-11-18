@@ -79,15 +79,36 @@ check_system() {
     for c in ffmpeg curl bsdtar; do command -v $c >/dev/null 2>&1 || need "cmd:$c"; done
 }
 
-# The package that gives one missing piece, per package manager. dnf and zypper find a library or a command by what
-# it provides, so only apt and pacman need names.
+# The package that gives one missing piece, per package manager. dnf resolves libraries and commands by what they
+# provide; apt, pacman and zypper need package names.
 package() {
     kind=${1%%:*} name=${1#*:}
     case $pm:$kind in
-        dnf:lib|zypper:lib) echo "$name()(64bit)" ;;
-        dnf:cmd|zypper:cmd) echo "/usr/bin/$name" ;;
+        dnf:lib) echo "$name()(64bit)" ;;
+        dnf:cmd) echo "/usr/bin/$name" ;;
         dnf:qml) case $name in QtMultimedia) echo qt6-qtmultimedia ;; *) echo qt6-qtwebengine ;; esac ;;
         zypper:qml) case $name in QtMultimedia) echo qt6-multimedia-imports ;; *) echo qt6-webengine-imports ;; esac ;;
+        zypper:cmd)
+            case $name in
+                ffmpeg) echo ffmpeg-8 ;;
+                bsdtar) echo bsdtar ;;
+                *) echo "$name" ;;
+            esac ;;
+        zypper:lib)
+            case $name in
+                libgtk-4.so.1) echo libgtk-4-1 ;;
+                libwebkitgtk-6.0.so.4) echo libwebkitgtk-6_0-4 ;;
+                libjavascriptcoregtk-6.0.so.1) echo libjavascriptcoregtk-6_0-1 ;;
+                libmpv.so.2) echo libmpv2 ;;
+                libepoxy.so.0) echo libepoxy0 ;;
+                libcairo.so.2) echo libcairo2 ;;
+                libpango-1.0.so.0|libpangocairo-1.0.so.0) echo libpango-1_0-0 ;;
+                libfontconfig.so.1) echo libfontconfig1 ;;
+                libdav1d.so.7) echo libdav1d7 ;;
+                libz.so.1) echo libz1 ;;
+                libwayland-client.so.0) echo libwayland-client0 ;;
+                libglib-2.0.so.0|libgobject-2.0.so.0|libgio-2.0.so.0) echo libglib-2_0-0 ;;
+            esac ;;
         pacman:qml) case $name in QtMultimedia) echo qt6-multimedia ;; *) echo qt6-webengine ;; esac ;;
         apt-get:qml)
             # KDE neon builds its own Qt, named qt6-*, which replaces Ubuntu's qml6-module-*
