@@ -293,8 +293,8 @@ static void export_card_drag(Ui *u)
         WallpaperEntry *e = &g_app.cfg.items[u->view[i]];
         if (selected && !(e->uiMark & 1)) continue;
         if (!selected && e != pressed) continue;
-        if (e->missing || wallpaper_is_url(e->path)) {
-            app_notice(NOTICE_WARN, L"Selected wallpapers must have local files before they can be exported.");
+        if (e->missing && !wallpaper_is_url(e->path)) {
+            app_notice(NOTICE_WARN, L"A selected wallpaper's file is missing.");
             drag_free(j); return;
         }
         j->items[n++] = *e;
@@ -351,7 +351,7 @@ static void export_card_drag(Ui *u)
     int vi = HIT_DATA(u->pressed);
     if (u->page != PAGE_LIBRARY || vi < 0 || vi >= u->viewCount) return;
     WallpaperEntry e = g_app.cfg.items[u->view[vi]];
-    if (e.missing || wallpaper_is_url(e.path)) return;
+    if (e.missing && !wallpaper_is_url(e.path)) return;
     int count = 0;
     if (e.uiMark & 1) for (int i = 0; i < u->viewCount; i++)
         count += (g_app.cfg.items[u->view[i]].uiMark & 1) != 0;
@@ -362,8 +362,8 @@ static void export_card_drag(Ui *u)
         for (int i = 0; i < u->viewCount; i++) {
             WallpaperEntry *item = &g_app.cfg.items[u->view[i]];
             if (!(item->uiMark & 1)) continue;
-            if (item->missing || wallpaper_is_url(item->path)) {
-                app_notice(NOTICE_WARN, L"Selected wallpapers must have local files before export.");
+            if (item->missing && !wallpaper_is_url(item->path)) {
+                app_notice(NOTICE_WARN, L"A selected wallpaper's file is missing.");
                 free(items); return;
             }
             items[n++] = *item;

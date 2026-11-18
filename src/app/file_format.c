@@ -183,37 +183,53 @@ static BOOL new_stage(wchar_t *out, size_t cap)
 
 static BOOL spf_pack(const WallpaperEntry *e, const wchar_t *dest)
 {
-    if (!e || wallpaper_is_url(e->path) || !file_exists(e->path)) return FALSE;
+    if (!e) return FALSE;
+    BOOL link = wallpaper_is_url(e->path);
+    if (!link && !file_exists(e->path)) return FALSE;
     wchar_t stage[SP_MAX_PATH], media[SP_MAX_PATH], target[SP_MAX_PATH], rel[SP_MAX_PATH],
             folder[SP_MAX_PATH], props[SP_MAX_PATH], out[SP_MAX_PATH];
     if (!new_stage(stage, SP_COUNTOF(stage))) return FALSE;
-    path_dirname(folder, SP_COUNTOF(folder), e->path);
-    BOOL group = e->type == WP_HTML;
-    path_join(media, SP_COUNTOF(media), stage, L"media");
-    path_join(target, SP_COUNTOF(target), media, group ? L"wallpaper" : path_filename(e->path));
-    if (group) {
-        str_printf(rel, SP_COUNTOF(rel), L"media/wallpaper/%ls", path_filename(e->path));
-        if (!copy_tree(folder, target, 0)) { remove_tree(stage); return FALSE; }
-    } else {
-        str_printf(rel, SP_COUNTOF(rel), L"media/%ls", path_filename(e->path));
-        if (!dir_create_recursive(media) || !CopyFileW(e->path, target, FALSE)) { remove_tree(stage); return FALSE; }
+    if (link) str_copy(rel, SP_COUNTOF(rel), e->path);
+    else {
+        path_dirname(folder, SP_COUNTOF(folder), e->path);
+        BOOL group = e->type == WP_HTML;
+        path_join(media, SP_COUNTOF(media), stage, L"media");
+        path_join(target, SP_COUNTOF(target), media, group ? L"wallpaper" : path_filename(e->path));
+        if (group) {
+            str_printf(rel, SP_COUNTOF(rel), L"media/wallpaper/%ls", path_filename(e->path));
+            if (!copy_tree(folder, target, 0)) { remove_tree(stage); return FALSE; }
+        } else {
+            str_printf(rel, SP_COUNTOF(rel), L"media/%ls", path_filename(e->path));
+            if (!dir_create_recursive(media) || !CopyFileW(e->path, target, FALSE)) { remove_tree(stage); return FALSE; }
+        }
     }
     wchar_t thumbRel[64] = L"";
-    if (e->thumb[0] && file_exists(e->thumb)) {
+    if (!link && e->thumb[0] && file_exists(e->thumb)) {
         str_printf(thumbRel, SP_COUNTOF(thumbRel), L"thumbnail%ls", path_ext(e->thumb));
         path_join(target, SP_COUNTOF(target), stage, thumbRel);
         if (!CopyFileW(e->thumb, target, FALSE)) { remove_tree(stage); return FALSE; }
     }
     wpapi_overrides_path(e->id, props, SP_COUNTOF(props));
-    if (file_exists(props)) {
+    if (!link && file_exists(props)) {
         path_join(target, SP_COUNTOF(target), stage, L"props.json");
         if (!CopyFileW(props, target, FALSE)) { remove_tree(stage); return FALSE; }
     }
     StrBuf b = { 0 };
     sb_puts(&b, "{\"screenplus\":\"spf\",\"version\":1,\"name\":"); json_w(&b, e->name);
     sb_printf(&b, ",\"type\":%d,\"format\":%d,\"flags\":%d,\"volCut\":%d,\"slideSec\":%d,\"path\":",
-              e->type, e->format, e->flags & ~(WPFLAG_PPTX | WPFLAG_YTDLP), e->volCut, e->slideSec);
-    json_w(&b, rel); sb_puts(&b, ",\"thumb\":"); json_w(&b, thumbRel); sb_puts(&b, "}");
+              e->type, e->format, e->flags & ~(WPFLAG_PPTX | (link ? 0 : WPFLAG_YTDLP)), e->volCut, e->slideSec);
+    json_w(&b, rel);
+    if (!link) { sb_puts(&b, ",\"thumb\":"); json_w(&b, thumbRel); }
+    if (link && file_exists(props)) {
+        JVal *custom = json_parse_file(props);
+        if (!custom || custom->t != J_OBJ) {
+            json_free(custom); sb_free(&b); remove_tree(stage); return FALSE;
+        }
+        sb_puts(&b, ",\"customisation\":");
+        json_write(&b, custom);
+        json_free(custom);
+    }
+    sb_puts(&b, "}");
     path_join(out, SP_COUNTOF(out), stage, L"manifest.json");
     BOOL ok = !b.failed && write_text(out, &b);
     sb_free(&b);
@@ -375,22 +391,30 @@ static int import_spf(const wchar_t *path, const wchar_t *collection)
         json_str_w(json_get(j, "path"), rel, SP_COUNTOF(rel));
         json_str_w(json_get(j, "thumb"), thumbRel, SP_COUNTOF(thumbRel));
         json_str_w(json_get(j, "name"), name, SP_COUNTOF(name));
-        ok = relative_safe(rel) && (!thumbRel[0] || relative_safe(thumbRel));
+        ok = (wallpaper_is_url(rel) || relative_safe(rel)) && (!thumbRel[0] || relative_safe(thumbRel));
     }
-    if (ok) {
+    BOOL link = ok && wallpaper_is_url(rel);
+    if (ok && !link) {
         path_join(src, SP_COUNTOF(src), stage, rel);
         ok = file_exists(src);
     }
     if (!ok) { json_free(j); remove_tree(stage); return 0; }
     WallpaperType type = (WallpaperType)(int)json_num(json_get(j, "type"), 0);
-    int flags = (int)json_num(json_get(j, "flags"), 0) & ~(WPFLAG_URL | WPFLAG_YTDLP | WPFLAG_PPTX);
-    if (type < WP_IMAGE || type > WP_HTML || ((flags & WPFLAG_DEPTH) && type != WP_HTML)) {
+    int flags = (int)json_num(json_get(j, "flags"), 0) & ~WPFLAG_PPTX;
+    if (link) flags = (flags & ~(WPFLAG_DEPTH)) | WPFLAG_URL;
+    else flags &= ~(WPFLAG_URL | WPFLAG_YTDLP);
+    if (type < WP_IMAGE || type > WP_HTML || ((flags & WPFLAG_DEPTH) && type != WP_HTML) ||
+        (link && (type != WP_HTML && type != WP_VIDEO))) {
         json_free(j); remove_tree(stage); return 0;
     }
     do { random_id(id); } while (config_find(&g_app.cfg, id));
-    path_join(dest, SP_COUNTOF(dest), paths_root(), (flags & WPFLAG_DEPTH) ? L"depth" : L"packages");
-    path_join(dest, SP_COUNTOF(dest), dest, id);
-    if (flags & WPFLAG_DEPTH) {
+    if (link) str_copy(src, SP_COUNTOF(src), rel);
+    else {
+        path_join(dest, SP_COUNTOF(dest), paths_root(), (flags & WPFLAG_DEPTH) ? L"depth" : L"packages");
+        path_join(dest, SP_COUNTOF(dest), dest, id);
+    }
+    if (link) ok = TRUE;
+    else if (flags & WPFLAG_DEPTH) {
         wchar_t media[SP_MAX_PATH];
         path_join(media, SP_COUNTOF(media), stage, L"media/wallpaper");
         ok = copy_tree(media, dest, 0);
@@ -399,15 +423,21 @@ static int import_spf(const wchar_t *path, const wchar_t *collection)
         ok = copy_tree(stage, dest, 0);
         path_join(src, SP_COUNTOF(src), dest, rel);
     }
-    if (!ok || !file_exists(src)) { remove_tree(dest); json_free(j); remove_tree(stage); return 0; }
+    if (!ok || (!link && !file_exists(src))) {
+        if (!link) remove_tree(dest);
+        json_free(j); remove_tree(stage); return 0;
+    }
     WallpaperEntry *e = config_add(&g_app.cfg, type, src, name);
-    if (!e) { remove_tree(dest); json_free(j); remove_tree(stage); return 0; }
+    if (!e) {
+        if (!link) remove_tree(dest);
+        json_free(j); remove_tree(stage); return 0;
+    }
     str_copy(e->id, SP_COUNTOF(e->id), id);
     e->format = (int)json_num(json_get(j, "format"), WPF_PLAIN);
     e->flags = flags;
     e->volCut = SP_CLAMP((int)json_num(json_get(j, "volCut"), 0), 0, 100);
     e->slideSec = SP_CLAMP((int)json_num(json_get(j, "slideSec"), 0), 0, 3600);
-    if (thumbRel[0]) {
+    if (!link && thumbRel[0]) {
         if (flags & WPFLAG_DEPTH) {
             wchar_t from[SP_MAX_PATH];
             path_join(from, SP_COUNTOF(from), stage, thumbRel);
@@ -417,11 +447,19 @@ static int import_spf(const wchar_t *path, const wchar_t *collection)
         if (file_exists(src)) str_copy(e->thumb, SP_COUNTOF(e->thumb), src);
     }
     if (collection && collection[0]) config_tag_set(e, collection, TRUE);
-    path_join(src, SP_COUNTOF(src), (flags & WPFLAG_DEPTH) ? stage : dest, L"props.json");
-    if (file_exists(src)) {
+    path_join(src, SP_COUNTOF(src), (link || (flags & WPFLAG_DEPTH)) ? stage : dest, L"props.json");
+    const JVal *custom = link ? json_get(j, "customisation") : NULL;
+    if ((custom && custom->t == J_OBJ) || file_exists(src)) {
         wpapi_overrides_path(e->id, props, SP_COUNTOF(props));
         wchar_t dir[SP_MAX_PATH]; path_dirname(dir, SP_COUNTOF(dir), props);
-        if (dir_create_recursive(dir)) CopyFileW(src, props, FALSE);
+        if (dir_create_recursive(dir)) {
+            if (custom && custom->t == J_OBJ) {
+                StrBuf b = { 0 };
+                json_write(&b, custom);
+                if (!b.failed) write_text(props, &b);
+                sb_free(&b);
+            } else CopyFileW(src, props, FALSE);
+        }
     }
     json_free(j); remove_tree(stage);
     return 1;

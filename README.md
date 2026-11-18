@@ -69,7 +69,8 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
   files and keeps the slideshow interval. Each `.spf` includes the wallpaper, its Customise settings and recordings,
   and any depth maps already made. Drop either format onto the Library or use `screenplus import`. On Linux, dragging
   a card outside the window opens a native save dialog; dragging a selected group opens a folder picker and exports
-  the group in the background. Online links cannot be packed; download them first.
+  the group in the background. URL wallpapers keep their link and customisation settings in the archive; they need
+  an internet connection when played.
 - **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut and Wallhaven. Sites that don't allow
   direct downloads open in your browser.
 - **Displays**: choose Independent, Duplicate or Span.
