@@ -224,31 +224,134 @@ static BOOL spf_pack(const WallpaperEntry *e, const wchar_t *dest)
 
 BOOL spf_export(const WallpaperEntry *entry, const wchar_t *path) { return spf_pack(entry, path); }
 
-BOOL spp_export(const wchar_t *collection, const wchar_t *path)
+typedef struct PlaylistExport {
+    WallpaperEntry *items;
+    int count, minutes, ok;
+    wchar_t name[64], path[SP_MAX_PATH];
+} PlaylistExport;
+
+static PlaylistExport *playlist_snapshot(const wchar_t *collection, const wchar_t *path)
+{
+    if (!collection || !collection[0]) return NULL;
+    PlaylistExport *j = (PlaylistExport *)calloc(1, sizeof *j);
+    if (!j) return NULL;
+    j->items = (WallpaperEntry *)calloc((size_t)g_app.cfg.count, sizeof *j->items);
+    if (!j->items) { free(j); return NULL; }
+    str_copy(j->name, SP_COUNTOF(j->name), collection);
+    str_copy(j->path, SP_COUNTOF(j->path), path);
+    j->minutes = g_app.cfg.s.slideshowMin;
+    for (int i = 0; i < g_app.cfg.count; i++)
+        if (config_tag_has(&g_app.cfg.items[i], collection)) j->items[j->count++] = g_app.cfg.items[i];
+    if (!j->count) { free(j->items); free(j); return NULL; }
+    return j;
+}
+
+static BOOL playlist_pack(const PlaylistExport *j)
 {
     wchar_t stage[SP_MAX_PATH], target[SP_MAX_PATH], member[64];
-    if (!collection || !collection[0]) return FALSE;
     if (!new_stage(stage, SP_COUNTOF(stage))) return FALSE;
-    int count = 0;
-    for (int i = 0; i < g_app.cfg.count; i++) {
-        const WallpaperEntry *e = &g_app.cfg.items[i];
-        if (!config_tag_has(e, collection)) continue;
-        str_printf(member, SP_COUNTOF(member), L"%04d.spf", count);
+    for (int i = 0; i < j->count; i++) {
+        str_printf(member, SP_COUNTOF(member), L"%04d.spf", i);
         path_join(target, SP_COUNTOF(target), stage, member);
-        if (!spf_pack(e, target)) { remove_tree(stage); return FALSE; }
-        count++;
+        if (!spf_pack(&j->items[i], target)) { remove_tree(stage); return FALSE; }
     }
-    if (!count) { remove_tree(stage); return FALSE; }
     StrBuf b = { 0 };
     sb_puts(&b, "{\"screenplus\":\"spp\",\"version\":1,\"name\":");
-    json_w(&b, collection);
-    sb_printf(&b, ",\"count\":%d,\"intervalMinutes\":%d}", count, g_app.cfg.s.slideshowMin);
+    json_w(&b, j->name);
+    sb_printf(&b, ",\"count\":%d,\"intervalMinutes\":%d}", j->count, j->minutes);
     path_join(target, SP_COUNTOF(target), stage, L"manifest.json");
     BOOL ok = !b.failed && write_text(target, &b);
     sb_free(&b);
-    if (ok) ok = pack_atomic(stage, path);
+    if (ok) ok = pack_atomic(stage, j->path);
     remove_tree(stage);
     return ok;
+}
+
+BOOL spp_export(const wchar_t *collection, const wchar_t *path)
+{
+    PlaylistExport *j = playlist_snapshot(collection, path);
+    if (!j) return FALSE;
+    BOOL ok = playlist_pack(j);
+    free(j->items); free(j);
+    return ok;
+}
+
+static DWORD WINAPI playlist_worker(LPVOID arg)
+{
+    PlaylistExport *j = (PlaylistExport *)arg;
+    j->ok = playlist_pack(j);
+    if (!PostMessageW(g_app.shellWnd, WM_SP_FORMAT, 0, (LPARAM)j)) {
+        free(j->items); free(j);
+    }
+    return 0;
+}
+
+BOOL spp_export_start(const wchar_t *collection, const wchar_t *path)
+{
+    PlaylistExport *j = playlist_snapshot(collection, path);
+    if (!j) return FALSE;
+    HANDLE h = CreateThread(NULL, 0, playlist_worker, j, 0, NULL);
+    if (!h) { free(j->items); free(j); return FALSE; }
+    CloseHandle(h);
+    return TRUE;
+}
+
+typedef struct ManyExport {
+    WallpaperEntry *items;
+    int count, done;
+    wchar_t directory[SP_MAX_PATH];
+} ManyExport;
+
+static DWORD WINAPI many_worker(LPVOID arg)
+{
+    ManyExport *j = (ManyExport *)arg;
+    for (int i = 0; i < j->count; i++) {
+        wchar_t safe[72], name[120], path[SP_MAX_PATH];
+        str_copy(safe, SP_COUNTOF(safe), j->items[i].name);
+        for (wchar_t *p = safe; *p; p++) if (*p < 32 || wcschr(L"<>:\"/\\|?*", *p)) *p = L'-';
+        str_printf(name, SP_COUNTOF(name), L"%02d %ls.spf", i + 1, safe[0] ? safe : L"Wallpaper");
+        path_join(path, SP_COUNTOF(path), j->directory, name);
+        if (!spf_export(&j->items[i], path)) break;
+        j->done++;
+    }
+    if (!PostMessageW(g_app.shellWnd, WM_SP_FORMAT, 1, (LPARAM)j)) {
+        free(j->items); free(j);
+    }
+    return 0;
+}
+
+BOOL spf_export_many_start(const WallpaperEntry *items, int count, const wchar_t *directory)
+{
+    if (!items || count < 1 || !directory || !directory[0]) return FALSE;
+    ManyExport *j = (ManyExport *)calloc(1, sizeof *j);
+    if (!j) return FALSE;
+    j->items = (WallpaperEntry *)calloc((size_t)count, sizeof *j->items);
+    if (!j->items) { free(j); return FALSE; }
+    memcpy(j->items, items, (size_t)count * sizeof *items);
+    j->count = count;
+    str_copy(j->directory, SP_COUNTOF(j->directory), directory);
+    HANDLE h = CreateThread(NULL, 0, many_worker, j, 0, NULL);
+    if (!h) { free(j->items); free(j); return FALSE; }
+    CloseHandle(h);
+    return TRUE;
+}
+
+void sp_export_on_event(WPARAM wp, LPARAM lp)
+{
+    if (wp == 1) {
+        ManyExport *m = (ManyExport *)lp;
+        if (!m) return;
+        app_notice(m->done == m->count ? NOTICE_INFO : NOTICE_WARN,
+                   L"Exported %d of %d wallpapers as .spf files.", m->done, m->count);
+        free(m->items); free(m);
+        return;
+    }
+    PlaylistExport *j = (PlaylistExport *)lp;
+    if (!j) return;
+    app_notice(j->ok ? NOTICE_INFO : NOTICE_WARN,
+               j->ok ? L"Exported playlist '%ls' (%d wallpapers)." : L"Could not export playlist '%ls'.",
+               j->name, j->count);
+    free(j->items); free(j);
 }
 
 static BOOL relative_safe(const wchar_t *s)

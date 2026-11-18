@@ -23,6 +23,7 @@
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 #define WM_SP_PPTX          (WM_APP + 68)   /* wParam 1: a PowerPoint job finished (lParam: the job; pptx.c) */
 #define WM_SP_ENGINE_RESYNC (WM_APP + 71)   /* the engine connected after commands went unsent */
+#define WM_SP_FORMAT        (WM_APP + 72)   /* playlist export completed (lParam: worker result) */
 
 enum { NOTICE_NONE = 0, NOTICE_INFO, NOTICE_WARN, NOTICE_ERROR };
 

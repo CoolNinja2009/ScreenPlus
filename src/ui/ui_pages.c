@@ -4797,8 +4797,9 @@ void pages_context(int id, int sx, int sy)
             wchar_t suggested[SP_NAME_LEN + 8], output[SP_MAX_PATH];
             str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spp", names[k]);
             if (sp_format_save_dialog(u->hwnd, suggested, L"spp", output, SP_COUNTOF(output))) {
-                BOOL ok = spp_export(names[k], output);
-                app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Playlist export finished." : L"Could not export the playlist.");
+                BOOL ok = spp_export_start(names[k], output);
+                app_notice(ok ? NOTICE_INFO : NOTICE_WARN,
+                           ok ? L"Exporting playlist '%ls' in the background…" : L"Could not start the playlist export.", names[k]);
             }
         } else if (cmd == 1) {
             for (int i = 0; i < g_app.cfg.count; i++) config_tag_set(&g_app.cfg.items[i], names[k], FALSE);

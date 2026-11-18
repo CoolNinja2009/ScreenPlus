@@ -1,4 +1,5 @@
 #include "app.h"
+#include "file_format.h"
 #include "../ui/ui.h"
 #include "../tray/tray.h"
 #include "../common/util.h"
@@ -296,6 +297,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SP_PPTX:
         pptx_on_event(wp, lp);
+        return 0;
+    case WM_SP_FORMAT:
+        sp_export_on_event(wp, lp);
         return 0;
     case WM_SP_TRAY:
         tray_on_message(wp, lp);

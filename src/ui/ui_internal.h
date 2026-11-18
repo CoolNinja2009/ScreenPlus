@@ -20,7 +20,7 @@
 void identify_displays(const MonitorInfo *mons, int n);
 
 /* shared WM_TIMER ids between ui_core and the pages */
-enum UiTimer { TM_ANIM = 1, TM_CARET = 2, TM_STATS = 3, TM_THUMBS = 4, TM_STORE = 5 };
+enum UiTimer { TM_ANIM = 1, TM_CARET = 2, TM_STATS = 3, TM_THUMBS = 4, TM_STORE = 5, TM_EXPORT_DRAG = 6 };
 
 enum { PAGE_LIBRARY = 0, PAGE_DISPLAYS = 1, PAGE_CUSTOMIZE = 2, PAGE_STORE = 3, PAGE_SETTINGS = 4, PAGE_COUNT = 5 };
 
