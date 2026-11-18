@@ -5,7 +5,7 @@
 #   - the next patch after the newest vX.Y.Z tag (v1.0.3 -> v1.0.4), or
 #   - SCREENPLUS_VERSION from CMakeLists.txt when that is higher (bump it there for a
 #     new minor/major version).
-# Pushing a tag yourself (git tag v1.2.0 && git push --tags) releases exactly that version.
+# Pushing a version tag yourself (for example, v1.2.0 or v1.2.0-beta) releases exactly that version.
 # Pull requests are built but not released.
 #
 # FFmpeg is compiled only once per revision of scripts/build-ffmpeg.sh: the result is kept as
@@ -69,19 +69,24 @@ jobs:
               exit 0
             fi
           else
-            base=$(sed -n 's/^set(SCREENPLUS_VERSION "\([0-9]*\.[0-9]*\.[0-9]*\)".*/\1/p' CMakeLists.txt)
-            latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
-            latest="${latest#v}"
-            if [[ -z "$latest" ]]; then
-              ver="$base"
-            elif [[ "$(printf '%s\n%s\n' "$base" "$latest" | sort -V | tail -n1)" == "$base" && "$base" != "$latest" ]]; then
+            base=$(sed -nE 's/^set\(SCREENPLUS_VERSION "([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)".*/\1/p' CMakeLists.txt)
+            [[ -n "$base" ]] || { echo "::error::No version in CMakeLists.txt"; exit 1; }
+            if [[ "$base" == *-* ]]; then
               ver="$base"
             else
-              IFS=. read -r major minor patch <<< "$latest"
-              ver="$major.$minor.$((patch + 1))"
+              latest=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+              latest="${latest#v}"
+              if [[ -z "$latest" ]]; then
+                ver="$base"
+              elif [[ "$(printf '%s\n%s\n' "$base" "$latest" | sort -V | tail -n1)" == "$base" && "$base" != "$latest" ]]; then
+                ver="$base"
+              else
+                IFS=. read -r major minor patch <<< "$latest"
+                ver="$major.$minor.$((patch + 1))"
+              fi
             fi
           fi
-          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid version '$ver'"; exit 1; }
+          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::Invalid version '$ver'"; exit 1; }
           echo "version=$ver" >> "$GITHUB_OUTPUT"
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "Building Screen+ $ver"
