@@ -490,7 +490,7 @@ int sp_format_import(const wchar_t *path, const wchar_t *collection)
         str_printf(member, SP_COUNTOF(member), L"%04d.spf", i);
         path_join(target, SP_COUNTOF(target), stage, member);
         if (!file_exists(target)) break;
-        added += import_spf(target, collection ? collection : (count > 1 ? name : L""));
+        added += import_spf(target, collection ? collection : name);
     }
     if (added && minutes > 0 && minutes <= 1440) g_app.cfg.s.slideshowMin = minutes;
     remove_tree(stage);

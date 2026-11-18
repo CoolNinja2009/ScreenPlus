@@ -71,6 +71,7 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
   a card outside the window opens a native save dialog; dragging a selected group opens a folder picker and exports
   the group in the background. URL wallpapers keep their link and customisation settings in the archive; they need
   an internet connection when played.
+  The [file format documentation](docs/file-formats.md) describes both archives and their manifests.
 - **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut and Wallhaven. Sites that don't allow
   direct downloads open in your browser.
 - **Displays**: choose Independent, Duplicate or Span.
