@@ -70,16 +70,19 @@ static DWORD WINAPI drag_cleanup_later(LPVOID p)
 
 static void drag_finish(DragExport *j, int copied)
 {
-    if (g_drag == j) g_drag = NULL;
+    int uiOwned = g_drag == j;
+    if (uiOwned) g_drag = NULL;
     KillTimer(j->owner, TM_EXPORT_DRAG);
     if (j->popup) DestroyWindow(j->popup);
     j->popup = NULL;
     InterlockedExchange(&j->cancelled, 1);
     if (copied) {
+        InterlockedIncrement(&j->refs);
         HANDLE h = CreateThread(NULL, 0, drag_cleanup_later, j, 0, NULL);
-        if (h) { CloseHandle(h); return; }
+        if (h) CloseHandle(h);
+        else drag_release(j);
     }
-    drag_release(j);
+    if (uiOwned) drag_release(j);
 }
 
 typedef struct DragSource {
@@ -107,6 +110,10 @@ static int drag_over_own_window(const DragExport *j)
     POINT pt;
     if (!GetCursorPos(&pt)) return 0;
     HWND target = WindowFromPoint(pt);
+    if (target == j->popup) {
+        RECT owner;
+        return GetWindowRect(j->owner, &owner) && PtInRect(&owner, pt);
+    }
     return target && GetAncestor(target, GA_ROOT) == j->owner;
 }
 
@@ -176,6 +183,7 @@ static LRESULT CALLBACK drag_preview_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp
 
 static void drag_shell(DragExport *j)
 {
+    InterlockedIncrement(&j->refs); /* UI may close while the Shell's nested drag loop is running. */
     PIDLIST_ABSOLUTE folder = NULL;
     PIDLIST_ABSOLUTE *items = (PIDLIST_ABSOLUTE *)calloc((size_t)j->count, sizeof *items);
     PCUITEMID_CHILD *children = (PCUITEMID_CHILD *)calloc((size_t)j->count, sizeof *children);
@@ -201,6 +209,7 @@ static void drag_shell(DragExport *j)
     if (folder) CoTaskMemFree(folder);
     free(items); free(children);
     drag_finish(j, hr == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY);
+    drag_release(j);
 }
 
 static int drag_is_internal_path(const wchar_t *path)
@@ -1807,6 +1816,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             ui_invalidate();
             UpdateWindow(h);
             export_card_drag(u);
+            if (g_ui != u) return 0; /* the Shell drag loop can process a window close */
             u->pressed = u->hot = 0;
             ui_invalidate();
             return 0;
