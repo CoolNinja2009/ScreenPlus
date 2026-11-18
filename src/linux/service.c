@@ -3,6 +3,7 @@
  * through plasmashell on KDE, through a supervised screenplus-engine on Hyprland. No window, no tray. */
 #include "service.h"
 #include "../app/preview.h"
+#include "../app/file_format.h"
 #include "desktop.h"
 #include "../app/app.h"
 #include "../common/log.h"

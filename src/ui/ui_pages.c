@@ -4876,7 +4876,11 @@ void pages_context(int id, int sx, int sy)
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0) | (wcscmp(g_app.cfg.screensaver, e.id) == 0 ? MF_CHECKED : 0), 4,
                 L"Use as screensaver");
+#ifdef _WIN32
     AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, link ? L"Open link in browser" : L"Show in File Explorer");
+#else
+    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, link ? L"Open link in browser" : L"Show in File Manager");
+#endif
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING | ((e.flags & WPFLAG_FAV) ? MF_CHECKED : 0), 5, L"Favourite");
     AppendMenuW(m, MF_STRING, 6, L"Collections…");

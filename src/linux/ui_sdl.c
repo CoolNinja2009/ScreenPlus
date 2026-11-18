@@ -7,6 +7,7 @@
 #include "../common/util.h"
 #include <SDL3/SDL.h>
 #include <cairo.h>
+#include <glib.h>
 #include <pango/pangocairo.h>
 
 LRESULT ui_dispatch(HWND h, UINT msg, WPARAM wp, LPARAM lp);     /* ui_core.c */
@@ -376,8 +377,11 @@ BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, const wchar_t *
     static const SDL_DialogFileFilter wallpapers[] = { { "Screen+ wallpaper", "spf" } };
     BOOL isPlaylist = str_ieq(extension, L"spp");
     Pick p = { 0 };
-    (void)suggested;
-    SDL_ShowSaveFileDialog(pick_done, &p, g_win, isPlaylist ? playlists : wallpapers, 1, NULL);
+    char *name = utf8_from_wide(suggested, NULL);
+    const char *folder = g_get_user_special_dir(G_USER_DIRECTORY_DOCUMENTS);
+    if (!folder || !*folder) folder = g_get_home_dir();
+    char *initial = g_build_filename(folder, name && *name ? name : (isPlaylist ? "ScreenPlus.spp" : "ScreenPlus.spf"), NULL);
+    SDL_ShowSaveFileDialog(pick_done, &p, g_win, isPlaylist ? playlists : wallpapers, 1, initial);
     while (!p.done) {
         SDL_Event e;
         if (SDL_WaitEventTimeout(&e, 50) && e.type == SDL_EVENT_WINDOW_EXPOSED) g_dirty = 1;
@@ -389,6 +393,8 @@ BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, const wchar_t *
     }
     for (int i = 0; i < p.count; i++) free(p.paths[i]);
     free(p.paths);
+    g_free(initial);
+    free(name);
     return ok;
 }
 
