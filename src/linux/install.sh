@@ -76,7 +76,7 @@ check_system() {
             [ -n "$found" ] || need "qml:$m"
         done
     fi
-    for c in ffmpeg curl; do command -v $c >/dev/null 2>&1 || need "cmd:$c"; done
+    for c in ffmpeg curl bsdtar; do command -v $c >/dev/null 2>&1 || need "cmd:$c"; done
 }
 
 # The package that gives one missing piece, per package manager. dnf and zypper find a library or a command by what
@@ -95,7 +95,9 @@ package() {
                 *" neon "*) case $name in QtMultimedia) echo qt6-multimedia ;; *) echo qt6-webengine ;; esac ;;
                 *) case $name in QtMultimedia) echo qml6-module-qtmultimedia ;; *) echo qml6-module-qtwebengine ;; esac ;;
             esac ;;
-        *:cmd) echo "$name" ;;      # ffmpeg and curl have their own name everywhere
+        apt-get:cmd) [ "$name" = bsdtar ] && echo libarchive-tools || echo "$name" ;;
+        pacman:cmd) [ "$name" = bsdtar ] && echo libarchive || echo "$name" ;;
+        *:cmd) echo "$name" ;;
         apt-get:lib)
             case $name in
                 libgtk-4.so.1) echo libgtk-4-1 ;;
@@ -207,6 +209,12 @@ rm -f "$apps/screenplus.desktop"     # the name before it matched the window's a
 icons="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/256x256/apps"
 mkdir -p "$icons"
 cp "$here/screenplus.png" "$icons/org.screenplus.ScreenPlus.png"
+cp "$here/spf.png" "$icons/application-x-screenplus-spf.png"
+cp "$here/spp.png" "$icons/application-x-screenplus-spp.png"
+mime="${XDG_DATA_HOME:-$HOME/.local/share}/mime/packages"
+mkdir -p "$mime"
+cp "$here/screenplus-formats.xml" "$mime/"
+if command -v update-mime-database >/dev/null 2>&1; then update-mime-database "${XDG_DATA_HOME:-$HOME/.local/share}/mime"; fi
 cat > "$apps/org.screenplus.ScreenPlus.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -216,6 +224,20 @@ Exec="$app/screenplus" show
 Icon=org.screenplus.ScreenPlus
 Categories=Utility;
 EOF
+cat > "$apps/org.screenplus.ScreenPlus-formats.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Screen+ import
+Exec="$app/screenplus" import %f
+Icon=org.screenplus.ScreenPlus
+NoDisplay=true
+MimeType=application/x-screenplus-spf;application/x-screenplus-spp;
+EOF
+if command -v xdg-mime >/dev/null 2>&1; then
+    xdg-mime default org.screenplus.ScreenPlus-formats.desktop application/x-screenplus-spf || true
+    xdg-mime default org.screenplus.ScreenPlus-formats.desktop application/x-screenplus-spp || true
+fi
+if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$apps"; fi
 
 echo "Installed. Start it with: screenplus start   Open the window with: screenplus show"
 case ":$PATH:" in
@@ -227,4 +249,4 @@ case ":$PATH:" in
         done
         echo "Open a new terminal to use the screenplus command." ;;
 esac
-echo "Also used when present: yt-dlp (links), bsdtar (sample updates), pw-record (audio for pages), notify-send, kdialog or zenity."
+echo "Also used when present: yt-dlp (links), pw-record (audio for pages), notify-send, kdialog or zenity."

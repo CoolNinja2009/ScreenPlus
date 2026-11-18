@@ -5,6 +5,7 @@
  * SendMessage returns: {"ok":bool,"text":"<human-readable output>","data":<command JSON>}.
  * Paths in the request are already absolute (the CLI resolves them against its own folder). */
 #include "app.h"
+#include "file_format.h"
 #include "../ui/ui.h"
 #include "../common/util.h"
 #include "../common/json.h"
@@ -474,6 +475,27 @@ static void cmd_import(Reply *r, const Req *q)
         say(r, L"PowerPoint files need Windows with PowerPoint. Export the presentation as a video instead.\n");
 #endif
     else if (!added) say(r, L"Nothing new: already in the library, or no supported files found.\n");
+}
+
+static void cmd_export(Reply *r, const Req *q)
+{
+    if (q->argc != 3) {
+        fail(r, L"Usage: screenplus export <wallpaper> <output.spf> | export collection:<name> <output.spp>");
+        return;
+    }
+    const wchar_t *target = q->argv[1], *path = q->argv[2];
+    BOOL ok = FALSE;
+    if (str_istarts(target, L"collection:")) {
+        if (!str_ieq(path_ext(path), L".spp")) { fail(r, L"A collection exports as .spp."); return; }
+        ok = spp_export(target + 11, path);
+    } else {
+        WallpaperEntry *e = find_wallpaper(r, target);
+        if (!e) return;
+        if (!str_ieq(path_ext(path), L".spf")) { fail(r, L"A wallpaper exports as .spf."); return; }
+        ok = spf_export(e, path);
+    }
+    if (!ok) { fail(r, L"Could not export. Check that the wallpaper files exist and the output folder is writable."); return; }
+    say(r, L"Exported %ls.\n", path);
 }
 
 static void cmd_remove(Reply *r, const Req *q)
@@ -1645,6 +1667,8 @@ static void run(Reply *r, const Req *q)
         cmd_apply(r, q);
     } else if (str_ieq(c, L"import") || str_ieq(c, L"add")) {
         cmd_import(r, q);
+    } else if (str_ieq(c, L"export")) {
+        cmd_export(r, q);
     } else if (str_ieq(c, L"remove") || str_ieq(c, L"rm")) {
         cmd_remove(r, q);
     } else if (str_ieq(c, L"move")) {

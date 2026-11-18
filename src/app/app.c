@@ -1,4 +1,5 @@
 #include "app.h"
+#include "file_format.h"
 #include "../ui/ui.h"
 #include "../tray/tray.h"
 #include "../common/util.h"
@@ -249,6 +250,16 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             cli_server_handle((HWND)wp, cds->lpData, cds->cbData);
             return TRUE;
         }
+        if (cds->dwData == IPC_SHELL_IMPORT && cds->cbData >= sizeof(wchar_t) &&
+            cds->cbData <= SP_MAX_PATH * sizeof(wchar_t) && cds->lpData) {
+            const wchar_t *path = (const wchar_t *)cds->lpData;
+            if (path[cds->cbData / sizeof(wchar_t) - 1] == 0 &&
+                (str_ieq(path_ext(path), L".spf") || str_ieq(path_ext(path), L".spp"))) {
+                library_import(&path, 1, FALSE);
+                app_show_ui();
+                return TRUE;
+            }
+        }
         if (cds->dwData == IPC_SHELL_CMD && cds->cbData == sizeof(IpcCommand)) {
             PostMessageW(h, WM_SP_SHELLCMD, ((const IpcCommand *)cds->lpData)->cmd, 0);
             return TRUE;
@@ -286,6 +297,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_SP_PPTX:
         pptx_on_event(wp, lp);
+        return 0;
+    case WM_SP_FORMAT:
+        sp_export_on_event(wp, lp);
         return 0;
     case WM_SP_TRAY:
         tray_on_message(wp, lp);
@@ -384,6 +398,7 @@ static void apply_setup_choice(void)
 int app_main(HINSTANCE inst, int argc, wchar_t **argv)
 {
     uint32_t forward = CMD_SHOW_UI;
+    const wchar_t *importPath = NULL;
     int trayOnly = 0, signIn = 0;   /* --startup: the Run entry; "Start minimised to the tray" decides the window */
     for (int i = 1; i < argc; i++) {
         if (str_ieq(argv[i], L"--tray")) { trayOnly = 1; forward = CMD_NONE; }
@@ -395,6 +410,11 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
         else if (str_ieq(argv[i], L"--next")) forward = CMD_NEXT_WALLPAPER;
         else if (str_ieq(argv[i], L"--exit")) forward = CMD_EXIT;
         else if (str_ieq(argv[i], L"--screensaver-settings")) forward = CMD_SHOW_SETTINGS;
+        else if ((str_ieq(argv[i], L"--import") && i + 1 < argc) ||
+                 str_ieq(path_ext(argv[i]), L".spf") || str_ieq(path_ext(argv[i]), L".spp")) {
+            importPath = str_ieq(argv[i], L"--import") ? argv[++i] : argv[i];
+            forward = CMD_SHOW_UI;
+        }
     }
 
     /* Single instance: forward the request to the running shell instead of starting a second engine. */
@@ -408,6 +428,8 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
             AllowSetForegroundWindow(pid);
             IpcCommand c = { forward, 0 };
             ipc_send(NULL, other, IPC_SHELL_CMD, &c, sizeof c, 3000);
+            if (importPath) ipc_send(NULL, other, IPC_SHELL_IMPORT, importPath,
+                                     (DWORD)((wcslen(importPath) + 1) * sizeof(wchar_t)), 30000);
         }
         CloseHandle(mutex);
         return 0;
@@ -430,7 +452,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
                  (double)(g_mainEntered - g_app.processStart) / 10000.0,
                  GetModuleHandleW(L"windhawk.dll") ? L"; Windhawk mods are loaded in this process" : L"");
     }
-    HRESULT hrCo = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    HRESULT hrCo = OleInitialize(NULL);
 
     int existed = file_exists(paths_config());
     int loaded = config_load(&g_app.cfg, paths_config());
@@ -466,6 +488,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     if (g_app.cfg.s.livelyImport)
         library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
     library_check_missing();
+    if (importPath) library_import(&importPath, 1, FALSE);
 
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
     depth_upscale_video_auto();     /* resume any selected video cache that was interrupted by shutdown */
@@ -493,7 +516,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     }
     if (g_app.job) CloseHandle(g_app.job);   /* kills any leftover engine/WebView2 processes */
     config_free(&g_app.cfg);
-    if (SUCCEEDED(hrCo)) CoUninitialize();
+    if (SUCCEEDED(hrCo)) OleUninitialize();
     LOGI(L"Screen+ exited");
     log_shutdown();
     if (mutex) {

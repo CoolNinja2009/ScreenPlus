@@ -60,7 +60,7 @@ pack_tar() {        # after stage: the installed tree, whose RUNPATHs are $ORIGI
     local name="ScreenPlus-$ver-linux-x86_64"
     mkdir -p dist
     cp -a "$pkg/usr/lib/screenplus" "dist/$name"
-    cp src/linux/install.sh src/linux/screenplus.png LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+    cp src/linux/install.sh src/linux/screenplus.png src/linux/spf.png src/linux/spp.png src/linux/screenplus-formats.xml LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
     if [ -d libs-own ]; then cp libs-own/LICENSE.*.txt "dist/$name/"; fi
     chmod +x "dist/$name/install.sh"
     tar -C dist -czf "release/$name.tar.gz" "$name"
@@ -75,6 +75,10 @@ stage() {
     mkdir -p "$pkg/usr/bin" "$pkg/usr/share/applications" "$pkg/usr/share/icons/hicolor/256x256/apps" "$pkg/usr/share/doc/screenplus"
     ln -s ../lib/screenplus/screenplus "$pkg/usr/bin/screenplus"
     cp src/linux/screenplus.png "$pkg/usr/share/icons/hicolor/256x256/apps/org.screenplus.ScreenPlus.png"
+    cp src/linux/spf.png "$pkg/usr/share/icons/hicolor/256x256/apps/application-x-screenplus-spf.png"
+    cp src/linux/spp.png "$pkg/usr/share/icons/hicolor/256x256/apps/application-x-screenplus-spp.png"
+    mkdir -p "$pkg/usr/share/mime/packages"
+    cp src/linux/screenplus-formats.xml "$pkg/usr/share/mime/packages/"
     cp LICENSE THIRD_PARTY_NOTICES.md "$pkg/usr/share/doc/screenplus/"
     cat > "$pkg/usr/share/applications/org.screenplus.ScreenPlus.desktop" <<'DESKTOP'
 [Desktop Entry]
@@ -84,6 +88,15 @@ Comment=Live wallpapers
 Exec=/usr/bin/screenplus show
 Icon=org.screenplus.ScreenPlus
 Categories=Utility;
+DESKTOP
+    cat > "$pkg/usr/share/applications/org.screenplus.ScreenPlus-formats.desktop" <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=Screen+ import
+Exec=/usr/bin/screenplus import %f
+Icon=org.screenplus.ScreenPlus
+NoDisplay=true
+MimeType=application/x-screenplus-spf;application/x-screenplus-spp;
 DESKTOP
     [ -z "$own" ] && return
     # scripts/build-ffmpeg-linux.sh's FFmpeg beside the depth module (its RUNPATH is $ORIGIN/ffmpeg), each finding
@@ -119,8 +132,8 @@ Package: screenplus
 Version: $VERSION
 Architecture: amd64
 Maintainer: Screen+ <noreply@screenplus.invalid>
-Depends: $libs, ffmpeg, curl
-Recommends: libarchive-tools, yt-dlp, qt6-multimedia | qml6-module-qtmultimedia, qt6-webengine | qml6-module-qtwebengine
+Depends: $libs, ffmpeg, curl, libarchive-tools
+Recommends: yt-dlp, qt6-multimedia | qml6-module-qtmultimedia, qt6-webengine | qml6-module-qtwebengine
 Section: x11
 Priority: optional
 Homepage: https://gitlab.com/screenplus-group/screenplus
@@ -132,19 +145,21 @@ CONTROL
 
 pack_rpm() {
     stage
+    local rpmver=${VERSION%%-*} rpmrel=1
+    if [ "$rpmver" != "$VERSION" ]; then rpmrel="0.${VERSION#*-}.1"; fi
     cp src/linux/update-rpm.sh "$pkg/usr/lib/screenplus/update-rpm.sh"
     chmod +x "$pkg/usr/lib/screenplus/update-rpm.sh"
     cat > screenplus.spec <<SPEC
 Name: screenplus
-Version: $VERSION
-Release: 1
+Version: $rpmver
+Release: $rpmrel
 Summary: Live wallpapers
 License: MIT
 URL: https://gitlab.com/screenplus-group/screenplus
 Requires: /usr/bin/ffmpeg
 Requires: curl
 Requires: /usr/bin/pkexec
-Recommends: bsdtar
+Requires: /usr/bin/bsdtar
 Recommends: yt-dlp
 Recommends: qt6-qtmultimedia
 Recommends: qt6-qtwebengine
@@ -161,7 +176,11 @@ cp -a $pkg/. %{buildroot}/
 /usr/bin/screenplus
 /usr/lib/screenplus
 /usr/share/applications/org.screenplus.ScreenPlus.desktop
+/usr/share/applications/org.screenplus.ScreenPlus-formats.desktop
 /usr/share/icons/hicolor/256x256/apps/org.screenplus.ScreenPlus.png
+/usr/share/icons/hicolor/256x256/apps/application-x-screenplus-spf.png
+/usr/share/icons/hicolor/256x256/apps/application-x-screenplus-spp.png
+/usr/share/mime/packages/screenplus-formats.xml
 /usr/share/doc/screenplus
 SPEC
     rpmbuild -bb --define "_rpmdir $PWD/rpms" screenplus.spec

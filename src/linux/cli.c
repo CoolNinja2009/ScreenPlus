@@ -37,7 +37,9 @@ static const char k_help[] =
     "\n"
     "Wallpapers\n"
     "  list                   The library\n"
-    "  import <path|url>...   Add files, folders or links (--apply, --page, --download)\n"
+    "  import <path|url>...   Add files, folders, .spf, .spp or links (--apply, --page, --download)\n"
+    "  export <wallpaper> <file.spf>  Export wallpaper and customisation\n"
+    "  export collection:<name> <file.spp>   Export collection and slideshow interval\n"
     "  apply <wallpaper>      Set a wallpaper (--display N for one display)\n"
     "  next                   The next wallpaper\n"
     "  remove <wallpaper>     Remove it from the library\n"
@@ -206,6 +208,10 @@ static int send_command(int argc, char **argv)
         /* a relative path means something only here: the service has its own working directory */
         const char *arg = realpath(argv[i], full) && argv[i][0] != '-' && i > 0 && (!strcmp(argv[0], "import") || !strcmp(argv[0], "add")
                           || !strcmp(argv[0], "apply") || !strcmp(argv[0], "set")) ? full : argv[i];
+        if (!strcmp(argv[0], "export") && i == 2 && argv[i][0] != '/' && getcwd(full, sizeof full)) {
+            size_t n = strlen(full);
+            if (n + 1 + strlen(argv[i]) < sizeof full) { full[n++] = '/'; strcpy(full + n, argv[i]); arg = full; }
+        }
         json_write_string(&q, arg);
     }
     sb_puts(&q, "]}");
@@ -265,6 +271,7 @@ static int dispatch(int argc, char **argv)
     if (!strcmp(c, "path")) return cmd_path(argc > 1 ? argv[1] : NULL);
     if (!strcmp(c, "tools")) return cmd_tools();
     if (!strcmp(c, "startup")) return cmd_startup(argc > 1 ? argv[1] : NULL);
+    if (!strcmp(c, "import") && connect_probe() != EXIT_OK && cmd_start() != EXIT_OK) return EXIT_FAILED;
     if (!strcmp(c, "show") && connect_probe() != EXIT_OK && cmd_start() != EXIT_OK) return EXIT_FAILED;
     if (!strcmp(c, "screensaver")) {
         fputs("Not available on Linux yet.\n", stderr);

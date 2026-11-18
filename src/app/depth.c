@@ -1348,6 +1348,28 @@ static BOOL start(const wchar_t *id, int autoStart)
     WallpaperEntry *e = NULL;
     if (g_job) return FALSE;
     if (id && id[0] && (!(e = config_find(&g_app.cfg, id)) || !(depth_can_cool(e) || (e->flags & WPFLAG_DEPTH)))) return FALSE;
+    /* A shared SPF may contain several already rendered model variants. Selecting one needs only its page and
+     * depth map; ONNX Runtime and model weights are unnecessary on the receiving PC. */
+    if (e && (e->flags & WPFLAG_DEPTH)) {
+        int model = chosen_model(), video = (e->flags & WPFLAG_DEPTHVIDEO) != 0;
+        if (!(video && depth_model(model)->splat)) {
+            wchar_t dir[SP_MAX_PATH], page[64], depthName[64], pagePath[SP_MAX_PATH], depthPath[SP_MAX_PATH];
+            in_depth(dir, SP_COUNTOF(dir), e->id);
+            model_name(model, L"index", L".html", page, SP_COUNTOF(page));
+            model_name(model, L"depth", video || depth_model(model)->splat ? L".bin" : L".png",
+                       depthName, SP_COUNTOF(depthName));
+            path_join(pagePath, SP_COUNTOF(pagePath), dir, page);
+            path_join(depthPath, SP_COUNTOF(depthPath), dir, depthName);
+            if (file_exists(pagePath) && file_exists(depthPath)) {
+                str_copy(e->path, SP_COUNTOF(e->path), pagePath);
+                app_save_config();
+                ui_on_config_changed();
+                ui_on_customise_changed();
+                app_notice(NOTICE_INFO, L"'%ls' now uses %ls.", e->name, depth_model(model)->name);
+                return TRUE;
+            }
+        }
+    }
     DepthJob *j = (DepthJob *)calloc(1, sizeof *j);
     if (!j) return FALSE;
     j->model = chosen_model();

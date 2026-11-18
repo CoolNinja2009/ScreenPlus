@@ -5,6 +5,7 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../app/preview.h"
+#include "../app/file_format.h"
 #ifdef _WIN32
 #include "../../resources/resource.h"
 #include <dwmapi.h>
@@ -13,6 +14,7 @@
 #include <shellscalingapi.h>
 #include <commctrl.h>
 #include <uxtheme.h>
+#include <shlobj.h>
 #endif
 #include <stdlib.h>
 #include <math.h>
@@ -28,6 +30,363 @@
 
 #define RT ((ID2D1RenderTarget *)g_ui->rt)
 #define MAX_THUMBS 160
+
+#ifdef _WIN32
+/* Start the Shell drag as soon as the pointer leaves the window. Empty files supply Shell names while a
+ * worker packs them; the drop source holds the release until the archives are ready for Explorer to copy. */
+typedef struct DragExport {
+    HWND owner, popup;
+    WallpaperEntry *items;
+    wchar_t (*paths)[SP_MAX_PATH];
+    wchar_t dir[SP_MAX_PATH];
+    int count, ok, dragging, reported;
+    volatile LONG ready, refs;
+    volatile LONG cancelled;
+    double started;
+    HBITMAP preview;
+    int previewW, previewH;
+    int shownX, shownY, shownW, shownH;
+} DragExport;
+static DragExport *g_drag;
+
+static void drag_free(DragExport *j)
+{
+    if (!j) return;
+    for (int i = 0; i < j->count; i++) if (j->paths[i][0]) DeleteFileW(j->paths[i]);
+    RemoveDirectoryW(j->dir);
+    if (j->preview) DeleteObject(j->preview);
+    free(j->paths); free(j->items); free(j);
+}
+
+static void drag_release(DragExport *j)
+{ if (InterlockedDecrement(&j->refs) == 0) drag_free(j); }
+
+static DWORD WINAPI drag_cleanup_later(LPVOID p)
+{
+    Sleep(600000);  /* Explorer may finish copying after SHDoDragDrop returns. */
+    drag_release((DragExport *)p);
+    return 0;
+}
+
+static void drag_finish(DragExport *j, int copied)
+{
+    int uiOwned = g_drag == j;
+    if (uiOwned) g_drag = NULL;
+    KillTimer(j->owner, TM_EXPORT_DRAG);
+    if (j->popup) DestroyWindow(j->popup);
+    j->popup = NULL;
+    InterlockedExchange(&j->cancelled, 1);
+    if (copied) {
+        InterlockedIncrement(&j->refs);
+        HANDLE h = CreateThread(NULL, 0, drag_cleanup_later, j, 0, NULL);
+        if (h) CloseHandle(h);
+        else drag_release(j);
+    }
+    if (uiOwned) drag_release(j);
+}
+
+typedef struct DragSource {
+    IDropSource iface;
+    LONG refs;
+    DragExport *job;
+} DragSource;
+
+static HRESULT STDMETHODCALLTYPE source_query(IDropSource *self, REFIID iid, void **out)
+{
+    if (!out) return E_POINTER;
+    *out = NULL;
+    if (!IsEqualIID(iid, &IID_IUnknown) && !IsEqualIID(iid, &IID_IDropSource)) return E_NOINTERFACE;
+    *out = self;
+    IDropSource_AddRef(self);
+    return S_OK;
+}
+static ULONG STDMETHODCALLTYPE source_addref(IDropSource *self)
+{ return (ULONG)InterlockedIncrement(&((DragSource *)self)->refs); }
+static ULONG STDMETHODCALLTYPE source_release(IDropSource *self)
+{ return (ULONG)InterlockedDecrement(&((DragSource *)self)->refs); }
+static void drag_tick(DragExport *j);
+static int drag_over_own_window(const DragExport *j)
+{
+    POINT pt;
+    if (!GetCursorPos(&pt)) return 0;
+    HWND target = WindowFromPoint(pt);
+    if (target == j->popup) {
+        RECT owner;
+        return GetWindowRect(j->owner, &owner) && PtInRect(&owner, pt);
+    }
+    return target && GetAncestor(target, GA_ROOT) == j->owner;
+}
+
+static HRESULT STDMETHODCALLTYPE source_continue(IDropSource *self, BOOL escape, DWORD keys)
+{
+    DragExport *j = ((DragSource *)self)->job;
+    drag_tick(j);
+    if (escape) return DRAGDROP_S_CANCEL;
+    if (InterlockedCompareExchange(&j->ready, 0, 0) && !j->ok) {
+        if (!j->reported++) app_notice(NOTICE_WARN, L"Could not prepare the selected wallpapers for export.");
+        return DRAGDROP_S_CANCEL;
+    }
+    if (!(keys & MK_LBUTTON)) {
+        if (drag_over_own_window(j)) return DRAGDROP_S_CANCEL;
+        return InterlockedCompareExchange(&j->ready, 0, 0) ? DRAGDROP_S_DROP : S_OK;
+    }
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE source_feedback(IDropSource *self, DWORD effect)
+{ (void)self; (void)effect; return DRAGDROP_S_USEDEFAULTCURSORS; }
+static IDropSourceVtbl k_drag_source = {
+    source_query, source_addref, source_release, source_continue, source_feedback
+};
+
+static LRESULT CALLBACK drag_preview_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
+{
+    if (msg == WM_CREATE) {
+        SetWindowLongPtrW(h, GWLP_USERDATA, (LONG_PTR)((CREATESTRUCTW *)lp)->lpCreateParams);
+        return 0;
+    }
+    if (msg == WM_NCHITTEST) return HTTRANSPARENT;
+    if (msg == WM_ERASEBKGND) return 1;
+    if (msg == WM_PAINT) {
+        DragExport *j = (DragExport *)GetWindowLongPtrW(h, GWLP_USERDATA);
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(h, &ps);
+        RECT r; GetClientRect(h, &r);
+        HBRUSH bg = CreateSolidBrush(RGB(36, 38, 42));
+        FillRect(dc, &r, bg); DeleteObject(bg);
+        double p = j ? SP_CLAMP((time_ms() - j->started) / 220.0, 0.0, 1.0) : 1.0;
+        p = p * p * (3.0 - 2.0 * p);
+        if (j && j->preview && p < 0.75) {
+            HDC mem = CreateCompatibleDC(dc);
+            HGDIOBJ old = SelectObject(mem, j->preview);
+            SetStretchBltMode(dc, HALFTONE);
+            StretchBlt(dc, 0, 0, r.right, r.bottom, mem, 0, 0, j->previewW, j->previewH, SRCCOPY);
+            SelectObject(mem, old); DeleteDC(mem);
+        }
+        if (p >= 0.35) {
+            HICON ico = (HICON)LoadImageW(g_app.inst, MAKEINTRESOURCEW(IDI_SPF), IMAGE_ICON, 48, 48, LR_SHARED);
+            int size = SP_MIN(48, SP_MIN(r.right - 12, r.bottom - 12));
+            if (ico && size > 0) DrawIconEx(dc, (r.right - size) / 2, (r.bottom - size) / 2, ico, size, size, 0, NULL, DI_NORMAL);
+        }
+        if (j && j->count > 1) {
+            wchar_t count[24]; str_printf(count, SP_COUNTOF(count), L"%d", j->count);
+            RECT badge = { r.right - 29, 2, r.right - 2, 27 };
+            HBRUSH green = CreateSolidBrush(RGB(41, 190, 30));
+            FillRect(dc, &badge, green); DeleteObject(green);
+            SetBkMode(dc, TRANSPARENT); SetTextColor(dc, RGB(255,255,255));
+            DrawTextW(dc, count, -1, &badge, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+        }
+        EndPaint(h, &ps);
+        return 0;
+    }
+    return DefWindowProcW(h, msg, wp, lp);
+}
+
+static void drag_shell(DragExport *j)
+{
+    InterlockedIncrement(&j->refs); /* UI may close while the Shell's nested drag loop is running. */
+    PIDLIST_ABSOLUTE folder = NULL;
+    PIDLIST_ABSOLUTE *items = (PIDLIST_ABSOLUTE *)calloc((size_t)j->count, sizeof *items);
+    PCUITEMID_CHILD *children = (PCUITEMID_CHILD *)calloc((size_t)j->count, sizeof *children);
+    IDataObject *data = NULL;
+    DWORD effect = 0;
+    HRESULT hr = items && children ? SHParseDisplayName(j->dir, NULL, &folder, 0, NULL) : E_OUTOFMEMORY;
+    for (int i = 0; SUCCEEDED(hr) && i < j->count; i++) {
+        hr = SHParseDisplayName(j->paths[i], NULL, &items[i], 0, NULL);
+        if (SUCCEEDED(hr)) children[i] = ILFindLastID(items[i]);
+    }
+    if (SUCCEEDED(hr)) hr = SHCreateDataObject(folder, (UINT)j->count, children, NULL, &IID_IDataObject, (void **)&data);
+    DragSource source = { 0 };
+    source.iface.lpVtbl = &k_drag_source;
+    source.refs = 1;
+    source.job = j;
+    if (SUCCEEDED(hr) && data) {
+        DragAcceptFiles(j->owner, FALSE);
+        hr = SHDoDragDrop(j->owner, data, &source.iface, DROPEFFECT_COPY, &effect);
+        if (IsWindow(j->owner)) DragAcceptFiles(j->owner, TRUE);
+    }
+    if (data) IDataObject_Release(data);
+    for (int i = 0; i < j->count; i++) if (items && items[i]) CoTaskMemFree(items[i]);
+    if (folder) CoTaskMemFree(folder);
+    free(items); free(children);
+    drag_finish(j, hr == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY);
+    drag_release(j);
+}
+
+static int drag_is_internal_path(const wchar_t *path)
+{
+    wchar_t root[SP_MAX_PATH];
+    path_join(root, SP_COUNTOF(root), paths_cache(), L"format-drag");
+    size_t len = wcslen(root);
+    return !_wcsnicmp(path, root, len) && (path[len] == L'\\' || path[len] == L'/');
+}
+
+static void drag_tick(DragExport *j)
+{
+    if (!j || !j->popup) return;
+    if (!j->dragging && !(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
+        InterlockedExchange(&j->cancelled, 1);
+        drag_finish(j, 0);
+        return;
+    }
+    POINT pt; GetCursorPos(&pt);
+    double p = SP_CLAMP((time_ms() - j->started) / 220.0, 0.0, 1.0);
+    p = p * p * (3.0 - 2.0 * p);
+    int w = (int)(180 - 108 * p), h = (int)(124 - 52 * p);
+    int x = pt.x + 18, y = pt.y + 18;
+    if (x != j->shownX || y != j->shownY || w != j->shownW || h != j->shownH) {
+        SetWindowPos(j->popup, HWND_TOPMOST, x, y, w, h,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOSENDCHANGING);
+        if (w != j->shownW || h != j->shownH) InvalidateRect(j->popup, NULL, FALSE);
+        j->shownX = x; j->shownY = y; j->shownW = w; j->shownH = h;
+    }
+}
+
+static DWORD WINAPI drag_worker(LPVOID p)
+{
+    DragExport *j = (DragExport *)p;
+    j->ok = 1;
+    for (int i = 0; i < j->count; i++) {
+        if (InterlockedCompareExchange(&j->cancelled, 0, 0) || !spf_export(&j->items[i], j->paths[i])) {
+            j->ok = 0; break;
+        }
+    }
+    InterlockedExchange(&j->ready, 1);
+    PostMessageW(j->owner, WM_NULL, 0, 0);
+    drag_release(j);
+    return 0;
+}
+
+static void drag_capture(Ui *u, DragExport *j)
+{
+    RECT r = { (LONG)(u->pressedRect.left * u->scale), (LONG)(u->pressedRect.top * u->scale),
+               (LONG)(u->pressedRect.right * u->scale), (LONG)(u->pressedRect.bottom * u->scale) };
+    j->previewW = SP_CLAMP(r.right - r.left, 1, 600);
+    j->previewH = SP_CLAMP(r.bottom - r.top, 1, 450);
+    HDC dc = GetDC(u->hwnd), mem = CreateCompatibleDC(dc);
+    j->preview = CreateCompatibleBitmap(dc, j->previewW, j->previewH);
+    if (j->preview) {
+        HGDIOBJ old = SelectObject(mem, j->preview);
+        BitBlt(mem, 0, 0, j->previewW, j->previewH, dc, r.left, r.top, SRCCOPY);
+        SelectObject(mem, old);
+    }
+    DeleteDC(mem); ReleaseDC(u->hwnd, dc);
+}
+
+static void export_card_drag(Ui *u)
+{
+    if (g_drag || u->page != PAGE_LIBRARY) return;
+    int vi = HIT_DATA(u->pressed);
+    if (vi < 0 || vi >= u->viewCount) return;
+    WallpaperEntry *pressed = &g_app.cfg.items[u->view[vi]];
+    int selected = (pressed->uiMark & 1) != 0, count = 0;
+    for (int i = 0; i < u->viewCount; i++)
+        if (selected && (g_app.cfg.items[u->view[i]].uiMark & 1)) count++;
+    if (!count) count = 1;
+    DragExport *j = (DragExport *)calloc(1, sizeof *j);
+    if (!j) return;
+    j->items = (WallpaperEntry *)calloc((size_t)count, sizeof *j->items);
+    j->paths = (wchar_t (*)[SP_MAX_PATH])calloc((size_t)count, sizeof *j->paths);
+    if (!j->items || !j->paths) { drag_free(j); return; }
+    j->owner = u->hwnd; j->count = count; j->started = time_ms(); j->refs = 1;
+    int n = 0;
+    for (int i = 0; i < u->viewCount; i++) {
+        WallpaperEntry *e = &g_app.cfg.items[u->view[i]];
+        if (selected && !(e->uiMark & 1)) continue;
+        if (!selected && e != pressed) continue;
+        if (e->missing && !wallpaper_is_url(e->path)) {
+            app_notice(NOTICE_WARN, L"A selected wallpaper's file is missing.");
+            drag_free(j); return;
+        }
+        j->items[n++] = *e;
+    }
+    wchar_t root[SP_MAX_PATH], id[SP_ID_LEN];
+    path_join(root, SP_COUNTOF(root), paths_cache(), L"format-drag");
+    random_id(id); path_join(j->dir, SP_COUNTOF(j->dir), root, id);
+    if (!dir_create_recursive(j->dir)) { drag_free(j); return; }
+    for (int i = 0; i < count; i++) {
+        wchar_t safe[72], name[120];
+        str_copy(safe, SP_COUNTOF(safe), j->items[i].name);
+        for (wchar_t *p = safe; *p; p++) if (*p < 32 || wcschr(L"<>:\"/\\|?*", *p)) *p = L'-';
+        if (count > 1) str_printf(name, SP_COUNTOF(name), L"%02d %ls.spf", i + 1, safe[0] ? safe : L"Wallpaper");
+        else str_printf(name, SP_COUNTOF(name), L"%ls.spf", safe[0] ? safe : L"Wallpaper");
+        path_join(j->paths[i], SP_MAX_PATH, j->dir, name);
+        HANDLE placeholder = CreateFileW(j->paths[i], GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                         NULL, CREATE_NEW, FILE_ATTRIBUTE_TEMPORARY, NULL);
+        if (placeholder == INVALID_HANDLE_VALUE) { drag_free(j); return; }
+        CloseHandle(placeholder);
+    }
+    drag_capture(u, j);
+    static int registered;
+    if (!registered) {
+        WNDCLASSEXW wc = { sizeof wc };
+        wc.lpfnWndProc = drag_preview_proc; wc.hInstance = g_app.inst; wc.lpszClassName = L"ScreenPlus.ExportPreview";
+        registered = RegisterClassExW(&wc) != 0;
+    }
+    if (!registered) { drag_free(j); return; }
+    j->popup = CreateWindowExW(WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                               L"ScreenPlus.ExportPreview", L"", WS_POPUP, 0, 0, 180, 124,
+                               NULL, NULL, g_app.inst, j);
+    if (!j->popup) { drag_free(j); return; }
+    SetLayeredWindowAttributes(j->popup, 0, 235, LWA_ALPHA);
+    if (!(GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {
+        DestroyWindow(j->popup);
+        drag_free(j);
+        return;
+    }
+    g_drag = j;
+    j->dragging = 1;
+    SetTimer(u->hwnd, TM_EXPORT_DRAG, 16, NULL);
+    drag_tick(j);
+    InterlockedIncrement(&j->refs);
+    HANDLE h = CreateThread(NULL, 0, drag_worker, j, 0, NULL);
+    if (!h) { drag_release(j); drag_finish(j, 0); }
+    else {
+        CloseHandle(h);
+        drag_shell(j);
+    }
+}
+#else
+static void export_card_drag(Ui *u)
+{
+    int vi = HIT_DATA(u->pressed);
+    if (u->page != PAGE_LIBRARY || vi < 0 || vi >= u->viewCount) return;
+    WallpaperEntry e = g_app.cfg.items[u->view[vi]];
+    if (e.missing && !wallpaper_is_url(e.path)) return;
+    int count = 0;
+    if (e.uiMark & 1) for (int i = 0; i < u->viewCount; i++)
+        count += (g_app.cfg.items[u->view[i]].uiMark & 1) != 0;
+    if (count > 1) {
+        WallpaperEntry *items = (WallpaperEntry *)calloc((size_t)count, sizeof *items);
+        if (!items) return;
+        int n = 0;
+        for (int i = 0; i < u->viewCount; i++) {
+            WallpaperEntry *item = &g_app.cfg.items[u->view[i]];
+            if (!(item->uiMark & 1)) continue;
+            if (item->missing && !wallpaper_is_url(item->path)) {
+                app_notice(NOTICE_WARN, L"A selected wallpaper's file is missing.");
+                free(items); return;
+            }
+            items[n++] = *item;
+        }
+        wchar_t **folders = NULL;
+        int picked = sp_pick_paths(1, &folders);
+        if (picked && folders && folders[0]) {
+            BOOL ok = spf_export_many_start(items, n, folders[0]);
+            app_notice(ok ? NOTICE_INFO : NOTICE_WARN,
+                       ok ? L"Exporting %d wallpapers in the background…" : L"Could not start wallpaper export.", n);
+        }
+        for (int i = 0; i < picked; i++) free(folders[i]);
+        free(folders); free(items);
+        return;
+    }
+    wchar_t name[SP_NAME_LEN + 8], file[SP_MAX_PATH];
+    str_printf(name, SP_COUNTOF(name), L"%ls.spf", e.name);
+    if (sp_format_save_dialog(u->hwnd, name, L"spf", file, SP_COUNTOF(file))) {
+        BOOL ok = spf_export(&e, file);
+        app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Wallpaper export finished." : L"Could not export the wallpaper.");
+    }
+}
+#endif
 #define MAX_ANIMATED 24   /* animations kept resident; more than a screenful, bounded memory */
 
 
@@ -1450,6 +1809,18 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             pages_marquee_move(u->mx, u->my);
             return 0;
         }
+        if (HIT_KIND(u->pressed) == HK_CARD &&
+            (u->mx < 0 || u->mx >= u->w || u->my < 0 || u->my >= u->h)) {
+            ReleaseCapture();
+            u->cardDrag = 0;       /* the exported preview owns the drag now */
+            ui_invalidate();
+            UpdateWindow(h);
+            export_card_drag(u);
+            if (g_ui != u) return 0; /* the Shell drag loop can process a window close */
+            u->pressed = u->hot = 0;
+            ui_invalidate();
+            return 0;
+        }
         if (HIT_KIND(u->pressed) == HK_CARD) {          /* a card dragged past a few pixels moves in the library */
             if (!u->cardDrag && fabsf(u->mx - u->pressX) + fabsf(u->my - u->pressY) > 8.0f)
                 u->cardDrag = pages_card_drag(u->mx, u->my);
@@ -1504,7 +1875,10 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 if (hit->focusable) u->focus = u->hot;
             }
         }
-        if (u->textFocus && u->hot != u->textFocus)
+        if (u->textFocus && u->hot != u->textFocus &&
+            !(HIT_KIND(u->textFocus) == HK_COLL_TEXT &&
+              (HIT_KIND(u->hot) == HK_COLL_SAVE || HIT_KIND(u->hot) == HK_COLL_CANCEL ||
+               HIT_KIND(u->hot) == HK_COLL_PANEL)))
             pages_text_end(1);   /* commit when the click lands elsewhere */
         {
             int k = HIT_KIND(u->pressed);   /* continuous controls jump to the click right away */
@@ -1563,6 +1937,11 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     case WM_TIMER:
         if (wp == TM_ANIM) anim_step(u);
+        else if (wp == TM_EXPORT_DRAG) {
+#ifdef _WIN32
+            drag_tick(g_drag);
+#endif
+        }
         else if (wp == TM_THUMBS) thumbs_tick(u);
         else if (wp == TM_STORE) pages_store_timer();
         else if (wp == TM_CARET) {
@@ -1583,7 +1962,11 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         for (UINT i = 0; paths && i < n; i++) {
             UINT len = DragQueryFileW(drop, i, NULL, 0);
             wchar_t *p = (wchar_t *)malloc(((size_t)len + 1) * sizeof(wchar_t));
-            if (p && DragQueryFileW(drop, i, p, len + 1)) paths[got++] = p;
+            if (p && DragQueryFileW(drop, i, p, len + 1)
+#ifdef _WIN32
+                && !drag_is_internal_path(p)
+#endif
+            ) paths[got++] = p;
             else free(p);
         }
         DragFinish(drop);
@@ -1742,6 +2125,16 @@ void ui_destroy(void)
 {
     Ui *u = g_ui;
     if (!u) return;
+#ifdef _WIN32
+    if (g_drag) {
+        DragExport *j = g_drag;
+        g_drag = NULL;
+        InterlockedExchange(&j->cancelled, 1);
+        if (j->popup) DestroyWindow(j->popup);
+        j->popup = NULL;
+        drag_release(j);
+    }
+#endif
     g_ui = NULL;
     thumbs_stop();
     if (u->hwnd) {

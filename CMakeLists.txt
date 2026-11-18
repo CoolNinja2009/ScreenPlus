@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "2.3.0" CACHE STRING "Screen+ version (major.minor.patch); release builds pass the tag")
-project(ScreenPlus VERSION ${SCREENPLUS_VERSION} LANGUAGES C)
+set(SCREENPLUS_VERSION "2.4.0-beta" CACHE STRING "Screen+ version (major.minor.patch[-prerelease]); release builds pass the tag")
+if(NOT SCREENPLUS_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z.-]+)?$")
+    message(FATAL_ERROR "SCREENPLUS_VERSION must be major.minor.patch with an optional prerelease suffix")
+endif()
+set(SCREENPLUS_NUMERIC_VERSION "${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}")
+project(ScreenPlus VERSION ${SCREENPLUS_NUMERIC_VERSION} LANGUAGES C)
 
 if(NOT WIN32)
     add_subdirectory(src/linux)
@@ -111,7 +115,7 @@ set(SOURCES
     src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
-    src/app/cli_server.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c src/app/samples_update.c src/app/rotate.c src/app/pptx.c
+    src/app/cli_server.c src/app/file_format.c src/app/url_import.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c src/app/samples_update.c src/app/rotate.c src/app/pptx.c
     src/app/store_sources.c
     src/tray/tray.c
     src/ui/ui_core.c src/ui/ui_pages.c src/ui/textedit.c src/ui/thumbs.c src/ui/identify.c
@@ -121,11 +125,11 @@ add_executable(ScreenPlus WIN32 ${SOURCES} ${SHADER_HEADERS})
 target_include_directories(ScreenPlus PRIVATE src "${SHADER_OUT}")
 target_include_directories(ScreenPlus SYSTEM PRIVATE "${WEBVIEW2_SDK_DIR}/build/native/include" "${FFMPEG_DIR}/include"
                                                      "${ORT_SDK_DIR}/build/native/include")
-set_source_files_properties(resources/screenplus.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/resources/app.ico;${CMAKE_SOURCE_DIR}/resources/depth.html;${CMAKE_SOURCE_DIR}/resources/splat.html")
+set_source_files_properties(resources/screenplus.rc PROPERTIES OBJECT_DEPENDS "${CMAKE_SOURCE_DIR}/resources/app.ico;${CMAKE_SOURCE_DIR}/resources/spf.ico;${CMAKE_SOURCE_DIR}/resources/spp.ico;${CMAKE_SOURCE_DIR}/resources/depth.html;${CMAKE_SOURCE_DIR}/resources/splat.html")
 target_compile_definitions(ScreenPlus PRIVATE UNICODE _UNICODE COBJMACROS NOMINMAX
                                               _WIN32_WINNT=0x0A00 WINVER=0x0A00 NTDDI_VERSION=0x0A00000C
                                               _CRT_SECURE_NO_WARNINGS
-                                              SP_VERSION_STR="${PROJECT_VERSION}" SP_VER_MAJOR=${PROJECT_VERSION_MAJOR}
+                                              SP_VERSION_STR="${SCREENPLUS_VERSION}" SP_VER_MAJOR=${PROJECT_VERSION_MAJOR}
                                               SP_VER_MINOR=${PROJECT_VERSION_MINOR} SP_VER_PATCH=${PROJECT_VERSION_PATCH})
 target_compile_options(ScreenPlus PRIVATE /W4 /utf-8 /guard:cf /GS /sdl- /wd4204 /wd4221 /wd4100)
 target_link_options(ScreenPlus PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf ${FFMPEG_DELAYLOAD}
@@ -145,7 +149,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SAMPLE_FILES})
 file(GLOB SAMPLE_DIRS RELATIVE "${CMAKE_SOURCE_DIR}/samples" "${CMAKE_SOURCE_DIR}/samples/*")
 list(REMOVE_ITEM SAMPLE_DIRS Aurora Singularity KoiPond)
 list(SORT SAMPLE_DIRS)
-set(SAMPLES_ZIP "${CMAKE_BINARY_DIR}/ScreenPlus-${PROJECT_VERSION}-samples.zip")
+set(SAMPLES_ZIP "${CMAKE_BINARY_DIR}/ScreenPlus-${SCREENPLUS_VERSION}-samples.zip")
 string(SHA256 SAMPLES_LIST "${SAMPLE_FILES}")
 set(SAMPLES_PACK OFF)
 if(NOT EXISTS "${SAMPLES_ZIP}" OR NOT SAMPLES_LIST STREQUAL "${SAMPLES_PACKED_LIST}")
@@ -189,7 +193,7 @@ string(SHA256 SAMPLES_ID "${_ids}")
 # ScreenPlus-<version>-samples.json (a release asset beside the zip): every file's SHA-256, so the app's "Sample
 # wallpaper updates" (samples_update.c) can tell which installed samples changed.
 string(SUBSTRING "${_manifest}" 1 -1 _manifest)
-file(WRITE "${CMAKE_BINARY_DIR}/ScreenPlus-${PROJECT_VERSION}-samples.json"
+file(WRITE "${CMAKE_BINARY_DIR}/ScreenPlus-${SCREENPLUS_VERSION}-samples.json"
      "{\"id\":\"${SAMPLES_ID}\",\"files\":{${_manifest}\n}}\n")
 math(EXPR SAMPLES_KB "${SAMPLES_UNPACKED} / 1024")
 math(EXPR SAMPLES_DL_MB "(${SAMPLES_SIZE} + 524288) / 1048576")
@@ -203,7 +207,7 @@ add_executable(ScreenPlusCli src/cli/cli_main.c src/common/util.c src/common/jso
 set_target_properties(ScreenPlusCli PROPERTIES OUTPUT_NAME ScreenPlus SUFFIX ".com" PDB_NAME ScreenPlusCli)
 target_include_directories(ScreenPlusCli PRIVATE src)
 target_compile_definitions(ScreenPlusCli PRIVATE UNICODE _UNICODE NOMINMAX _WIN32_WINNT=0x0A00 WINVER=0x0A00
-                                                 _CRT_SECURE_NO_WARNINGS SP_VERSION_STR="${PROJECT_VERSION}"
+                                                 _CRT_SECURE_NO_WARNINGS SP_VERSION_STR="${SCREENPLUS_VERSION}"
                                                  SP_SAMPLES_SIZE=${SAMPLES_SIZE} SP_SAMPLES_SHA256="${SAMPLES_SHA256}"
                                                  SP_SAMPLES_ID="${SAMPLES_ID}")
 target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /wd4221 /wd4100)
@@ -237,15 +241,16 @@ add_custom_command(TARGET ScreenPlus POST_BUILD
 # Install NSIS 3 (winget install NSIS.NSIS) or pass -DMAKENSIS=<path to makensis.exe>.
 find_program(MAKENSIS makensis PATHS "C:/Program Files (x86)/NSIS" "C:/Program Files/NSIS" "$ENV{LOCALAPPDATA}/Programs/NSIS")
 if(MAKENSIS)
-    set(SETUP_EXE "${CMAKE_BINARY_DIR}/ScreenPlus-Setup-${PROJECT_VERSION}.exe")
+    set(SETUP_EXE "${CMAKE_BINARY_DIR}/ScreenPlus-Setup-${SCREENPLUS_VERSION}.exe")
     file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}" _stage)
     file(TO_NATIVE_PATH "${SETUP_EXE}" _setup)
     add_custom_command(OUTPUT "${SETUP_EXE}"
-        COMMAND "${MAKENSIS}" /V2 "/DVERSION=${PROJECT_VERSION}" "/DSTAGE=${_stage}" "/DOUTFILE=${_setup}"
+        COMMAND "${MAKENSIS}" /V2 "/DVERSION=${SCREENPLUS_VERSION}" "/DNUMERIC_VERSION=${SCREENPLUS_NUMERIC_VERSION}"
+                "/DSTAGE=${_stage}" "/DOUTFILE=${_setup}"
                 "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi"
         DEPENDS ScreenPlus ScreenPlusCli "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi" "${CMAKE_SOURCE_DIR}/installer/wizard.bmp"
                 "${CMAKE_SOURCE_DIR}/installer/header.bmp" "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_BINARY_DIR}/sizes.nsh"
-        COMMENT "Building ScreenPlus-Setup-${PROJECT_VERSION}.exe" VERBATIM)
+        COMMENT "Building ScreenPlus-Setup-${SCREENPLUS_VERSION}.exe" VERBATIM)
     add_custom_target(ScreenPlusSetup ALL DEPENDS "${SETUP_EXE}")
 else()
     message(STATUS "NSIS (makensis) not found: the installer will not be built. Install it with: winget install NSIS.NSIS")

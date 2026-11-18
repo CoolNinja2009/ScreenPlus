@@ -504,6 +504,7 @@ static void run_messages(void)
             break;
         case WM_SP_UPDATE:  update_on_event(m.wp, m.lp); break;
         case WM_SP_SAMPLES: samples_on_event(m.wp, m.lp); break;
+        case WM_SP_FORMAT:  sp_export_on_event(m.wp, m.lp); break;
         }
     }
     double now = time_ms();

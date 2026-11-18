@@ -9,6 +9,7 @@
 #include "../common/log.h"
 #include "../common/paths.h"
 #include "../common/json.h"
+#include "file_format.h"
 #ifdef _WIN32
 #include <shobjidl.h>
 #include <shlobj.h>
@@ -289,6 +290,10 @@ int library_import(const wchar_t *const *paths, int count, BOOL applyFirst)
                 wchar_t dir[SP_MAX_PATH];
                 path_dirname(dir, SP_COUNTOF(dir), paths[i]);
                 if (!import_package(dir, &st)) st.bad++;
+            } else if (str_ieq(path_ext(paths[i]), L".spf") || str_ieq(path_ext(paths[i]), L".spp")) {
+                int n = sp_format_import(paths[i], NULL);
+                if (n) st.added += n;
+                else st.bad++;
             } else if (pptx_is_file(paths[i])) {
                 slides++;                                           /* its own notice either way */
                 if (pptx_import(paths[i], applyFirst && count == 1)) library_slides_started++;
@@ -539,7 +544,8 @@ void library_import_dialog(HWND owner, BOOL folder)
         static const COMDLG_FILTERSPEC filters[] = {
             { L"Wallpapers", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr;"
                              L"*.mp4;*.m4v;*.mov;*.wmv;*.webm;*.mkv;*.avi;*.mpg;*.mpeg;*.ts;*.m2ts;*.html;*.htm;"
-                             L"*.pptx;*.ppsx;*.pptm;*.ppt;*.pps;*.potx;LivelyInfo.json;project.json" },
+                             L"*.pptx;*.ppsx;*.pptm;*.ppt;*.pps;*.potx;*.spp;*.spf;LivelyInfo.json;project.json" },
+            { L"Screen+ playlists and wallpapers", L"*.spp;*.spf" },
             { L"Images", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr" },
             { L"Videos", L"*.mp4;*.m4v;*.mov;*.wmv;*.webm;*.mkv;*.avi;*.mpg;*.mpeg;*.ts;*.m2ts;*.gif" },
             { L"HTML wallpaper", L"*.html;*.htm" },
@@ -590,6 +596,12 @@ void library_remove(const wchar_t *id)
     config_remove(&g_app.cfg, id);
     app_save_config();
     depth_forget(&gone);                        /* the page "Make wallpaper cooler" generated goes with its entry */
+    {
+        wchar_t packages[SP_MAX_PATH], dir[SP_MAX_PATH];
+        path_join(packages, SP_COUNTOF(packages), paths_root(), L"packages");
+        path_join(dir, SP_COUNTOF(dir), packages, gone.id);
+        if (str_istarts(gone.path, dir) && gone.path[wcslen(dir)] == SP_SEP_W[0]) library_discard(dir, TRUE);
+    }
     if (gone.flags & WPFLAG_PPTX) {             /* PowerPoint's videos of it (pptx.c) */
         wchar_t dir[SP_MAX_PATH];
         path_dirname(dir, SP_COUNTOF(dir), gone.path);
@@ -684,13 +696,14 @@ void library_discard(const wchar_t *path, BOOL folder)
 /* only what Screen+ made: a direct child of <data>\downloads or <data>\depth */
 static BOOL made_here(const wchar_t *path)
 {
-    wchar_t dir[SP_MAX_PATH], depth[SP_MAX_PATH], slides[SP_MAX_PATH], up[SP_MAX_PATH];
+    wchar_t dir[SP_MAX_PATH], depth[SP_MAX_PATH], slides[SP_MAX_PATH], packages[SP_MAX_PATH], up[SP_MAX_PATH];
     path_dirname(dir, SP_COUNTOF(dir), path);
     path_dirname(up, SP_COUNTOF(up), dir);
     path_join(depth, SP_COUNTOF(depth), paths_root(), L"depth");
     path_join(slides, SP_COUNTOF(slides), paths_root(), L"slides");   /* pptx.c: a folder, or a video in one */
+    path_join(packages, SP_COUNTOF(packages), paths_root(), L"packages");
     if (str_ieq(dir, slides) || str_ieq(up, slides)) return TRUE;
-    return str_ieq(dir, paths_downloads()) || str_ieq(dir, depth);
+    return str_ieq(dir, paths_downloads()) || str_ieq(dir, depth) || str_ieq(dir, packages);
 }
 
 /* an entry uses it again: its file or picture is path, or lies inside the folder path (named after an entry) */

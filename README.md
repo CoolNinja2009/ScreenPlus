@@ -62,6 +62,16 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
 
 - **Library**: import files or a folder, or drag them onto the window. For a web wallpaper, import the folder that
   contains `index.html`. The link button adds a video, image or web page from a URL.
+- **Share wallpapers**: right-click a wallpaper and choose **Export as .spf**. On Windows, select multiple cards and drag
+  any selected card to File Explorer to copy all of them as `.spf` files. The floating preview shows how many files are
+  being prepared. Right-click a collection to export its `.spp` playlist; packaging runs in the background so the app
+  remains responsive. An `.spp` is a compressed playlist of `.spf` wallpaper
+  files and keeps the slideshow interval. Each `.spf` includes the wallpaper, its Customise settings and recordings,
+  and any depth maps already made. Drop either format onto the Library or use `screenplus import`. On Linux, dragging
+  a card outside the window opens a native save dialog; dragging a selected group opens a folder picker and exports
+  the group in the background. URL wallpapers keep their link and customisation settings in the archive; they need
+  an internet connection when played.
+  The [file format documentation](docs/file-formats.md) describes both archives and their manifests.
 - **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut and Wallhaven. Sites that don't allow
   direct downloads open in your browser.
 - **Displays**: choose Independent, Duplicate or Span.
@@ -95,6 +105,8 @@ input but not keyboard input.
 screenplus status | list [filter] | displays
 screenplus apply <wallpaper> [--display N]
 screenplus import <path|link>... | remove <wallpaper>
+screenplus export <wallpaper> <file.spf>
+screenplus export collection:<name> <file.spp>
 screenplus pause | resume | next | restart | audio [on|off] | volume [0-100]
 screenplus slideshow [on|off] [every N] [shuffle on|off] [from all|favourites|<collection>]
 screenplus schedule [on|off | day|night <wallpaper> | times <day hour> <night hour>]
