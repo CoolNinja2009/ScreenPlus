@@ -62,8 +62,8 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
 
 - **Library**: import files or a folder, or drag them onto the window. For a web wallpaper, import the folder that
   contains `index.html`. The link button adds a video, image or web page from a URL.
-- **Share wallpapers**: right-click a wallpaper and choose **Export as .spp**, or drag its card to File Explorer on
-  Windows. Right-click a collection to export its playlist. An `.spp` is a compressed playlist of `.spf` wallpaper
+- **Share wallpapers**: right-click a wallpaper and choose **Export as .spf**, or drag its card to File Explorer on
+  Windows. Right-click a collection to export its `.spp` playlist. An `.spp` is a compressed playlist of `.spf` wallpaper
   files and keeps the slideshow interval. Each `.spf` includes the wallpaper, its Customise settings and recordings,
   and any depth maps already made. Drop either format onto the Library or use `screenplus import`. On Linux, dragging
   a card outside the window opens a native save dialog. Online links cannot be packed; download them first.
@@ -100,7 +100,7 @@ input but not keyboard input.
 screenplus status | list [filter] | displays
 screenplus apply <wallpaper> [--display N]
 screenplus import <path|link>... | remove <wallpaper>
-screenplus export <wallpaper> <file.spp|file.spf>
+screenplus export <wallpaper> <file.spf>
 screenplus export collection:<name> <file.spp>
 screenplus pause | resume | next | restart | audio [on|off] | volume [0-100]
 screenplus slideshow [on|off] [every N] [shuffle on|off] [from all|favourites|<collection>]

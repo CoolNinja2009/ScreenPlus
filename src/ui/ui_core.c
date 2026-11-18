@@ -40,29 +40,36 @@ static void export_card_drag(Ui *u)
 #ifdef _WIN32
     wchar_t dir[SP_MAX_PATH], id[SP_ID_LEN], file[SP_MAX_PATH];
     path_join(dir, SP_COUNTOF(dir), paths_cache(), L"format-drag");
-    if (!dir_create_recursive(dir)) return;
     random_id(id);
+    path_join(dir, SP_COUNTOF(dir), dir, id);
+    if (!dir_create_recursive(dir)) return;
     wchar_t safe[72], name[112];
     str_copy(safe, SP_COUNTOF(safe), e.name);
     for (wchar_t *p = safe; *p; p++)
         if (*p < 32 || wcschr(L"<>:\"/\\|?*", *p)) *p = L'-';
-    str_printf(name, SP_COUNTOF(name), L"%ls-%ls.spp", safe[0] ? safe : L"Wallpaper", id);
+    str_printf(name, SP_COUNTOF(name), L"%ls.spf", safe[0] ? safe : L"Wallpaper");
     path_join(file, SP_COUNTOF(file), dir, name);
-    if (!spp_export(NULL, &e, file)) return;
-    PIDLIST_ABSOLUTE item = NULL;
+    if (!spf_export(&e, file)) { RemoveDirectoryW(dir); return; }
+    PIDLIST_ABSOLUTE item = NULL, folder = NULL;
     IDataObject *data = NULL;
     DWORD effect = 0;
-    HRESULT hr = SHParseDisplayName(file, NULL, &item, 0, NULL);
-    if (SUCCEEDED(hr)) hr = SHCreateDataObject(NULL, 1, (PCUITEMID_CHILD_ARRAY)&item, NULL, &IID_IDataObject, (void **)&data);
+    HRESULT hr = SHParseDisplayName(dir, NULL, &folder, 0, NULL);
+    if (SUCCEEDED(hr)) hr = SHParseDisplayName(file, NULL, &item, 0, NULL);
+    if (SUCCEEDED(hr)) {
+        PCUITEMID_CHILD child = ILFindLastID(item);
+        hr = SHCreateDataObject(folder, 1, &child, NULL, &IID_IDataObject, (void **)&data);
+    }
     if (SUCCEEDED(hr) && data) SHDoDragDrop(u->hwnd, data, NULL, DROPEFFECT_COPY, &effect);
     if (data) IDataObject_Release(data);
     if (item) CoTaskMemFree(item);
+    if (folder) CoTaskMemFree(folder);
     DeleteFileW(file);
+    RemoveDirectoryW(dir);
 #else
     wchar_t name[SP_NAME_LEN + 8], file[SP_MAX_PATH];
-    str_printf(name, SP_COUNTOF(name), L"%ls.spp", e.name);
-    if (sp_format_save_dialog(u->hwnd, name, file, SP_COUNTOF(file))) {
-        BOOL ok = spp_export(NULL, &e, file);
+    str_printf(name, SP_COUNTOF(name), L"%ls.spf", e.name);
+    if (sp_format_save_dialog(u->hwnd, name, L"spf", file, SP_COUNTOF(file))) {
+        BOOL ok = spf_export(&e, file);
         app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Wallpaper export finished." : L"Could not export the wallpaper.");
     }
 #endif

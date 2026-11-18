@@ -369,13 +369,15 @@ void library_import_dialog(HWND owner, BOOL folder)
     free(paths);
 }
 
-BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, wchar_t *path, size_t cap)
+BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, const wchar_t *extension, wchar_t *path, size_t cap)
 {
     (void)owner;
-    static const SDL_DialogFileFilter filters[] = { { "Screen+ playlist", "spp" } };
+    static const SDL_DialogFileFilter playlists[] = { { "Screen+ playlist", "spp" } };
+    static const SDL_DialogFileFilter wallpapers[] = { { "Screen+ wallpaper", "spf" } };
+    BOOL isPlaylist = str_ieq(extension, L"spp");
     Pick p = { 0 };
     (void)suggested;
-    SDL_ShowSaveFileDialog(pick_done, &p, g_win, filters, 1, NULL);
+    SDL_ShowSaveFileDialog(pick_done, &p, g_win, isPlaylist ? playlists : wallpapers, 1, NULL);
     while (!p.done) {
         SDL_Event e;
         if (SDL_WaitEventTimeout(&e, 50) && e.type == SDL_EVENT_WINDOW_EXPOSED) g_dirty = 1;
@@ -383,7 +385,7 @@ BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, wchar_t *path, 
     BOOL ok = p.count > 0 && p.paths[0];
     if (ok) {
         str_copy(path, cap, p.paths[0]);
-        if (!str_ieq(path_ext(path), L".spp")) str_cat(path, cap, L".spp");
+        if (!str_ieq(path_ext(path), isPlaylist ? L".spp" : L".spf")) str_cat(path, cap, isPlaylist ? L".spp" : L".spf");
     }
     for (int i = 0; i < p.count; i++) free(p.paths[i]);
     free(p.paths);

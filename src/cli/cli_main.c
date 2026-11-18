@@ -295,7 +295,7 @@ static const wchar_t k_help[] =
     L"                                         missing active favourites slides, a collection, or part of a name\n"
     L"  apply <wallpaper> [--display N]        by name, number from 'list', id, or a file/folder path\n"
     L"  import <path>... [--apply]             add files, folders, .spf or .spp to the library\n"
-    L"  export <wallpaper> <file.spp|file.spf>  export a wallpaper with its customisation\n"
+    L"  export <wallpaper> <file.spf>           export a wallpaper with its customisation\n"
     L"  export collection:<name> <file.spp>   export a collection with slideshow interval\n"
     L"  import <link> [--download | --page]    a web link: long videos stream, short ones and images are saved\n"
     L"  remove <wallpaper>                     remove from the library (the file stays)\n"

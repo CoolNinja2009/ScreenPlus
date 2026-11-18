@@ -38,7 +38,7 @@ static const char k_help[] =
     "Wallpapers\n"
     "  list                   The library\n"
     "  import <path|url>...   Add files, folders, .spf, .spp or links (--apply, --page, --download)\n"
-    "  export <wallpaper> <file.spp|file.spf>  Export wallpaper and customisation\n"
+    "  export <wallpaper> <file.spf>  Export wallpaper and customisation\n"
     "  export collection:<name> <file.spp>   Export collection and slideshow interval\n"
     "  apply <wallpaper>      Set a wallpaper (--display N for one display)\n"
     "  next                   The next wallpaper\n"

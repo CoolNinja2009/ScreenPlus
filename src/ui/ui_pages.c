@@ -4796,8 +4796,8 @@ void pages_context(int id, int sx, int sy)
         if (cmd == 2) {
             wchar_t suggested[SP_NAME_LEN + 8], output[SP_MAX_PATH];
             str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spp", names[k]);
-            if (sp_format_save_dialog(u->hwnd, suggested, output, SP_COUNTOF(output))) {
-                BOOL ok = spp_export(names[k], NULL, output);
+            if (sp_format_save_dialog(u->hwnd, suggested, L"spp", output, SP_COUNTOF(output))) {
+                BOOL ok = spp_export(names[k], output);
                 app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Playlist export finished." : L"Could not export the playlist.");
             }
         } else if (cmd == 1) {
@@ -4832,7 +4832,7 @@ void pages_context(int id, int sx, int sy)
     AppendMenuW(m, MF_STRING | ((e.flags & WPFLAG_FAV) ? MF_CHECKED : 0), 5, L"Favourite");
     AppendMenuW(m, MF_STRING, 6, L"Collections…");
     AppendMenuW(m, MF_STRING | ((e.uiMark & 1) ? MF_CHECKED : 0), 7, L"Select");
-    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 8, L"Export as .spp…");
+    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 8, L"Export as .spf…");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, 3, link ? L"Remove from library" : download ? L"Remove from library and delete the download"
                                                                           : L"Remove from library (keeps the file)");
@@ -4852,9 +4852,9 @@ void pages_context(int id, int sx, int sy)
     }
     else if (cmd == 8) {
         wchar_t suggested[SP_NAME_LEN + 8], output[SP_MAX_PATH];
-        str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spp", e.name);
-        if (sp_format_save_dialog(u->hwnd, suggested, output, SP_COUNTOF(output))) {
-            BOOL ok = spp_export(NULL, &e, output);
+        str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spf", e.name);
+        if (sp_format_save_dialog(u->hwnd, suggested, L"spf", output, SP_COUNTOF(output))) {
+            BOOL ok = spf_export(&e, output);
             app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Wallpaper export finished." : L"Could not export the wallpaper.");
         }
     }

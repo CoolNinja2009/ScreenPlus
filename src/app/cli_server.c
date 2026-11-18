@@ -480,20 +480,19 @@ static void cmd_import(Reply *r, const Req *q)
 static void cmd_export(Reply *r, const Req *q)
 {
     if (q->argc != 3) {
-        fail(r, L"Usage: screenplus export <wallpaper | collection:name> <output.spp> (or <output.spf> for one wallpaper)");
+        fail(r, L"Usage: screenplus export <wallpaper> <output.spf> | export collection:<name> <output.spp>");
         return;
     }
     const wchar_t *target = q->argv[1], *path = q->argv[2];
     BOOL ok = FALSE;
     if (str_istarts(target, L"collection:")) {
         if (!str_ieq(path_ext(path), L".spp")) { fail(r, L"A collection exports as .spp."); return; }
-        ok = spp_export(target + 11, NULL, path);
+        ok = spp_export(target + 11, path);
     } else {
         WallpaperEntry *e = find_wallpaper(r, target);
         if (!e) return;
-        if (str_ieq(path_ext(path), L".spf")) ok = spf_export(e, path);
-        else if (str_ieq(path_ext(path), L".spp")) ok = spp_export(NULL, e, path);
-        else { fail(r, L"Use a .spp or .spf output filename."); return; }
+        if (!str_ieq(path_ext(path), L".spf")) { fail(r, L"A wallpaper exports as .spf."); return; }
+        ok = spf_export(e, path);
     }
     if (!ok) { fail(r, L"Could not export. Check that the wallpaper files exist and the output folder is writable."); return; }
     say(r, L"Exported %ls.\n", path);

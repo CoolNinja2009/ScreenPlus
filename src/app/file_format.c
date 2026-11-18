@@ -224,15 +224,15 @@ static BOOL spf_pack(const WallpaperEntry *e, const wchar_t *dest)
 
 BOOL spf_export(const WallpaperEntry *entry, const wchar_t *path) { return spf_pack(entry, path); }
 
-BOOL spp_export(const wchar_t *collection, const WallpaperEntry *single, const wchar_t *path)
+BOOL spp_export(const wchar_t *collection, const wchar_t *path)
 {
     wchar_t stage[SP_MAX_PATH], target[SP_MAX_PATH], member[64];
-    if (!single && (!collection || !collection[0])) return FALSE;
+    if (!collection || !collection[0]) return FALSE;
     if (!new_stage(stage, SP_COUNTOF(stage))) return FALSE;
     int count = 0;
     for (int i = 0; i < g_app.cfg.count; i++) {
         const WallpaperEntry *e = &g_app.cfg.items[i];
-        if (single ? wcscmp(single->id, e->id) != 0 : !config_tag_has(e, collection)) continue;
+        if (!config_tag_has(e, collection)) continue;
         str_printf(member, SP_COUNTOF(member), L"%04d.spf", count);
         path_join(target, SP_COUNTOF(target), stage, member);
         if (!spf_pack(e, target)) { remove_tree(stage); return FALSE; }
@@ -241,7 +241,7 @@ BOOL spp_export(const wchar_t *collection, const WallpaperEntry *single, const w
     if (!count) { remove_tree(stage); return FALSE; }
     StrBuf b = { 0 };
     sb_puts(&b, "{\"screenplus\":\"spp\",\"version\":1,\"name\":");
-    json_w(&b, single ? single->name : collection);
+    json_w(&b, collection);
     sb_printf(&b, ",\"count\":%d,\"intervalMinutes\":%d}", count, g_app.cfg.s.slideshowMin);
     path_join(target, SP_COUNTOF(target), stage, L"manifest.json");
     BOOL ok = !b.failed && write_text(target, &b);
@@ -357,15 +357,17 @@ int sp_format_import(const wchar_t *path, const wchar_t *collection)
 }
 
 #ifdef _WIN32
-BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, wchar_t *path, size_t cap)
+BOOL sp_format_save_dialog(HWND owner, const wchar_t *suggested, const wchar_t *extension, wchar_t *path, size_t cap)
 {
     IFileSaveDialog *dlg = NULL;
     if (FAILED(CoCreateInstance(&CLSID_FileSaveDialog, NULL, CLSCTX_INPROC_SERVER, &IID_IFileSaveDialog, (void **)&dlg))) return FALSE;
-    static const COMDLG_FILTERSPEC filter[] = { { L"Screen+ playlist", L"*.spp" } };
-    IFileSaveDialog_SetFileTypes(dlg, 1, filter);
-    IFileSaveDialog_SetDefaultExtension(dlg, L"spp");
+    static const COMDLG_FILTERSPEC playlist[] = { { L"Screen+ playlist", L"*.spp" } };
+    static const COMDLG_FILTERSPEC wallpaper[] = { { L"Screen+ wallpaper", L"*.spf" } };
+    BOOL isPlaylist = str_ieq(extension, L"spp");
+    IFileSaveDialog_SetFileTypes(dlg, 1, isPlaylist ? playlist : wallpaper);
+    IFileSaveDialog_SetDefaultExtension(dlg, isPlaylist ? L"spp" : L"spf");
     IFileSaveDialog_SetFileName(dlg, suggested);
-    IFileSaveDialog_SetTitle(dlg, L"Export Screen+ playlist");
+    IFileSaveDialog_SetTitle(dlg, isPlaylist ? L"Export Screen+ playlist" : L"Export Screen+ wallpaper");
     BOOL ok = FALSE;
     if (SUCCEEDED(IFileSaveDialog_Show(dlg, owner))) {
         IShellItem *item = NULL;
