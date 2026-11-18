@@ -25,6 +25,7 @@ on:
       - 'scripts/**'
       - 'CMakeLists.txt'
       - 'build.cmd'
+      - '.github/workflows/release.yml'
       - 'LICENSE'
       - 'THIRD_PARTY_NOTICES.md'
   pull_request:
@@ -35,6 +36,7 @@ on:
       - 'CMakeLists.txt'
       - 'build.cmd'
       - 'scripts/**'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
 
 permissions:
@@ -149,13 +151,28 @@ jobs:
           }
           gh release upload deps "$env:RUNNER_TEMP\$key.zip" --clobber
 
-      - name: Install NSIS
+      - name: Set up NSIS
         shell: pwsh
         run: |
-          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and
-              -not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe')) {
-            choco install nsis -y --no-progress
+          $nsis = (Get-Command makensis -ErrorAction SilentlyContinue).Source
+          if (-not $nsis) {
+            foreach ($path in @('C:\Program Files (x86)\NSIS\makensis.exe', 'C:\Program Files\NSIS\makensis.exe')) {
+              if (Test-Path $path) { $nsis = $path; break }
+            }
           }
+          if (-not $nsis) {
+            $archive = Join-Path $env:RUNNER_TEMP 'nsis-3.13.zip'
+            $url = 'https://sourceforge.net/projects/nsis/files/NSIS%203/3.13/nsis-3.13.zip/download'
+            curl.exe --fail --location --retry 3 --retry-all-errors --connect-timeout 20 --max-time 120 --output $archive $url
+            if ($LASTEXITCODE -ne 0) { throw 'NSIS download failed' }
+            $expected = 'BA63DFFC4410EE89193E1CB5A41989991BD77C61068DA17E3156D136B7B0B3D8'
+            if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne $expected) { throw 'NSIS archive checksum mismatch' }
+            Expand-Archive $archive -DestinationPath $env:RUNNER_TEMP
+            $nsis = Join-Path $env:RUNNER_TEMP 'nsis-3.13\makensis.exe'
+          }
+          if (-not (Test-Path $nsis)) { throw 'makensis.exe not found' }
+          (Split-Path $nsis -Parent) >> $env:GITHUB_PATH
+          Write-Host "Using $nsis"
 
       - name: Build app and installer
         shell: cmd
@@ -196,7 +213,7 @@ jobs:
           $v = '${{ needs.version.outputs.version }}'
           Copy-Item signed-bin\ScreenPlus.exe, signed-bin\ScreenPlus.com build\ -Force
           Copy-Item build\ScreenPlus.exe build\ScreenPlus.scr -Force
-          & 'C:\Program Files (x86)\NSIS\makensis.exe' /V2 "/DVERSION=$v" "/DSTAGE=$PWD\build" `
+          & (Get-Command makensis -ErrorAction Stop).Source /V2 "/DVERSION=$v" "/DSTAGE=$PWD\build" `
             "/DOUTFILE=$PWD\build\ScreenPlus-Setup-$v.exe" installer\screenplus.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
 
