@@ -999,8 +999,9 @@ static void draw_collection_dialog(Ui *u)
     float x = SIDEBAR_W + (u->w - SIDEBAR_W - w) * 0.5f;
     float y = (u->h - h) * 0.5f;
     D2D1_RECT_F panel = rectf(x, y, w, h);
-    ui_rrect(panel, 18, u->t.panel);
-    ui_rrect_stroke(panel, 18, 1, u->t.border);
+    ui_rrect(rectf(x, y + 8, w, h), 18, col(0x000000, u->t.dark ? 0.34f : 0.18f));
+    ui_rrect(panel, 18, col(u->t.dark ? 0x29292D : 0xFFFFFF, 1.0f));
+    ui_rrect_stroke(panel, 18, 1, u->t.dark ? col(0xFFFFFF, 0.16f) : col(0x000000, 0.08f));
     ui_hit(HIT_ID(HK_COLL_PANEL, 0), panel, 0, 0);
     ui_text(L"New collection", u->fTitle, rectf(x + 24, y + 18, w - 48, 32), u->t.text);
     wchar_t sub[80];
