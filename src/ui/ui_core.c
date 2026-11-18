@@ -102,6 +102,14 @@ static ULONG STDMETHODCALLTYPE source_addref(IDropSource *self)
 static ULONG STDMETHODCALLTYPE source_release(IDropSource *self)
 { return (ULONG)InterlockedDecrement(&((DragSource *)self)->refs); }
 static void drag_tick(DragExport *j);
+static int drag_over_own_window(const DragExport *j)
+{
+    POINT pt;
+    if (!GetCursorPos(&pt)) return 0;
+    HWND target = WindowFromPoint(pt);
+    return target && GetAncestor(target, GA_ROOT) == j->owner;
+}
+
 static HRESULT STDMETHODCALLTYPE source_continue(IDropSource *self, BOOL escape, DWORD keys)
 {
     DragExport *j = ((DragSource *)self)->job;
@@ -111,8 +119,10 @@ static HRESULT STDMETHODCALLTYPE source_continue(IDropSource *self, BOOL escape,
         if (!j->reported++) app_notice(NOTICE_WARN, L"Could not prepare the selected wallpapers for export.");
         return DRAGDROP_S_CANCEL;
     }
-    if (!(keys & MK_LBUTTON))
+    if (!(keys & MK_LBUTTON)) {
+        if (drag_over_own_window(j)) return DRAGDROP_S_CANCEL;
         return InterlockedCompareExchange(&j->ready, 0, 0) ? DRAGDROP_S_DROP : S_OK;
+    }
     return S_OK;
 }
 static HRESULT STDMETHODCALLTYPE source_feedback(IDropSource *self, DWORD effect)
@@ -181,12 +191,24 @@ static void drag_shell(DragExport *j)
     source.iface.lpVtbl = &k_drag_source;
     source.refs = 1;
     source.job = j;
-    if (SUCCEEDED(hr) && data) hr = SHDoDragDrop(j->owner, data, &source.iface, DROPEFFECT_COPY, &effect);
+    if (SUCCEEDED(hr) && data) {
+        DragAcceptFiles(j->owner, FALSE);
+        hr = SHDoDragDrop(j->owner, data, &source.iface, DROPEFFECT_COPY, &effect);
+        if (IsWindow(j->owner)) DragAcceptFiles(j->owner, TRUE);
+    }
     if (data) IDataObject_Release(data);
     for (int i = 0; i < j->count; i++) if (items && items[i]) CoTaskMemFree(items[i]);
     if (folder) CoTaskMemFree(folder);
     free(items); free(children);
     drag_finish(j, hr == DRAGDROP_S_DROP && effect == DROPEFFECT_COPY);
+}
+
+static int drag_is_internal_path(const wchar_t *path)
+{
+    wchar_t root[SP_MAX_PATH];
+    path_join(root, SP_COUNTOF(root), paths_cache(), L"format-drag");
+    size_t len = wcslen(root);
+    return !_wcsnicmp(path, root, len) && (path[len] == L'\\' || path[len] == L'/');
 }
 
 static void drag_tick(DragExport *j)
@@ -1919,8 +1941,6 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             }
         }
         return 0;
-#ifdef _WIN32
-#endif
     case WM_DROPFILES: {
         HDROP drop = (HDROP)wp;
         UINT n = DragQueryFileW(drop, 0xFFFFFFFF, NULL, 0);
@@ -1929,7 +1949,11 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         for (UINT i = 0; paths && i < n; i++) {
             UINT len = DragQueryFileW(drop, i, NULL, 0);
             wchar_t *p = (wchar_t *)malloc(((size_t)len + 1) * sizeof(wchar_t));
-            if (p && DragQueryFileW(drop, i, p, len + 1)) paths[got++] = p;
+            if (p && DragQueryFileW(drop, i, p, len + 1)
+#ifdef _WIN32
+                && !drag_is_internal_path(p)
+#endif
+            ) paths[got++] = p;
             else free(p);
         }
         DragFinish(drop);
