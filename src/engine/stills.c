@@ -27,6 +27,7 @@ typedef struct StillJob {
     uint8_t         *jpeg;       /* a grabbed page; NULL: made from the wallpaper's file */
     size_t           jpegSize;
     int              restore;    /* the setting went off */
+    int              reapply;    /* renderer failed: make the still visible even if cached */
 } StillJob;
 
 static SRWLOCK   g_lock = SRWLOCK_INIT;
@@ -294,7 +295,12 @@ static void make_and_set(StillJob *j)
 {
     wchar_t dir[SP_MAX_PATH], tmp[SP_MAX_PATH + 8];
     int w = j->mon.rect.right - j->mon.rect.left, h = j->mon.rect.bottom - j->mon.rect.top;
-    if (file_exists(j->path) || w <= 0 || h <= 0) return;      /* made by an earlier job */
+    if (w <= 0 || h <= 0) return;
+    if (file_exists(j->path)) {
+        if (j->reapply && FAILED(set_wallpaper(&j->mon, j->path)))
+            LOGW(L"stills: could not restore the cached still of '%ls'", j->wp.name);
+        return;
+    }
     stills_dir(dir, SP_COUNTOF(dir));
     dir_create_recursive(dir);
     str_printf(tmp, SP_COUNTOF(tmp), L"%ls.part", j->path);
@@ -401,6 +407,19 @@ void stills_make(const MonitorInfo *mon, const WallpaperEntry *wp, IStream *jpeg
     }
     j->mon = *mon;
     j->wp = *wp;
+    queue(j);
+}
+
+void stills_show(const MonitorInfo *mon, const WallpaperEntry *wp)
+{
+    StillJob *j = (StillJob *)calloc(1, sizeof *j);
+    if (!j || !stills_path(mon, wp, j->path, SP_COUNTOF(j->path))) {
+        free(j);
+        return;
+    }
+    j->mon = *mon;
+    j->wp = *wp;
+    j->reapply = 1;
     queue(j);
 }
 

@@ -100,6 +100,8 @@ static struct {
 static void apply_states(void);
 static void update_occlusion(void);
 static void status_dirty(void);
+static RenderState desired_state(const Slot *s, int *keepFrame);
+static void retry_schedule(void);
 
 /* ================================================================ slots */
 
@@ -273,13 +275,16 @@ static void slot_fail(Slot *s, const wchar_t *reason, BOOL transient)
     str_copy(E.lastError, SP_COUNTOF(E.lastError), msg);
     slot_stop_renderer(s);
     slot_hide(s);   /* safe state: the regular Windows wallpaper shows through */
+    if (E.cfg.s.stillWallpaper) stills_show(&s->mon, &s->wp);
     if (s->startedAt > 0 && time_ms() - s->startedAt > 120000.0) s->failures = 0;   /* ran fine for a while */
     s->failures++;
     if (transient && E.cfg.s.autoRecover && s->failures <= MAX_RETRIES) {
         double delay = 2000.0 * (double)(1 << (s->failures - 1));    /* 2 s, 4 s, 8 s */
+        if (wcsstr(msg, L"WebView2 browser process exited") && delay < 10000.0)
+            delay = 10000.0;   /* let the shared browser and its profile finish shutting down */
         s->retryAt = time_ms() + delay;
         s->state = RS_RECOVERING;
-        SetTimer(E.ctl, T_RETRY, 500, NULL);
+        retry_schedule();
         LOGW(L"display %d: retry %d/%d in %.0f s", s->mon.index, s->failures, MAX_RETRIES, delay / 1000.0);
     } else {
         s->failed = 1;
@@ -297,6 +302,13 @@ static void slot_start_renderer(Slot *s)
         s->state = RS_STOPPED;
         str_copy(s->error, SP_COUNTOF(s->error), L"Paused in safe mode after repeated engine crashes. Use Restart renderer to try again.");
         slot_hide(s);
+        status_dirty();
+        return;
+    }
+    int keep = 0;
+    RenderState wanted = desired_state(s, &keep);
+    if (wanted != RS_ACTIVE) {
+        s->state = wanted;   /* slideshow may switch while a game covers the desktop */
         status_dirty();
         return;
     }
@@ -632,12 +644,32 @@ static RenderState desired_state(const Slot *s, int *keepFrame)
     return RS_ACTIVE;
 }
 
+/* A failed renderer has no state transition of its own. Arm its retry only while the
+ * display can show it; fullscreen, lock and sleep cannot consume the retry budget. */
+static void retry_schedule(void)
+{
+    double next = 0, now = time_ms();
+    for (int i = 0; i < SP_MAX_MONITORS; i++) {
+        Slot *s = &E.slots[i];
+        int keep = 0;
+        if (!s->used || s->retryAt <= 0 || desired_state(s, &keep) != RS_ACTIVE) continue;
+        if (!next || s->retryAt < next) next = s->retryAt;
+    }
+    if (next) SetTimer(E.ctl, T_RETRY, (UINT)SP_MAX(1.0, next - now), NULL);
+    else KillTimer(E.ctl, T_RETRY);
+}
+
 static void apply_states(void)
 {
     int anyRunning = 0, activated = 0;
     for (int i = 0; i < SP_MAX_MONITORS; i++) {
         Slot *s = &E.slots[i];
-        if (!s->used || !s->r) continue;
+        if (!s->used) continue;
+        if (!s->r && !s->failed && !s->retryAt && s->wp.id[0]) {
+            int keep = 0;
+            if (desired_state(s, &keep) == RS_ACTIVE) slot_start_renderer(s);
+        }
+        if (!s->r) continue;
         int keep = 0;
         RenderState st = desired_state(s, &keep);
         if (st != s->state || keep != s->keepFrame) {
@@ -663,6 +695,7 @@ static void apply_states(void)
      * may want it while another display's wallpaper doesn't: look again. */
     if (activated) SetTimer(E.ctl, T_WALLPAPER_DATA, 1, NULL);
     if (activated && E.cfg.s.stillWallpaper) SetTimer(E.ctl, T_STILLS, 3000, NULL);   /* a page grabs once it draws */
+    retry_schedule();
 }
 
 static void CALLBACK win_event(HWINEVENTHOOK hook, DWORD ev, HWND hwnd, LONG idObject, LONG idChild, DWORD tid, DWORD time);
@@ -1267,19 +1300,18 @@ static LRESULT CALLBACK control_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             update_occlusion();
             break;
         case T_RETRY: {
-            int pending = 0;
             double now = time_ms();
             for (int i = 0; i < SP_MAX_MONITORS; i++) {
                 Slot *s = &E.slots[i];
                 if (!s->used || s->retryAt <= 0) continue;
-                if (now >= s->retryAt) {
+                int keep = 0;
+                if (now >= s->retryAt && desired_state(s, &keep) == RS_ACTIVE) {
                     s->retryAt = 0;
                     LOGI(L"display %d: recovering renderer (attempt %d)", s->mon.index, s->failures);
                     slot_start_renderer(s);
                 }
-                if (s->retryAt > 0) pending = 1;
             }
-            if (!pending) KillTimer(h, T_RETRY);
+            retry_schedule();
             break;
         }
         case T_STATUS:
