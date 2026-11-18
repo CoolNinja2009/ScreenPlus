@@ -53,6 +53,20 @@ tar -xzf "release/ScreenPlus-$VERSION-linux-x86_64.tar.gz" -C "$dir" --strip-com
 export SCREENPLUS_DESKTOP=both
 if "$dir/install.sh" --check; then echo "Nothing was missing on a bare $distro?"; fi
 "$dir/install.sh" --yes
-"$HOME/.local/share/screenplus-app/install.sh" --check
+installed="$HOME/.local/share/screenplus-app/install.sh"
+if [ "$distro" = arch ]; then
+    # install.sh deliberately leaves Screen+ installed when pacman cannot fetch a package.
+    # Retry the dependency check/install here so a temporarily stale Arch mirror does not
+    # turn one failed download into a failed release.
+    arch_deps() {
+        "$installed" --check && return 0
+        pacman -Syyu --noconfirm --needed || return 1
+        "$installed" --yes
+        "$installed" --check
+    }
+    retry arch_deps
+else
+    "$installed" --check
+fi
 "$HOME/.local/bin/screenplus" version | grep -F "$VERSION"
 "$HOME/.local/bin/screenplus" help > /dev/null
