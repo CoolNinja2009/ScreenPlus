@@ -521,11 +521,6 @@ static float draw_filters(Ui *u, float x, float y, float w)
         wchar_t n[48];
         str_printf(n, SP_COUNTOF(n), L"%d selected", nsel);
         ui_text(n, u->fBodyB, rectf(x + 4, y, 140, 30), u->t.text);
-        if (u->textFocus == HIT_ID(HK_COLL_TEXT, 0)) {  /* naming a new collection for them */
-            draw_coll_field(u, rectf(x + 140, y, 240, 30));
-            ui_text(L"Enter to save, Esc to cancel", u->fSmall, rectf(x + 392, y, 240, 30), u->t.text3);
-            return y + 30;
-        }
         static const wchar_t *const labels[] = { L"Favourite", L"Collections", L"Remove", L"Select all" };
         static const int kinds[] = { SEL_FAV, SEL_COLL, SEL_REMOVE, SEL_ALL };
         static const wchar_t icons[] = { GL_STAR, GL_LIBRARY, GL_CLOSE, GL_CHECK };
@@ -623,10 +618,6 @@ static float draw_filters(Ui *u, float x, float y, float w)
             pill.bottom += u->filterScrollLag;
             ui_rrect(pill, 15, u->t.accent);
         }
-    }
-    if (u->textFocus == HIT_ID(HK_COLL_TEXT, 0)) {
-        if (cx + 200 > right && cx > x) { cx = x; y += 38; }
-        draw_coll_field(u, rectf(cx, y, 200, 30));
     }
     ui_button(HIT_ID(HK_SORT, 0), rectf(x + w - sw - 72, rowY - 2, sw, 34), k_sortNames[g_app.cfg.s.librarySort], GL_SORT,
               BTN_GHOST);
@@ -996,6 +987,34 @@ static void draw_library(Ui *u, float cx, float cw)
     ui_pop_clip();
     finish_scroll(u, PAGE_LIBRARY, y, top);
     draw_scrollbar(u, view, PAGE_LIBRARY);
+}
+
+static void draw_collection_dialog(Ui *u)
+{
+    if (u->page != PAGE_LIBRARY || u->textFocus != HIT_ID(HK_COLL_TEXT, 0)) return;
+    u->hitCount = 0; /* the dialog owns input while it is open */
+    ui_fill(rectf(0, 0, u->w, u->h), col(0x000000, 0.52f));
+    ui_hit(HIT_ID(HK_COLL_CANCEL, 0), rectf(0, 0, u->w, u->h), 0, 0);
+    float w = 440.0f, h = 222.0f;
+    float x = SIDEBAR_W + (u->w - SIDEBAR_W - w) * 0.5f;
+    float y = (u->h - h) * 0.5f;
+    D2D1_RECT_F panel = rectf(x, y, w, h);
+    ui_rrect(panel, 18, u->t.panel);
+    ui_rrect_stroke(panel, 18, 1, u->t.border);
+    ui_hit(HIT_ID(HK_COLL_PANEL, 0), panel, 0, 0);
+    ui_text(L"New collection", u->fTitle, rectf(x + 24, y + 18, w - 48, 32), u->t.text);
+    wchar_t sub[80];
+    int n = 0;
+    for (int i = 0; i < g_app.cfg.count; i++) n += (g_app.cfg.items[i].uiMark & 2) != 0;
+    str_printf(sub, SP_COUNTOF(sub), L"Add %d selected wallpaper%ls", n, n == 1 ? L"" : L"s");
+    ui_text(sub, u->fSmall, rectf(x + 24, y + 53, w - 48, 22), u->t.text2);
+    draw_coll_field(u, rectf(x + 24, y + 86, w - 48, 40));
+    float cancelW = ui_button_width(L"Cancel", 0), createW = ui_button_width(L"Create", GL_ADD);
+    float right = x + w - 24;
+    ui_button(HIT_ID(HK_COLL_CANCEL, 1), rectf(right - createW - 10 - cancelW, y + 155, cancelW, 36),
+              L"Cancel", 0, BTN_SECONDARY);
+    ui_button(HIT_ID(HK_COLL_SAVE, 0), rectf(right - createW, y + 155, createW, 36),
+              L"Create", GL_ADD, BTN_PRIMARY);
 }
 
 /* ================================================================ store */
@@ -2823,6 +2842,7 @@ int pages_text_key(UINT vk, int ctrl, int shift)
     int url = kind == HK_URL_TEXT, search = kind == HK_SEARCH, store = kind == HK_STORE_TEXT;
     if (te_key(vk, ctrl, shift)) return 1;
     if (vk == VK_ESCAPE) {
+        if (kind == HK_COLL_TEXT) { pages_text_end(0); return 1; }
         if (te_has_sel()) {              /* the first Escape just drops the selection */
             te_clear_sel();
             return 1;
@@ -2847,6 +2867,12 @@ int pages_text_key(UINT vk, int ctrl, int shift)
         pages_text_end(url || store);    /* the link field keeps what was typed and closes; the rename cancels */
         if (url) urlp.open = 0;
     } else if (vk == VK_RETURN) {
+        if (kind == HK_COLL_TEXT) {
+            wchar_t name[SP_COUNTOF(g_collName)];
+            str_copy(name, SP_COUNTOF(name), g_collName);
+            str_trim(name);
+            if (!name[0]) return 1;
+        }
         if (search) return 1;
         if (store) {                     /* without waiting for the pause */
             pages_store_timer();
@@ -2855,8 +2881,14 @@ int pages_text_key(UINT vk, int ctrl, int shift)
         pages_text_end(1);
         if (url) url_go();
     } else if (vk == VK_TAB) {
+        if (kind == HK_COLL_TEXT) {
+            wchar_t name[SP_COUNTOF(g_collName)];
+            str_copy(name, SP_COUNTOF(name), g_collName);
+            str_trim(name);
+            if (!name[0]) return 1;
+        }
         pages_text_end(1);               /* commit, then the shell moves focus */
-        return 0;
+        return kind == HK_COLL_TEXT;
     }
     return 1;                            /* characters arrive via WM_CHAR; consume the rest */
 }
@@ -2868,6 +2900,10 @@ void pages_text_end(int commit)
     int search = id && (HIT_KIND(id) == HK_SEARCH || HIT_KIND(id) == HK_STORE_TEXT);   /* live buffers */
     u->textFocus = 0;
     te_close();
+    if (HIT_KIND(id) == HK_COLL_TEXT) {
+        u->focus = 0;
+        if (!commit) for (int i = 0; i < g_app.cfg.count; i++) g_app.cfg.items[i].uiMark &= ~2;
+    }
     if (search) {
         u->searchFocus = 0;
         KillTimer(u->hwnd, TM_CARET);
@@ -4013,8 +4049,9 @@ void pages_draw(void)
             ui_animate();
         } else u->resetSweepAt = 0;
     }
-    if (u->page == PAGE_CUSTOMIZE) draw_rec_presets(u);
     u->alpha = 1.0f;
+    if (u->page == PAGE_CUSTOMIZE) draw_rec_presets(u);
+    draw_collection_dialog(u);
 }
 
 /* Every setting back to config_defaults; the library, assignments and Windows' screensaver settings stay. */
@@ -4371,6 +4408,16 @@ void pages_activate(int id, int dbl)
     case HK_URL_MODE:      urlp.mode = SP_CLAMP(data, URLMODE_AUTO, URLMODE_PAGE); break;   /* chip order = URLMODE_* */
     case HK_URL_GO:        url_go(); break;
     case HK_URL_CLOSE:     urlp.open = 0; break;
+    case HK_COLL_SAVE:
+        if (HIT_KIND(u->textFocus) == HK_COLL_TEXT) {
+            wchar_t name[SP_COUNTOF(g_collName)];
+            str_copy(name, SP_COUNTOF(name), g_collName);
+            str_trim(name);
+            if (name[0]) pages_text_end(1);
+        }
+        break;
+    case HK_COLL_CANCEL:  if (HIT_KIND(u->textFocus) == HK_COLL_TEXT) pages_text_end(0); break;
+    case HK_COLL_PANEL:   break;
     case HK_SEARCH_CLEAR:
         if (data == 2) {                 /* the Settings page's */
             if (HIT_KIND(u->textFocus) == HK_SEARCH) pages_text_end(0);

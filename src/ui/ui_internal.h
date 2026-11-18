@@ -49,7 +49,7 @@ enum HitKind {
     HK_COLL,                          /* a collection chip; data: its index in the chip row */
     HK_SORT,                          /* the Library's sort menu */
     HK_SEL,                           /* selection bar; data: SEL_* */
-    HK_COLL_TEXT,                     /* a new collection's name, typed */
+    HK_COLL_TEXT, HK_COLL_SAVE, HK_COLL_CANCEL, HK_COLL_PANEL, /* new collection dialog */
     HK_VOLUME,                        /* volume slider; data 0: Settings (every wallpaper), 1: Customise (this one) */
     HK_SLIDE_SEC,                     /* Customise: a presentation's seconds per slide; data: seconds */
     HK_SLIDE_MIN,                     /* Settings: slideshow minutes; data: minutes */

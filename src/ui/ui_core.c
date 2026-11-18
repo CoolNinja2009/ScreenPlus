@@ -1875,7 +1875,10 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 if (hit->focusable) u->focus = u->hot;
             }
         }
-        if (u->textFocus && u->hot != u->textFocus)
+        if (u->textFocus && u->hot != u->textFocus &&
+            !(HIT_KIND(u->textFocus) == HK_COLL_TEXT &&
+              (HIT_KIND(u->hot) == HK_COLL_SAVE || HIT_KIND(u->hot) == HK_COLL_CANCEL ||
+               HIT_KIND(u->hot) == HK_COLL_PANEL)))
             pages_text_end(1);   /* commit when the click lands elsewhere */
         {
             int k = HIT_KIND(u->pressed);   /* continuous controls jump to the click right away */
