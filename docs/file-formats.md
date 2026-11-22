@@ -92,9 +92,9 @@ Members are exported in library order. On import, Screen+ adds them to the named
 
 ## Using the formats
 
-- Right-click a wallpaper in the Library and choose **Export as .spf**. On Windows, dragging a card to File Explorer exports it; dragging a selected group exports every selected wallpaper as a separate `.spf`.
+- Right-click a wallpaper in the Library and choose **Export (.spf)**. On Windows, dragging a card to File Explorer exports it; dragging a selected group exports every selected wallpaper as a separate `.spf`.
 - Right-click a collection to export its `.spp`. Export runs in the background. On Linux, dragging a card outside the window opens a save dialog; a selected group opens a folder picker.
-- Drop either archive onto the Library, use the Import button, or run `screenplus import <path>`.
+- Double-click either archive, or drop it onto Screen+: a preview shows what it holds (type, size, link, depth model, Customise settings and recordings, and every member of a playlist) and **Add to library** imports it. The Import button and `screenplus import <path>` add it directly; `screenplus inspect <path>` prints the preview.
 - From the CLI, run `screenplus export <wallpaper> <file.spf>` or `screenplus export collection:<name> <file.spp>`.
 
 Export writes the archive through a temporary file and replaces the destination after packaging succeeds. Import validates ZIP entries before extraction: it rejects traversal paths, symlinks, encrypted entries, unsupported ZIP64 sizes and archives above its file and expanded-size limits. A recipient should still treat links and HTML code from other people as content they choose to run.

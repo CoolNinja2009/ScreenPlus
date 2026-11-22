@@ -422,6 +422,33 @@ static void cmd_apply(Reply *r, const Req *q)
     sb_printf(&r->data, ",\"display\":%d}", mon ? mon->index : 0);
 }
 
+static void cmd_inspect(Reply *r, const Req *q)
+{
+    if (q->argc < 2 || (!str_ieq(path_ext(q->argv[1]), L".spf") && !str_ieq(path_ext(q->argv[1]), L".spp"))) {
+        fail(r, L"Usage: screenplus inspect <file.spf|file.spp>");
+        return;
+    }
+    FormatPreview *p = sp_preview_load(q->argv[1]);
+    if (!p || !p->ok) {
+        fail(r, L"Can't read %ls. It may be damaged, or made by a newer Screen+.", q->argv[1]);
+        sp_preview_free(p);
+        return;
+    }
+    if (p->playlist) say(r, L"Collection \"%ls\": %d wallpaper%ls\n", p->name, p->count, p->count == 1 ? L"" : L"s");
+    if (p->playlist && p->minutes > 0) say(r, L"  Slideshow every %d min\n", p->minutes);
+    static wchar_t rows[16][2][200];
+    for (int i = 0; i < p->count; i++) {
+        const FormatItem *it = &p->items[i];
+        if (!it->ok) { say(r, L"\n%d. (damaged, skipped on import)\n", i + 1); continue; }
+        if (p->playlist) say(r, L"\n%d. %ls\n", i + 1, it->e.name);
+        else say(r, L"%ls\n", it->e.name);
+        int n = sp_preview_rows(it, rows, 16);
+        for (int k = 0; k < n; k++) say(r, L"  %-22ls%ls\n", rows[k][0], rows[k][1]);
+    }
+    say(r, L"\nAdd it: screenplus import \"%ls\"\n", q->argv[1]);
+    sp_preview_free(p);
+}
+
 static void cmd_import(Reply *r, const Req *q)
 {
     if (q->argc < 2) {
@@ -1667,6 +1694,8 @@ static void run(Reply *r, const Req *q)
         cmd_apply(r, q);
     } else if (str_ieq(c, L"import") || str_ieq(c, L"add")) {
         cmd_import(r, q);
+    } else if (str_ieq(c, L"inspect")) {
+        cmd_inspect(r, q);
     } else if (str_ieq(c, L"export")) {
         cmd_export(r, q);
     } else if (str_ieq(c, L"remove") || str_ieq(c, L"rm")) {

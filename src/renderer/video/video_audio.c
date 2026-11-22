@@ -368,13 +368,42 @@ static unsigned __stdcall audio_main(void *arg)
 void audio_start(VideoSource *s)
 {
     if (s->adec || s->audioThread || s->aidx == -2 || !s->fmt) return;
-    int idx = av_find_best_stream(s->fmt, AVMEDIA_TYPE_AUDIO, -1, s->vidx, NULL, 0);
+    if (s->net && s->ytdlp && !s->afmt) {         /* like mpv: the sound may be a file of its own */
+        wchar_t e[SP_ERR_LEN] = L"";
+        double t0 = time_ms();
+        s->anet = netstream_open(s->path, 1, s->maxRes, 1, &s->quit, e, SP_COUNTOF(e));
+        AVFormatContext *f = s->anet ? avformat_alloc_context() : NULL;
+        if (f) {
+            f->interrupt_callback = s->fmt->interrupt_callback;
+            f->pb = netstream_avio(s->anet);
+            f->flags |= AVFMT_FLAG_CUSTOM_IO;
+            if (avformat_open_input(&f, s->pathUtf8, NULL, NULL) >= 0) {       /* frees f on failure */
+                f->max_analyze_duration = 3 * (int64_t)AV_TIME_BASE;
+                avformat_find_stream_info(f, NULL);
+                s->afmt = f;
+            }
+        }
+        if (s->afmt && !(s->apkt = av_packet_alloc())) avformat_close_input(&s->afmt);
+        if (s->afmt) {
+            /* join the picture where it is */
+            int64_t at = (int64_t)(s->lastRaw * AV_TIME_BASE);
+            avformat_seek_file(s->afmt, -1, INT64_MIN, at > 0 ? at : 0, at > 0 ? at : 0, 0);
+            s->aHave = s->aEof = 0;
+            LOGI(L"audio: separate sound stream opened in %.0f ms", time_ms() - t0);
+        } else {
+            if (e[0]) LOGW(L"audio: the sound stream could not be opened: %ls", e);
+            netstream_close(s->anet);
+            s->anet = NULL;
+        }
+    }
+    AVFormatContext *af = s->afmt ? s->afmt : s->fmt;
+    int idx = av_find_best_stream(af, AVMEDIA_TYPE_AUDIO, -1, s->afmt ? -1 : s->vidx, NULL, 0);
     if (idx < 0) {
         s->aidx = -2;
         LOGI(L"audio: %ls has no audio stream", path_filename(s->path));
         return;
     }
-    AVStream *st = s->fmt->streams[idx];
+    AVStream *st = af->streams[idx];
     const AVCodec *codec = avcodec_find_decoder(st->codecpar->codec_id);
     AVCodecContext *c = codec ? avcodec_alloc_context3(codec) : NULL;
     int ok = c && avcodec_parameters_to_context(c, st->codecpar) >= 0;
@@ -422,8 +451,15 @@ void audio_stop(VideoSource *s)
         InterlockedExchange(&s->playing, s->wantPlay);
         SetEvent(s->wake);
     }
-    if (s->aidx >= 0 && s->fmt && (unsigned)s->aidx < s->fmt->nb_streams)
+    if (s->afmt) {                                 /* the separate sound stream: closed, its network quiet */
+        avformat_close_input(&s->afmt);
+        av_packet_free(&s->apkt);
+        s->aHave = s->aEof = 0;
+    } else if (s->aidx >= 0 && s->fmt && (unsigned)s->aidx < s->fmt->nb_streams) {
         s->fmt->streams[s->aidx]->discard = AVDISCARD_ALL;
+    }
+    netstream_close(s->anet);
+    s->anet = NULL;
     pq_clear(&s->aq);
     avcodec_free_context(&s->adec);
     if (s->aidx >= 0) s->aidx = -1;

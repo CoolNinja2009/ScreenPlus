@@ -38,6 +38,7 @@ static const char k_help[] =
     "Wallpapers\n"
     "  list                   The library\n"
     "  import <path|url>...   Add files, folders, .spf, .spp or links (--apply, --page, --download)\n"
+    "  inspect <file>         What a .spf or .spp holds, without adding it\n"
     "  export <wallpaper> <file.spf>  Export wallpaper and customisation\n"
     "  export collection:<name> <file.spp>   Export collection and slideshow interval\n"
     "  apply <wallpaper>      Set a wallpaper (--display N for one display)\n"
@@ -206,7 +207,7 @@ static int send_command(int argc, char **argv)
         if (i) sb_puts(&q, ",");
         char full[MAX_PATH];
         /* a relative path means something only here: the service has its own working directory */
-        const char *arg = realpath(argv[i], full) && argv[i][0] != '-' && i > 0 && (!strcmp(argv[0], "import") || !strcmp(argv[0], "add")
+        const char *arg = realpath(argv[i], full) && argv[i][0] != '-' && i > 0 && (!strcmp(argv[0], "import") || !strcmp(argv[0], "add") || !strcmp(argv[0], "inspect")
                           || !strcmp(argv[0], "apply") || !strcmp(argv[0], "set")) ? full : argv[i];
         if (!strcmp(argv[0], "export") && i == 2 && argv[i][0] != '/' && getcwd(full, sizeof full)) {
             size_t n = strlen(full);

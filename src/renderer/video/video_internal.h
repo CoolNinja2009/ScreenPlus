@@ -95,6 +95,10 @@ struct VideoSource {
 
     /* stream wallpaper (path is a link): read through video_stream.c */
     NetStream        *net;
+    NetStream        *anet;                 /* the sound, when the site keeps it apart (opened with audio) */
+    AVFormatContext  *afmt;                 /* demuxer of anet; NULL: sound comes from fmt */
+    AVPacket         *apkt;                 /* afmt's next packet, read ahead */
+    int               aHave, aEof;
     int               ytdlp;                /* the link is a page yt-dlp resolves */
     int               maxRes;               /* quality: the display's smaller side, pixels */
 
@@ -144,7 +148,10 @@ double video_media_now(VideoSource *s);
 void   video_source_fail(VideoSource *s, HRESULT hr, const wchar_t *fmt, ...);
 
 /* video_stream.c: online videos read from small byte ranges kept in RAM (stream wallpapers) */
-NetStream     *netstream_open(const wchar_t *url, int ytdlp, int maxRes, volatile LONG *quit, wchar_t *err, size_t errCap);
+/* track 0: the picture (or picture and sound in one file); 1: the sound kept apart (NULL, err empty, when
+ * there is none) */
+NetStream     *netstream_open(const wchar_t *url, int ytdlp, int maxRes, int track, volatile LONG *quit, wchar_t *err,
+                              size_t errCap);
 AVIOContext   *netstream_avio(NetStream *n);        /* rewound to the start */
 const wchar_t *netstream_failure(NetStream *n);     /* why it stopped for good, NULL while it works */
 void           netstream_close(NetStream *n);

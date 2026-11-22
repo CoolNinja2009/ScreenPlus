@@ -1,14 +1,14 @@
 /* Import from a web link (the link button in the Library). One job at a time, on a worker thread, so
  * the window never waits on the network. What a link becomes:
  *   - an image: downloaded;
- *   - a video (a direct link, or a page yt-dlp knows): short ones (up to 10 minutes and 300 MB) are
- *     downloaded once, the cheapest way to loop them forever; longer ones, like the hours-long loops on
- *     YouTube, become stream wallpapers that the video renderer plays from small byte ranges kept in
- *     RAM (renderer/video/video_stream.c), the way mpv or Lively do: nothing is saved;
+ *   - a video (a page yt-dlp knows, or a direct link): it plays at once as a stream wallpaper, the way mpv
+ *     plays links: the best picture and sound up to the biggest display, as two files when the site keeps
+ *     them apart (YouTube above 360p), read in byte ranges into RAM (renderer/video/video_stream.c; a
+ *     video that fits is held whole in RAM). Nothing is saved. A direct link to a server without byte
+ *     ranges, or a page whose video can't be read in ranges (and is short), is downloaded instead;
  *   - a page without a video: a live web wallpaper (the existing WebView2 renderer).
- * "Download" saves any video, "Web page" always shows the page. yt-dlp picks one ready-to-play stream
- * no larger than the biggest display, avoiding AV1 and HDR (common/ytdlp.c), so the hardware-decoding
- * video renderer plays it. Downloads live in <data>\downloads and are deleted with their library entry;
+ * "Download" saves any video in the best quality at once, "Web page" always shows the page. AV1 and HDR
+ * are avoided (common/ytdlp.c), so the hardware-decoding video renderer plays it. Downloads live in <data>\downloads and are deleted with their library entry;
  * nothing is sent with a request but the address (no cookies, no sign-in). */
 #include "app.h"
 #include "../ui/ui.h"
@@ -24,8 +24,8 @@
 #include <wctype.h>
 
 #define DOWNLOAD_MAX ((int64_t)4 << 30)    /* direct downloads; yt-dlp gets --max-filesize 4G */
-#define SAVE_SECONDS 600.0                 /* Automatic: videos up to this long ... */
-#define SAVE_BYTES   ((int64_t)300 << 20)  /* ... and this large are downloaded, longer ones streamed */
+#define SAVE_SECONDS 600.0                 /* Automatic: a video that can't be streamed is downloaded up to this long ... */
+#define SAVE_BYTES   ((int64_t)300 << 20)  /* ... and this large */
 #define TITLE_SCAN   65536                 /* bytes of a page searched for its <title> */
 
 enum { RES_FAIL = 0, RES_FILE, RES_PAGE, RES_STREAM, RES_CANCELLED };
@@ -45,6 +45,10 @@ typedef struct UrlJob {
     wchar_t name[SP_NAME_LEN];      /* given by the caller (the Store): the entry's name and the file's */
     wchar_t error[300];
     int     fellBack;               /* RES_PAGE because yt-dlp found no video */
+    int     quiet;                  /* no status in the link panel */
+    wchar_t path2[SP_MAX_PATH];     /* the second track of a two-file download */
+    wchar_t partial[SP_MAX_PATH];   /* where yt-dlp keeps its pieces */
+    wchar_t entryId[SP_ID_LEN];     /* the entry a preview image is for */
 } UrlJob;
 
 static SRWLOCK        g_lock = SRWLOCK_INIT;
@@ -65,13 +69,13 @@ static void set_status(int percent, const wchar_t *text)
 
 static void stage(UrlJob *j, const wchar_t *text)
 {
-    if (!cancelled(j)) set_status(-1, text);
+    if (!j->quiet && !cancelled(j)) set_status(-1, text);
 }
 
 static void progress(UrlJob *j, const wchar_t *what, int64_t done, int64_t total)
 {
     double now = time_ms();
-    if (now - j->lastPost < 200.0 || cancelled(j)) return;     /* a few repaints a second at most */
+    if (j->quiet || now - j->lastPost < 200.0 || cancelled(j)) return;     /* a few repaints a second at most */
     j->lastPost = now;
     wchar_t text[SP_COUNTOF(g_state.text)];
     int pct = total > 0 ? (int)SP_MIN(100, done * 100 / total) : -1;
@@ -344,7 +348,7 @@ static void dl_line(void *ctx, char *line)
     }
     wchar_t *w = NULL;
     if (strncmp(line, "[sp-file] ", 10) == 0 && (w = wide_from_utf8(line + 10, -1)) != NULL)
-        str_copy(j->path, SP_COUNTOF(j->path), w);
+        str_copy(j->path[0] ? j->path2 : j->path, SP_COUNTOF(j->path), w);
     else if (strncmp(line, "[sp-title] ", 11) == 0 && (w = wide_from_utf8(line + 11, -1)) != NULL)
         str_copy(j->title, SP_COUNTOF(j->title), w);
     else if (strncmp(line, "ERROR: ", 7) == 0 && (w = wide_from_utf8(line + 7, -1)) != NULL)
@@ -352,12 +356,66 @@ static void dl_line(void *ctx, char *line)
     free(w);
 }
 
-/* Downloads the whole video into <data>\downloads (Download, or short videos). */
-static int run_download(UrlJob *j, wchar_t *why, size_t whyCap)
+/* "<title> [id].f137.webm" -> "<downloads>\<title> [id].mkv" (ext: NULL keeps the file's own). */
+static void final_name(const wchar_t *piece, const wchar_t *ext, wchar_t *out, size_t cap)
 {
-    wchar_t partial[SP_MAX_PATH], fmt[400];
-    partial_dir(partial, SP_COUNTOF(partial));
-    ytdlp_format(fmt, SP_COUNTOF(fmt), j->maxRes, 0);
+    wchar_t stem[SP_MAX_PATH], name[SP_MAX_PATH];
+    path_stem(stem, SP_COUNTOF(stem), piece);
+    wchar_t *f = wcsrchr(stem, L'.');
+    if (f && f[1] == L'f' && wcschr(f, L']') == NULL) *f = 0;          /* ".f<format id>" */
+    str_printf(name, SP_COUNTOF(name), L"%ls%ls", stem, ext ? ext : path_ext(piece));
+    path_join(out, cap, paths_downloads(), name);
+}
+
+static BOOL audio_only(const wchar_t *path)
+{
+    static const wchar_t *k[] = { L".m4a", L".mp3", L".opus", L".ogg", L".aac", L".weba", L".flac", L".wav" };
+    for (size_t i = 0; i < SP_COUNTOF(k); i++)
+        if (str_ieq(path_ext(path), k[i])) return TRUE;
+    return FALSE;
+}
+
+/* Puts the download in <data>\downloads: two tracks joined into one .mkv, or the one file moved. */
+static int place_download(UrlJob *j, wchar_t *why, size_t whyCap)
+{
+    wchar_t dest[SP_MAX_PATH];
+    BOOL ok;
+    if (j->path2[0]) {
+        const wchar_t *video = j->path, *audio = j->path2;
+        if (audio_only(j->path)) {                 /* yt-dlp may give the sound first */
+            video = j->path2;
+            audio = j->path;
+        }
+        final_name(video, L".mkv", dest, SP_COUNTOF(dest));
+        stage(j, L"Joining picture and sound…");
+        ok = remux_join(video, audio, dest) || remux_join(audio, video, dest);   /* sound may come as .webm too */
+        DeleteFileW(j->path);
+        DeleteFileW(j->path2);
+        if (!ok) {
+            str_copy(why, whyCap, L"The video's picture and sound could not be joined.");
+            return YT_FAIL;
+        }
+    } else {
+        final_name(j->path, NULL, dest, SP_COUNTOF(dest));
+        if (!MoveFileExW(j->path, dest, MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
+            str_printf(why, whyCap, L"Could not save the download (error %lu).", GetLastError());
+            DeleteFileW(j->path);
+            return YT_FAIL;
+        }
+    }
+    str_copy(j->path, SP_COUNTOF(j->path), dest);
+    j->path2[0] = 0;
+    return YT_OK;
+}
+
+/* Downloads the whole video into <data>\downloads. hq: the best picture and sound as separate tracks
+ * (YouTube offers more than 360p only that way), joined locally (remux.c); if that fails, the
+ * single-file format. */
+static int run_download(UrlJob *j, wchar_t *why, size_t whyCap, int hq)
+{
+    wchar_t fmt[400];
+    if (!j->partial[0]) partial_dir(j->partial, SP_COUNTOF(j->partial));
+    ytdlp_format(fmt, SP_COUNTOF(fmt), j->maxRes, hq ? 2 : 0);
     size_t cap = 4 * SP_MAX_PATH + 1024;
     wchar_t *args = (wchar_t *)malloc(cap * sizeof(wchar_t));
     DlCtx *c = (DlCtx *)calloc(1, sizeof *c);
@@ -368,17 +426,20 @@ static int run_download(UrlJob *j, wchar_t *why, size_t whyCap)
         return YT_FAIL;
     }
     c->j = j;
+    j->path[0] = j->path2[0] = 0;
     str_printf(args, cap,
                L"--newline --progress --progress-template \"download:[sp] %%(progress.downloaded_bytes)s "
                L"%%(progress.total_bytes)s %%(progress.total_bytes_estimate)s\" "
                L"--print \"after_move:[sp-file] %%(filepath)s\" --print \"after_move:[sp-title] %%(title)s\" "
-               L"--max-filesize 4G --force-overwrites %ls -P \"home:%ls\" -P \"temp:%ls\" -o \"%%(title).80B [%%(id).30B].%%(ext)s\" -- \"%ls\"",
-               fmt, paths_downloads(), partial, j->url);
-    int code = ytdlp_run(args, partial, j->cancel, NULL, dl_line, c, why, whyCap);
+               L"--max-filesize 4G --force-overwrites %ls -P \"home:%ls\" -P \"temp:%ls\" "
+               L"-o \"%%(title).80B [%%(id).30B]%ls.%%(ext)s\" -- \"%ls\"",
+               fmt, hq ? j->partial : paths_downloads(), j->partial, hq ? L".f%(format_id)s" : L"", j->url);
+    int code = ytdlp_run(args, j->partial, j->cancel, NULL, dl_line, c, why, whyCap);
     free(args);
     int r = YT_FAIL;
     if (cancelled(j)) r = YT_CANCELLED;
-    else if (code == 0 && j->path[0] && file_exists(j->path)) r = YT_OK;
+    else if (code == 0 && j->path[0] && file_exists(j->path) && (!j->path2[0] || file_exists(j->path2)))
+        r = hq ? place_download(j, why, whyCap) : YT_OK;
     else if (wcsstr(c->err, L"Unsupported URL")) r = YT_UNSUPPORTED;
     else {
         LOGW(L"url import: yt-dlp exited with %d, file '%ls': %ls", code, j->path, c->err[0] ? c->err : L"no error");
@@ -391,6 +452,11 @@ static int run_download(UrlJob *j, wchar_t *why, size_t whyCap)
             str_printf(why, whyCap, L"yt-dlp stopped unexpectedly (exit code %d).", code);
     }
     free(c);
+    if (r == YT_FAIL && hq && !cancelled(j)) {     /* one file still gives a video */
+        LOGW(L"url import: high-quality download failed (%ls); trying a single file", why);
+        why[0] = 0;
+        return run_download(j, why, whyCap, 0);
+    }
     return r;
 }
 
@@ -419,7 +485,7 @@ static void run_video_page(UrlJob *j, int isPage, const wchar_t *pageTitle)
     int r;
     if (j->mode == URLMODE_DOWNLOAD) {
         stage(j, L"Looking for a video on the page…");
-        r = run_download(j, why, SP_COUNTOF(why));
+        r = run_download(j, why, SP_COUNTOF(why), 1);
     } else {
         stage(j, L"Looking for a video on the page…");
         YtStream *yt = (YtStream *)calloc(1, sizeof *yt);
@@ -435,22 +501,22 @@ static void run_video_page(UrlJob *j, int isPage, const wchar_t *pageTitle)
             str_copy(why, SP_COUNTOF(why), L"Live streams can't be used as wallpapers.");
         } else {
             int brief = yt->duration > 0 && yt->duration <= SAVE_SECONDS && (yt->size < 0 || yt->size <= SAVE_BYTES);
-            if (brief || !yt->streamable) {
+            if (!yt->streamable) {
                 if (!brief && yt->duration > SAVE_SECONDS) {
                     str_printf(why, SP_COUNTOF(why), L"This %.0f-minute video is only offered in pieces Screen+ can't "
                                L"stream. Choose Download to save it anyway.", yt->duration / 60.0);
                     r = YT_FAIL;
                 } else {
-                    r = run_download(j, why, SP_COUNTOF(why));
+                    r = run_download(j, why, SP_COUNTOF(why), 1);
                 }
-            } else {                                   /* long: a stream wallpaper, nothing saved */
+            } else {    /* every video plays at once as a stream, in the best quality, nothing saved */
                 str_copy(j->path, SP_COUNTOF(j->path), j->url);
                 str_copy(j->title, SP_COUNTOF(j->title), yt->title);
                 j->flags = WPFLAG_URL | WPFLAG_YTDLP;
                 ytdlp_cache_save(j->url, yt);          /* its first play starts right away */
                 fetch_thumb(j, yt->thumb);
-                LOGI(L"url import: streams %ls (format %ls, %.0f min, %.0f MB)", j->url, yt->format, yt->duration / 60.0,
-                     yt->size / 1048576.0);
+                LOGI(L"url import: streams %ls (format %ls, %.0f min, %.0f MB%ls)", j->url, yt->format, yt->duration / 60.0,
+                     (yt->size + SP_MAX(yt->asize, 0)) / 1048576.0, yt->aurl[0] ? L", picture and sound apart" : L"");
                 j->result = RES_STREAM;
                 free(yt);
                 return;
@@ -513,7 +579,7 @@ static void run(UrlJob *j)
             wchar_t probe[24];
             str_printf(probe, SP_COUNTOF(probe), L"x%ls", ext);
             if (j->mode == URLMODE_AUTO && wallpaper_type_from_path(probe) == WP_VIDEO && http_ranges(g) &&
-                http_length(g) > SAVE_BYTES) {         /* a large video file: streamed from the link */
+                http_length(g) > 0) {                  /* a video file: streamed from the link into RAM */
                 str_copy(j->path, SP_COUNTOF(j->path), j->url);
                 j->flags = WPFLAG_URL;
                 j->result = RES_STREAM;
@@ -572,6 +638,86 @@ static DWORD WINAPI worker(LPVOID p)
     if (j->result != RES_FILE) clean_partial();
     PostMessageW(g_app.shellWnd, WM_SP_URLIMPORT, 1, (LPARAM)j);
     return 0;
+}
+
+/* ---------------------------------------------------------------- missing previews */
+
+/* Stream wallpapers whose preview image is missing (imported by an older Screen+, or the image was
+ * cleaned up) get it again at startup: yt-dlp looks the page up once, in the background, and the
+ * entry's thumbnail is set on the shell thread (thumb_done). */
+typedef struct ThumbReq {
+    struct ThumbReq *next;
+    wchar_t url[SP_MAX_PATH];
+    wchar_t id[SP_ID_LEN];
+} ThumbReq;
+
+static ThumbReq *g_thumbHead;
+static HANDLE    g_thumbThread, g_thumbStop;
+
+static DWORD WINAPI thumb_worker(LPVOID p)
+{
+    (void)p;
+    if (WaitForSingleObject(g_thumbStop, 15000) == WAIT_OBJECT_0) return 0;    /* let the desktop settle */
+    for (ThumbReq *q; (q = g_thumbHead) != NULL; free(q)) {
+        g_thumbHead = q->next;
+        if (WaitForSingleObject(g_thumbStop, 0) == WAIT_OBJECT_0) continue;
+        YtStream *yt = (YtStream *)calloc(1, sizeof *yt);
+        UrlJob *t = (UrlJob *)calloc(1, sizeof *t);
+        if (yt && t && ytdlp_resolve(q->url, 1080, NULL, g_thumbStop, NULL, yt) && yt->thumb[0]) {
+            str_copy(t->url, SP_COUNTOF(t->url), q->url);
+            str_copy(t->entryId, SP_COUNTOF(t->entryId), q->id);
+            t->cancel = g_thumbStop;
+            fetch_thumb(t, yt->thumb);
+            if (t->thumb[0] && PostMessageW(g_app.shellWnd, WM_SP_URLIMPORT, 3, (LPARAM)t)) t = NULL;  /* thumb_done frees it */
+        }
+        free(t);
+        free(yt);
+    }
+    return 0;
+}
+
+void url_import_fetch_thumbs(void)
+{
+    ThumbReq **tail = &g_thumbHead;
+    int n = 0;
+    for (int i = 0; i < g_app.cfg.count && !g_thumbThread; i++) {
+        const WallpaperEntry *e = &g_app.cfg.items[i];
+        if (e->type != WP_VIDEO || !(e->flags & WPFLAG_YTDLP) || (e->thumb[0] && file_exists(e->thumb))) continue;
+        ThumbReq *q = (ThumbReq *)calloc(1, sizeof *q);
+        if (!q) break;
+        str_copy(q->url, SP_COUNTOF(q->url), e->path);
+        str_copy(q->id, SP_COUNTOF(q->id), e->id);
+        *tail = q;
+        tail = &q->next;
+        n++;
+    }
+    if (!n) return;
+    g_thumbStop = CreateEventW(NULL, TRUE, FALSE, NULL);
+    g_thumbThread = g_thumbStop ? CreateThread(NULL, 0, thumb_worker, NULL, 0, NULL) : NULL;
+    if (g_thumbThread) SetThreadPriority(g_thumbThread, THREAD_PRIORITY_BELOW_NORMAL);
+    LOGI(L"url import: %d stream wallpaper%ls without a preview image", n, n == 1 ? L"" : L"s");
+}
+
+/* Shell thread: a stream wallpaper's preview image arrived. */
+static void thumb_done(UrlJob *t)
+{
+    WallpaperEntry *e = config_find(&g_app.cfg, t->entryId);
+    if (e && str_ieq(e->path, t->url) && (!e->thumb[0] || !file_exists(e->thumb))) {
+        str_copy(e->thumb, SP_COUNTOF(e->thumb), t->thumb);
+        app_save_config();
+        ui_on_config_changed();
+    } else if (!e || (e->thumb[0] && !str_ieq(e->thumb, t->thumb))) {
+        DeleteFileW(t->thumb);
+    }
+    free(t);
+}
+
+static void thumbs_shutdown(void)
+{
+    if (!g_thumbThread) return;
+    SetEvent(g_thumbStop);
+    if (WaitForSingleObject(g_thumbThread, 10000) == WAIT_OBJECT_0) CloseHandle(g_thumbThread);
+    g_thumbThread = NULL;                          /* still running: process exit ends it */
 }
 
 /* ---------------------------------------------------------------- shell thread */
@@ -714,6 +860,10 @@ static int add_entry(UrlJob *j, WallpaperType type, int flags, wchar_t *text, si
 void url_import_on_event(WPARAM wp, LPARAM lp)
 {
     UrlJob *j = (UrlJob *)lp;
+    if (wp == 3 && j) {                            /* a stream's preview image arrived */
+        thumb_done(j);
+        return;
+    }
     if (!wp || !j || j != g_job) {                 /* progress: repaint */
         ui_on_status();
         return;
@@ -755,6 +905,7 @@ void url_import_on_event(WPARAM wp, LPARAM lp)
 
 void url_import_shutdown(void)
 {
+    thumbs_shutdown();
     if (!g_job) return;
     SetEvent(g_job->cancel);
     if (g_thread && WaitForSingleObject(g_thread, 10000) == WAIT_OBJECT_0) {

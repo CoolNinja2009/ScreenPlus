@@ -13,24 +13,27 @@ int  ytdlp_run(const wchar_t *args, const wchar_t *workDir, HANDLE cancel, volat
 
 /* -f/-S options: one file with video (never merged: there is no ffmpeg.exe), no larger than maxRes
  * (the display's smaller side), AV1 and HDR only as a last resort. stream: prefer a single http(s)
- * file that can be read in byte ranges (YouTube's DASH formats are). */
+ * file that can be read in byte ranges (YouTube's DASH formats are). stream 2: a download of the best
+ * video and audio as two files (joined by remux.c), or one file when the site has no separate tracks. */
 void ytdlp_format(wchar_t *out, size_t cap, int maxRes, int stream);
 
 /* "[youtube] abc: Private video. Use --cookies ..." -> "Private video." */
 void ytdlp_tidy_error(wchar_t *s);
 
 typedef struct YtStream {
-    wchar_t url[4096];          /* media address (temporary) */
+    wchar_t url[4096];          /* media address (temporary): the picture, or picture and sound */
+    wchar_t aurl[4096];         /* the sound, when the site keeps it apart (YouTube above 360p) */
     wchar_t headers[2048];      /* request headers yt-dlp would send ("Name: value\r\n"...) */
-    wchar_t format[32];         /* format id: a fresh address must point at the same file */
+    wchar_t format[32];         /* format id ("271+251"): a fresh address must point at the same files */
     wchar_t protocol[32];
     wchar_t title[SP_NAME_LEN];
     wchar_t thumb[1024];        /* preview image URL */
     wchar_t error[300];
     int64_t size;               /* bytes, -1 unknown */
+    int64_t asize;              /* the sound's bytes, -1 unknown */
     int64_t expires;            /* unix seconds, 0 unknown */
     double  duration;           /* seconds, 0 unknown */
-    int     streamable;         /* a single http(s) file */
+    int     streamable;         /* http(s) files that can be read in byte ranges */
     int     live;               /* a live broadcast: no end, no file */
     int     unsupported;        /* yt-dlp has no extractor for the page */
 } YtStream;

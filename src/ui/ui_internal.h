@@ -50,6 +50,7 @@ enum HitKind {
     HK_SORT,                          /* the Library's sort menu */
     HK_SEL,                           /* selection bar; data: SEL_* */
     HK_COLL_TEXT, HK_COLL_SAVE, HK_COLL_CANCEL, HK_COLL_PANEL, /* new collection dialog */
+    HK_PREVIEW_ADD, HK_PREVIEW_CANCEL, HK_PREVIEW_PANEL,       /* an opened .spf/.spp */
     HK_VOLUME,                        /* volume slider; data 0: Settings (every wallpaper), 1: Customise (this one) */
     HK_SLIDE_SEC,                     /* Customise: a presentation's seconds per slide; data: seconds */
     HK_SLIDE_MIN,                     /* Settings: slideshow minutes; data: minutes */
@@ -185,6 +186,8 @@ typedef struct Ui {
     float                  gridX, colW;    /* grid left edge and column pitch */
     float                  pressX, pressY; /* where the button went down */
     int                    cardDrag;       /* a library card is being dragged to a new place */
+    int                    cardAway;       /* ...and has left the grid: the Shell draws it, the grid keeps its gap */
+    D2D1_RECT_F            dragDrawn;      /* where the dragged card was last drawn, lift included */
     float                  tog[TOG_COUNT], togTarget[TOG_COUNT], togVelocity[TOG_COUNT];
     double                 showRequestedAt;
 
@@ -258,6 +261,9 @@ void pages_drag(int id, float x, float y, int commit);      /* sliders + colour 
 int  pages_is_drag(int kind);                               /* a control pages_drag tracks while pressed */
 int  pages_card_drag(float x, float y);                     /* moves the pressed library card under (x, y) */
 void pages_card_drop(void);                                 /* saves the order a card drag left */
+void pages_preview_open(const wchar_t *file);               /* shows what a .spf/.spp holds, before adding it */
+int  pages_preview_key(UINT vk);                            /* 1: the open preview took the key */
+int  pages_preview_wheel(int delta);                        /* 1: the open preview scrolled */
 int  pages_marquee_begin(float x, float y);                 /* Library: press on empty space (1: started) */
 void pages_marquee_move(float x, float y);
 void pages_marquee_end(void);                               /* no drag: clears the selection */

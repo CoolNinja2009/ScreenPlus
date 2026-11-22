@@ -104,8 +104,8 @@ BOOL url_import_start(const wchar_t *url, int mode)
         } else {
             snprintf(out, sizeof out, "%s/%s.%%(title).100B.%%(ext)s", d, stem);   /* url_import_tick names the entry from it */
             /* Automatic: up to 10 minutes and 300 MB are saved, anything longer plays as a stream */
-            const char *argv[] = { "yt-dlp", "--no-playlist", "--no-part", "--merge-output-format", "mp4", "-o", out, u, NULL };
-            const char *brief[] = { "yt-dlp", "--no-playlist", "--no-part", "--merge-output-format", "mp4", "--match-filter", "duration<=600",
+            const char *argv[] = { "yt-dlp", "--no-playlist", "--no-part", "-N", "4", "--merge-output-format", "mp4", "-o", out, u, NULL };
+            const char *brief[] = { "yt-dlp", "--no-playlist", "--no-part", "-N", "4", "--merge-output-format", "mp4", "--match-filter", "duration<=600",
                                     "--max-filesize", "300M", "-o", out, u, NULL };
             str_copy(g_link, SP_COUNTOF(g_link), mode == URLMODE_AUTO ? url : L"");
             pid = sp_on_path("yt-dlp") ? spawn(mode == URLMODE_AUTO ? brief : argv) : -1;

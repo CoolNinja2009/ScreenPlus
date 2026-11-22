@@ -1,12 +1,14 @@
-/* Stream wallpapers: online videos played the way mpv or Lively play them, without saving them.
- * FFmpeg (built without network code) reads the media through this AVIOContext, from byte ranges
- * fetched with WinHTTP into a small RAM cache: NS_SLOTS chunks of NS_CHUNK bytes, 32 MB at most. The
- * first chunk is kept, so every loop restarts at once. A background thread keeps the next NS_AHEAD
- * chunks ready and then sleeps: when the wallpaper pauses, FFmpeg stops reading and the network goes
- * quiet. A video that fits in the cache plays from RAM after its first loop. Links to pages
- * (WPFLAG_YTDLP) are resolved by yt-dlp to a media address (common/ytdlp.c, cached in cache\streams
- * until shortly before it expires) and resolved again, to the same format, before it lapses or when
- * the server refuses it. Network trouble pauses the picture and is retried with backoff. */
+/* Stream wallpapers: online videos played the way mpv plays them, without saving them. FFmpeg (built
+ * without network code) reads the media through this AVIOContext, from byte ranges fetched with WinHTTP
+ * into RAM in chunks of NS_CHUNK bytes. Like mpv with yt-dlp, a page's best picture and best sound are
+ * two files (YouTube offers more than 360p only that way): each is one NetStream (track 0 and 1), and the
+ * video source reads both side by side. RAM holds only two parts of a video: its first HEAD_SECONDS,
+ * kept for good so every loop restarts at once, and the next AHEAD_SECONDS from where it plays.
+ * Footage already played is dropped and fetched again on the next loop, so a long video costs a few
+ * tens of MB, not its size. When the wallpaper pauses, FFmpeg stops reading and the network goes quiet. Links to pages (WPFLAG_YTDLP) are resolved by yt-dlp to media addresses (common/ytdlp.c,
+ * cached in cache\streams until shortly before they expire) and resolved again, to the same formats,
+ * before they lapse or when the server refuses them. Network trouble pauses the picture and is retried
+ * with backoff. */
 #include "video_internal.h"
 #include "../../common/util.h"
 #include "../../common/log.h"
@@ -17,8 +19,11 @@
 #include <string.h>
 
 #define NS_CHUNK (4 << 20)
-#define NS_SLOTS 8
-#define NS_AHEAD 4
+#define NS_SLOTS 8                       /* until the size is known */
+#define NS_AHEAD 6                       /* chunks ahead when the length is unknown */
+#define HEAD_SECONDS  20.0               /* kept for good: every loop starts at once */
+#define AHEAD_SECONDS 30.0               /* kept ready ahead of the picture */
+#define NS_MAXCHUNKS  32                 /* each part: 128 MB at most */
 #define NS_IOBUF (64 << 10)
 #define ST_NORANGES 1000                 /* range_get: the server sends whole files only */
 
@@ -33,6 +38,7 @@ typedef struct Slot {
 struct NetStream {
     wchar_t            page[SP_MAX_PATH];  /* the wallpaper's link */
     int                ytdlp, maxRes;
+    int                track;              /* 0: picture (or both), 1: sound */
     volatile LONG     *quit;               /* the video source is closing */
     YtStream          *yt;                 /* resolved address (ytdlp) */
     const wchar_t     *url;                /* media address in use */
@@ -42,7 +48,10 @@ struct NetStream {
 
     SRWLOCK            lock;
     CONDITION_VARIABLE work, ready;
-    Slot               slots[NS_SLOTS];
+    Slot              *slots;
+    int                slotCount;          /* chunks the RAM cache holds */
+    int                ahead;              /* chunks kept ready ahead of the reader */
+    int                head;               /* first chunks, never dropped */
     int64_t            want;               /* chunk the reader is in */
     uint32_t           tick;
     int                stop, failed;
@@ -138,11 +147,14 @@ static int refresh(NetStream *n)
     n->resolvedAt = now;
     YtStream *fresh = (YtStream *)calloc(1, sizeof *fresh);
     if (!fresh) return 0;
+    int64_t was = n->track ? fresh->asize : fresh->size;
     int ok = ytdlp_resolve(n->page, n->maxRes, n->yt->format, n->stopEvent, NULL, fresh) && fresh->streamable &&
-             (fresh->size <= 0 || n->size <= 0 || fresh->size == n->size);   /* the same file */
+             (!n->track || fresh->aurl[0]);
+    was = n->track ? fresh->asize : fresh->size;
+    ok = ok && (was <= 0 || n->size <= 0 || was == n->size);                 /* the same file */
     if (ok) {
         memcpy(n->yt, fresh, sizeof *fresh);
-        n->url = n->yt->url;
+        n->url = n->track ? n->yt->aurl : n->yt->url;
         ytdlp_cache_save(n->page, n->yt);
         LOGI(L"video: new stream address for %ls", n->page);
     } else if (!n->stop) {
@@ -180,7 +192,7 @@ static BOOL fetch(NetStream *n, int64_t idx, uint8_t *buf, int *len)
 
 static Slot *find(NetStream *n, int64_t idx)
 {
-    for (int i = 0; i < NS_SLOTS; i++)
+    for (int i = 0; i < n->slotCount; i++)
         if (n->slots[i].state && n->slots[i].index == idx) return &n->slots[i];
     return NULL;
 }
@@ -190,10 +202,10 @@ static Slot *find(NetStream *n, int64_t idx)
 static Slot *victim(NetStream *n)
 {
     Slot *best = NULL;
-    for (int i = 0; i < NS_SLOTS; i++) {
+    for (int i = 0; i < n->slotCount; i++) {
         Slot *s = &n->slots[i];
         if (s->state == 0) return s;
-        if (s->state == 1 || s->index == 0 || (s->index >= n->want && s->index < n->want + NS_AHEAD)) continue;
+        if (s->state == 1 || s->index < n->head || (s->index >= n->want && s->index < n->want + n->ahead)) continue;
         if (!best || (int32_t)(s->used - best->used) < 0) best = s;
     }
     return best;
@@ -208,8 +220,10 @@ static unsigned __stdcall prefetch_main(void *arg)
     AcquireSRWLockExclusive(&n->lock);
     while (!n->stop) {
         int64_t next = -1;
-        for (int64_t i = n->want; i < n->want + NS_AHEAD && i < chunks && next < 0; i++)
+        for (int64_t k = 0; k < n->ahead && k < chunks && next < 0; k++) {
+            int64_t i = (n->want + k) % chunks;    /* near the end: the start again, for the loop */
             if (!find(n, i)) next = i;
+        }
         Slot *s = next >= 0 ? victim(n) : NULL;
         if (!s) {                                  /* window full: wait for the reader to move on */
             SleepConditionVariableSRW(&n->work, &n->lock, INFINITE, 0);
@@ -283,7 +297,16 @@ static int64_t ns_seek(void *opaque, int64_t offset, int whence)
 
 /* ---------------------------------------------------------------- lifetime */
 
-NetStream *netstream_open(const wchar_t *url, int ytdlp, int maxRes, volatile LONG *quit, wchar_t *err, size_t errCap)
+/* Chunks that hold `seconds` of a file of `size` bytes lasting `duration` seconds. */
+static int chunks_for(double seconds, int64_t size, double duration, int fallback)
+{
+    if (duration <= 0 || size <= 0) return fallback;
+    double bytes = seconds * (double)size / duration;
+    return (int)SP_CLAMP((int64_t)(bytes / NS_CHUNK) + 1, 1, NS_MAXCHUNKS);
+}
+
+NetStream *netstream_open(const wchar_t *url, int ytdlp, int maxRes, int track, volatile LONG *quit, wchar_t *err,
+                          size_t errCap)
 {
     NetStream *n = (NetStream *)calloc(1, sizeof *n);
     if (!n) {
@@ -293,17 +316,22 @@ NetStream *netstream_open(const wchar_t *url, int ytdlp, int maxRes, volatile LO
     double t0 = time_ms();
     str_copy(n->page, SP_COUNTOF(n->page), url);
     n->ytdlp = ytdlp;
+    n->track = track;
     n->maxRes = maxRes > 0 ? maxRes : 1080;
+    n->slotCount = NS_SLOTS;
+    n->ahead = NS_AHEAD;
+    n->head = 1;
     n->quit = quit;
     n->url = n->page;
     InitializeSRWLock(&n->lock);
     InitializeConditionVariable(&n->work);
     InitializeConditionVariable(&n->ready);
-    for (int i = 0; i < NS_SLOTS; i++) n->slots[i].index = -1;
+    n->slots = (Slot *)calloc(NS_SLOTS, sizeof *n->slots);
+    for (int i = 0; n->slots && i < NS_SLOTS; i++) n->slots[i].index = -1;
     n->stopEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
-    Slot *s0 = &n->slots[0];
-    s0->data = (uint8_t *)malloc(NS_CHUNK);
-    if (!n->stopEvent || !s0->data || (ytdlp && !(n->yt = (YtStream *)calloc(1, sizeof *n->yt)))) {
+    Slot *s0 = n->slots;
+    if (s0) s0->data = (uint8_t *)malloc(NS_CHUNK);
+    if (!n->stopEvent || !s0 || !s0->data || (ytdlp && !(n->yt = (YtStream *)calloc(1, sizeof *n->yt)))) {
         str_copy(err, errCap, L"Out of memory");
         netstream_close(n);
         return NULL;
@@ -321,7 +349,16 @@ NetStream *netstream_open(const wchar_t *url, int ytdlp, int maxRes, volatile LO
             }
             ytdlp_cache_save(url, n->yt);
         }
-        n->url = n->yt->url;
+        if (track && !n->yt->aurl[0]) {               /* one file holds both: nothing more to read */
+            err[0] = 0;
+            netstream_close(n);
+            return NULL;
+        }
+        n->url = track ? n->yt->aurl : n->yt->url;
+    } else if (track) {
+        err[0] = 0;
+        netstream_close(n);
+        return NULL;
     }
     /* the first chunk tells the size and stays: every loop starts there */
     st = range_get(n, 0, s0->data, NS_CHUNK, &got, &total);
@@ -334,6 +371,25 @@ NetStream *netstream_open(const wchar_t *url, int ytdlp, int maxRes, volatile LO
         return NULL;
     }
     n->size = total > 0 ? total : got;
+    int64_t chunks = (n->size + NS_CHUNK - 1) / NS_CHUNK;
+    double duration = n->yt ? n->yt->duration : 0;
+    n->head = chunks_for(HEAD_SECONDS, n->size, duration, 2);
+    n->ahead = SP_MAX(chunks_for(AHEAD_SECONDS, n->size, duration, NS_AHEAD), 2);
+    n->slotCount = (int)SP_MIN((int64_t)n->head + n->ahead + 2, SP_MAX(chunks, 1));   /* +2: the one in use, one spare */
+    n->slotCount = SP_MAX(n->slotCount, NS_SLOTS);
+    if (n->slotCount > NS_SLOTS) {
+        Slot *more = (Slot *)realloc(n->slots, (size_t)n->slotCount * sizeof *more);
+        if (!more) {
+            n->slotCount = NS_SLOTS;
+            n->head = 1;
+            n->ahead = NS_AHEAD;
+        } else {
+            n->slots = more;
+            s0 = &n->slots[0];
+            ZeroMemory(&n->slots[NS_SLOTS], (size_t)(n->slotCount - NS_SLOTS) * sizeof *more);
+            for (int i = NS_SLOTS; i < n->slotCount; i++) n->slots[i].index = -1;
+        }
+    }
     s0->index = 0;
     s0->len = got;
     s0->state = 2;
@@ -347,7 +403,8 @@ NetStream *netstream_open(const wchar_t *url, int ytdlp, int maxRes, volatile LO
         netstream_close(n);
         return NULL;
     }
-    LOGI(L"video: streaming %ls (%.0f MB%ls), started in %.0f ms", url, n->size / 1048576.0,
+    LOGI(L"video: streaming %ls%ls (%.0f MB, RAM %d MB: start %d + ahead %d MB%ls), started in %.0f ms", track ? L"sound of " : L"",
+         url, n->size / 1048576.0, (int)SP_MIN((int64_t)n->slotCount, chunks) * (NS_CHUNK >> 20), n->head * (NS_CHUNK >> 20), n->ahead * (NS_CHUNK >> 20),
          !ytdlp ? L"" : cached ? L", saved address" : L", via yt-dlp", time_ms() - t0);
     return n;
 }
@@ -390,7 +447,8 @@ void netstream_close(NetStream *n)
         av_freep(&n->avio->buffer);
         avio_context_free(&n->avio);
     }
-    for (int i = 0; i < NS_SLOTS; i++) free(n->slots[i].data);
+    for (int i = 0; n->slots && i < n->slotCount; i++) free(n->slots[i].data);
+    free(n->slots);
     if (n->conn) WinHttpCloseHandle(n->conn);
     if (n->session) WinHttpCloseHandle(n->session);
     if (n->stopEvent) CloseHandle(n->stopEvent);

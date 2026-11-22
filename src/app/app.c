@@ -255,8 +255,7 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             const wchar_t *path = (const wchar_t *)cds->lpData;
             if (path[cds->cbData / sizeof(wchar_t) - 1] == 0 &&
                 (str_ieq(path_ext(path), L".spf") || str_ieq(path_ext(path), L".spp"))) {
-                library_import(&path, 1, FALSE);
-                app_show_ui();
+                ui_preview_file(path);           /* what it holds first; its Add button imports */
                 return TRUE;
             }
         }
@@ -484,11 +483,12 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
 
     /* Library upkeep after the engine is on its way: none of it changes what the desktop shows first. */
     url_import_sweep();               /* half-finished downloads */
+    url_import_fetch_thumbs();        /* stream wallpapers without a preview image */
     if (loaded) library_purge();      /* removed entries' files that were in use; never checked against a damaged library */
     if (g_app.cfg.s.livelyImport)
         library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
     library_check_missing();
-    if (importPath) library_import(&importPath, 1, FALSE);
+    if (importPath) ui_preview_file(importPath);   /* opened from Explorer: show it, add on request */
 
     depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
     depth_upscale_video_auto();     /* resume any selected video cache that was interrupted by shutdown */

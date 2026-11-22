@@ -167,10 +167,16 @@ void ytdlp_format(wchar_t *out, size_t cap, int maxRes, int stream)
      * streams) and ships FFmpeg libraries, not ffmpeg.exe, so it cannot merge DASH video/audio
      * formats after yt-dlp downloads them. Prefer a combined A/V format and don't silently pick
      * a video-only format when a site offers only separate tracks. */
-    if (stream)
+    if (stream == 1)    /* like mpv: the best picture and sound as two files read side by side (video_stream.c) */
         str_printf(out, cap,
-                   L"-f \"b[protocol~='^https?$'][vcodec!^=?av01][dynamic_range=?SDR]/b[protocol~='^https?$'][vcodec!^=?av01]/"
-                   L"b[protocol~='^https?$']/b\" -S \"res:%d\"", maxRes);
+                   L"-f \"bv[protocol~='^https?$'][vcodec!^=?av01][dynamic_range=?SDR]+ba[protocol~='^https?$']/"
+                   L"bv[protocol~='^https?$'][vcodec!^=?av01]+ba[protocol~='^https?$']/"
+                   L"b[protocol~='^https?$'][vcodec!^=?av01][dynamic_range=?SDR]/b[protocol~='^https?$'][vcodec!^=?av01]/"
+                   L"b[protocol~='^https?$']/b\" -S \"res:%d,fps\"", maxRes);
+    else if (stream == 2)     /* separate best video and audio (remux.c joins them), else one file */
+        str_printf(out, cap,
+                   L"-f \"((bv[vcodec!^=?av01][dynamic_range=?SDR]/bv[vcodec!^=?av01]/bv),ba)/"
+                   L"b[vcodec!^=?av01][dynamic_range=?SDR]/b[vcodec!^=?av01]/b\" -S \"res:%d,fps\" -N 4", maxRes);
     else
         str_printf(out, cap, L"-f \"b[vcodec!^=?av01][dynamic_range=?SDR]/b[vcodec!^=?av01]/b\" -S \"res:%d\"", maxRes);
 }
@@ -202,7 +208,16 @@ static void resolve_line(void *ctx, char *line)
 {
     YtStream *s = (YtStream *)ctx;
     if (strncmp(line, "[sp-url] ", 9) == 0) {
-        put_wide(s->url, SP_COUNTOF(s->url), line + 9);
+        if (strncmp(line + 9, "http", 4) == 0) put_wide(s->url, SP_COUNTOF(s->url), line + 9);
+    } else if (strncmp(line, "[sp-v] ", 7) == 0) {    /* two files: the picture ... */
+        if (strncmp(line + 7, "http", 4) == 0) put_wide(s->url, SP_COUNTOF(s->url), line + 7);
+    } else if (strncmp(line, "[sp-a] ", 7) == 0) {    /* ... and the sound */
+        if (strncmp(line + 7, "http", 4) == 0) put_wide(s->aurl, SP_COUNTOF(s->aurl), line + 7);
+    } else if (strncmp(line, "[sp-sizes] ", 11) == 0) {
+        char *end = NULL;
+        double v = strtod(line + 11, &end);
+        if (end != line + 11 && v > 0) s->size = (int64_t)v;
+        if (end && *end == ' ' && end[1] >= '0' && end[1] <= '9') s->asize = (int64_t)strtod(end + 1, NULL);
     } else if (strncmp(line, "[sp-fmt] ", 9) == 0) {
         char *sp = strchr(line + 9, ' ');
         if (sp) {
@@ -213,7 +228,7 @@ static void resolve_line(void *ctx, char *line)
     } else if (strncmp(line, "[sp-meta] ", 10) == 0) {
         char *end = NULL;
         s->duration = strtod(line + 10, &end);
-        if (end && *end == ' ' && end[1] >= '0' && end[1] <= '9') s->size = (int64_t)strtod(end + 1, NULL);
+        if (end && *end == ' ' && end[1] >= '0' && end[1] <= '9' && s->size <= 0) s->size = (int64_t)strtod(end + 1, NULL);
         s->live = strstr(line + 10, " True") != NULL;
     } else if (strncmp(line, "[sp-title] ", 11) == 0) {
         put_wide(s->title, SP_COUNTOF(s->title), line + 11);
@@ -246,17 +261,20 @@ BOOL ytdlp_resolve(const wchar_t *page, int maxRes, const wchar_t *formatId, HAN
                    YtStream *out)
 {
     ZeroMemory(out, sizeof *out);
-    out->size = -1;
-    wchar_t fmt[400];
+    out->size = out->asize = -1;
+    wchar_t fmt[800];
     if (formatId && formatId[0]) str_printf(fmt, SP_COUNTOF(fmt), L"-f \"%ls\"", formatId);
     else ytdlp_format(fmt, SP_COUNTOF(fmt), maxRes, 1);
-    size_t cap = wcslen(page) + 1024;
+    size_t cap = wcslen(page) + 3072;
     wchar_t *args = (wchar_t *)malloc(cap * sizeof(wchar_t));
     if (!args) return FALSE;
     str_printf(args, cap,
                L"--simulate %ls --print \"[sp-url] %%(url)s\" --print \"[sp-fmt] %%(format_id)s %%(protocol)s\" "
                L"--print \"[sp-meta] %%(duration)s %%(filesize,filesize_approx)s %%(is_live)s\" --print \"[sp-title] %%(title)s\" "
-               L"--print \"[sp-thumb] %%(thumbnail)s\" --print \"[sp-hdr] %%(http_headers)j\" -- \"%ls\"",
+               L"--print \"[sp-v] %%(requested_formats.0.url)s\" --print \"[sp-a] %%(requested_formats.1.url)s\" "
+               L"--print \"[sp-sizes] %%(requested_formats.0.filesize,requested_formats.0.filesize_approx)s "
+               L"%%(requested_formats.1.filesize,requested_formats.1.filesize_approx)s\" "
+               L"--print \"[sp-thumb] %%(thumbnail)s\" --print \"[sp-hdr] %%(requested_formats.0.http_headers,http_headers)j\" -- \"%ls\"",
                fmt, page);
     wchar_t why[300] = L"";
     int code = ytdlp_run(args, paths_cache(), cancel, quit, resolve_line, out, why, SP_COUNTOF(why));
@@ -271,7 +289,10 @@ BOOL ytdlp_resolve(const wchar_t *page, int maxRes, const wchar_t *formatId, HAN
         ytdlp_tidy_error(out->error);
         return FALSE;
     }
-    out->streamable = str_istarts(out->url, L"http") && (str_ieq(out->protocol, L"https") || str_ieq(out->protocol, L"http"));
+    out->streamable = str_istarts(out->url, L"http") &&
+                      (str_ieq(out->protocol, L"https") || str_ieq(out->protocol, L"http") ||
+                       (out->aurl[0] && (str_ieq(out->protocol, L"https+https") || str_ieq(out->protocol, L"http+http") ||
+                                         str_ieq(out->protocol, L"https+http") || str_ieq(out->protocol, L"http+https"))));
     const wchar_t *ex = wcsstr(out->url, L"expire=");     /* YouTube addresses say when they stop working */
     if (ex && (ex[-1] == L'?' || ex[-1] == L'&')) out->expires = _wtoi64(ex + 7);
     return TRUE;
@@ -292,9 +313,9 @@ void ytdlp_cache_save(const wchar_t *page, const YtStream *s)
     path_dirname(dir, SP_COUNTOF(dir), path);
     dir_create_recursive(dir);
     StrBuf b = { 0 };
-    /* v2 invalidates stream addresses picked by the former video-only selector. */
-    sb_printf(&b, "v2\n%lld\n%lld\n", (long long)s->expires, (long long)s->size);
-    const wchar_t *fields[] = { page, s->format, s->protocol, s->url };
+    /* v4: picture and sound apart (v2 held one combined file, often 360p), and the length */
+    sb_printf(&b, "v4\n%lld\n%lld\n%lld\n%.3f\n", (long long)s->expires, (long long)s->size, (long long)s->asize, s->duration);
+    const wchar_t *fields[] = { page, s->format, s->protocol, s->url, s->aurl };
     for (size_t i = 0; i < SP_COUNTOF(fields); i++) {
         sb_put_wide(&b, fields[i]);
         sb_puts(&b, "\n");
@@ -315,7 +336,7 @@ BOOL ytdlp_cache_load(const wchar_t *page, YtStream *out)
 {
     wchar_t path[SP_MAX_PATH];
     ZeroMemory(out, sizeof *out);
-    out->size = -1;
+    out->size = out->asize = -1;
     ytdlp_cache_path(page, L".url", path, SP_COUNTOF(path));
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (f == INVALID_HANDLE_VALUE) return FALSE;
@@ -334,14 +355,17 @@ BOOL ytdlp_cache_load(const wchar_t *page, YtStream *out)
         p = wcschr(p, L'\n');
         if (p) *p++ = 0;
     }
-    BOOL ok = count >= 7 && wcscmp(lines[0], L"v2") == 0 && str_ieq(lines[3], page);
+    BOOL ok = count >= 10 && wcscmp(lines[0], L"v4") == 0 && str_ieq(lines[5], page);
     if (ok) {
         out->expires = _wtoi64(lines[1]);
         out->size = _wtoi64(lines[2]);
-        str_copy(out->format, SP_COUNTOF(out->format), lines[4]);
-        str_copy(out->protocol, SP_COUNTOF(out->protocol), lines[5]);
-        str_copy(out->url, SP_COUNTOF(out->url), lines[6]);
-        for (int i = 7; i < count; i++) {
+        out->asize = _wtoi64(lines[3]);
+        out->duration = _wtof(lines[4]);
+        str_copy(out->format, SP_COUNTOF(out->format), lines[6]);
+        str_copy(out->protocol, SP_COUNTOF(out->protocol), lines[7]);
+        str_copy(out->url, SP_COUNTOF(out->url), lines[8]);
+        str_copy(out->aurl, SP_COUNTOF(out->aurl), lines[9]);
+        for (int i = 10; i < count; i++) {
             size_t l = wcslen(lines[i]);
             if (l && lines[i][l - 1] == L'\r') lines[i][--l] = 0;
             if (!l) continue;

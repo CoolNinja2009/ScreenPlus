@@ -61,13 +61,14 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
 ## Usage
 
 - **Library**: import files or a folder, or drag them onto the window. For a web wallpaper, import the folder that
-  contains `index.html`. The link button adds a video, image or web page from a URL.
-- **Share wallpapers**: right-click a wallpaper and choose **Export as .spf**. On Windows, select multiple cards and drag
-  any selected card to File Explorer to copy all of them as `.spf` files. The floating preview shows how many files are
-  being prepared. Right-click a collection to export its `.spp` playlist; packaging runs in the background so the app
+  contains `index.html`. The link button adds a video, image or web page from a URL. Videos stream in high quality, straight into RAM; Download saves them instead.
+- **Share wallpapers**: right-click a wallpaper and choose **Export (.spf)**. On Windows, select multiple cards and drag
+  any selected card to File Explorer to copy all of them as `.spf` files. The drag shows the card and how many files it
+  carries. Right-click a collection to export its `.spp` playlist; packaging runs in the background so the app
   remains responsive. An `.spp` is a compressed playlist of `.spf` wallpaper
   files and keeps the slideshow interval. Each `.spf` includes the wallpaper, its Customise settings and recordings,
-  and any depth maps already made. Drop either format onto the Library or use `screenplus import`. On Linux, dragging
+  and any depth maps already made. Double-click or drop either format to preview it (depth model, settings,
+  recordings) before adding it; `screenplus inspect` prints the same. On Linux, dragging
   a card outside the window opens a native save dialog; dragging a selected group opens a folder picker and exports
   the group in the background. URL wallpapers keep their link and customisation settings in the archive; they need
   an internet connection when played.

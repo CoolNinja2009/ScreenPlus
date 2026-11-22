@@ -116,7 +116,7 @@ void pages_rebuild_view(void)
         u->flowOldCount = u->flowDrawnCount;
         memcpy(u->flowOld, u->flowDrawn, sizeof(u->flowOld[0]) * (size_t)u->flowOldCount);
         u->flowT0 = time_ms();
-        u->hoverBlockUntil = u->flowT0 + 280.0;
+        u->hoverBlockUntil = u->flowT0 + 380.0;
         ui_animate();
     }
     if (u->viewCap < g_app.cfg.count) {
@@ -678,14 +678,17 @@ static void draw_card(Ui *u, int vi, const WallpaperEntry *e, D2D1_RECT_F r, flo
     int id = HIT_ID(HK_CARD, vi), hot = ui_is_hot(id);
     double currentAt = 0;
     float selection = card_selection(u, e, current, &currentAt);
-    float scale = u->motion == 0 && u->cardDrag && u->pressed == id ? 1.04f :
-                  u->motion == 0 && u->pressId == id ? 1.0f - u->pressAmt * 0.015f : 1.0f;
-    if (scale != 1.0f) {
-        float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
-        D2D1_MATRIX_3X2_F m = { scale, 0, 0, scale, cx * (1.0f - scale), cy * (1.0f - scale) };
-        ID2D1RenderTarget_SetTransform((ID2D1RenderTarget *)u->rt, &m);
-    }
     float hp = ui_motion_hover(id, hot || ui_is_hot(HIT_ID(HK_FAV, vi)) || ui_is_hot(HIT_ID(HK_NAME, vi)));
+    /* hover lifts the card towards the pointer, a press sinks it, a drag picks it up */
+    float scale = u->motion == 0 && u->cardDrag && u->pressed == id ? 1.05f :
+                  u->motion == 0 ? 1.0f + hp * 0.025f - (u->pressId == id ? u->pressAmt * 0.04f : 0.0f) : 1.0f;
+    float lift = u->motion == 0 && !(u->cardDrag && u->pressed == id) ? -hp * 4.0f : 0.0f;
+    if (scale != 1.0f || lift != 0.0f) {
+        float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
+        D2D1_MATRIX_3X2_F m = { scale, 0, 0, scale, cx * (1.0f - scale), cy * (1.0f - scale) + lift };
+        ID2D1RenderTarget_SetTransform((ID2D1RenderTarget *)u->rt, &m);
+        if (scale == 1.0f) scale = 1.0001f;   /* the transform is reset below */
+    }
     ui_glass_amount(r, 14, hp, u->cardDrag && u->pressed == id ? 1.0f : hp);
     D2D1_RECT_F th = { r.left + 6, r.top + 6, r.right - 6, r.top + 6 + thumbH };
     ui_draw_thumb(e, th, 10, 0);
@@ -857,7 +860,7 @@ static float draw_grid(Ui *u, float x, float y, float w)
     u->colW = cw + gap;
     const wchar_t *cur = app_wallpaper_for(target_id());
     u->flowDrawnCount = 0;
-    float flowP = u->flowT0 > 0 ? (float)((time_ms() - u->flowT0) / 220.0) : 1.0f;
+    float flowP = u->flowT0 > 0 ? (float)((time_ms() - u->flowT0) / 340.0) : 1.0f;
     int flowing = u->motion == 0 && flowP < 1.0f;
     if (flowing) ui_animate();
     else u->flowT0 = 0;
@@ -881,9 +884,10 @@ static float draw_grid(Ui *u, float x, float y, float w)
                 r.right = r.left + cw;
                 r.bottom = r.top + ch;
             } else {
-                float p = ui_motion_curve((flowP * 220.0f - SP_MIN(i, 8) * 12.0f) / 220.0f, 0);
-                r.top += (1.0f - p) * 4.0f;
-                r.bottom += (1.0f - p) * 4.0f;
+                /* new cards rise in one after another, row by row */
+                float p = ui_motion_curve((flowP * 340.0f - SP_MIN(i, 12) * 26.0f) / 340.0f, 0);
+                r.top += (1.0f - p) * 22.0f;
+                r.bottom += (1.0f - p) * 22.0f;
                 cardAlpha = p;
             }
         }
@@ -904,11 +908,13 @@ static float draw_grid(Ui *u, float x, float y, float w)
         draw_card(u, i, e, r, thumbH, wcscmp(e->id, cur) == 0);
         u->alpha = savedAlpha;
     }
-    if (dragEntry) {
+    if (dragEntry && !u->cardAway) {
         float dx = u->mx - u->pressX, dy = u->my - u->pressY;
         dragRect.left += dx; dragRect.right += dx;
         dragRect.top += dy; dragRect.bottom += dy;
         draw_card(u, dragged, dragEntry, dragRect, thumbH, wcscmp(dragEntry->id, cur) == 0);
+        float gx = (dragRect.right - dragRect.left) * 0.025f, gy = (dragRect.bottom - dragRect.top) * 0.025f;  /* 1.05 lift */
+        u->dragDrawn = (D2D1_RECT_F){ dragRect.left - gx, dragRect.top - gy, dragRect.right + gx, dragRect.bottom + gy };
     }
     int rows = (u->viewCount + cols - 1) / cols;
     return y + rows * (ch + gap) - gap;
@@ -1016,6 +1022,166 @@ static void draw_collection_dialog(Ui *u)
               L"Cancel", 0, BTN_SECONDARY);
     ui_button(HIT_ID(HK_COLL_SAVE, 0), rectf(right - createW, y + 155, createW, 36),
               L"Create", GL_ADD, BTN_PRIMARY);
+}
+
+/* ================================================================ archive preview
+ * A dropped or opened .spf/.spp shows what it holds (type, size, link, depth model, Customise settings and
+ * recordings) before anything reaches the library. The archive is read on a worker (file_format.c). */
+
+static FormatPreviewJob *g_preview;
+static float g_previewScroll, g_previewMax;
+
+void pages_preview_open(const wchar_t *file)
+{
+    if (g_preview) sp_preview_close(g_preview, FALSE);
+    g_preview = sp_preview_start(file);
+    g_previewScroll = g_previewMax = 0;
+    if (!g_preview) app_notice(NOTICE_WARN, L"Could not open '%ls'.", path_filename(file));
+    if (g_ui && HIT_KIND(g_ui->textFocus) == HK_COLL_TEXT) pages_text_end(0);
+    ui_invalidate();
+}
+
+static void preview_close(BOOL import)
+{
+    FormatPreviewJob *j = g_preview;
+    g_preview = NULL;
+    sp_preview_close(j, import);
+    ui_invalidate();
+}
+
+static const FormatPreview *preview_ready(void)
+{
+    return g_preview && InterlockedCompareExchange(&g_preview->ready, 0, 0) ? g_preview->preview : NULL;
+}
+
+int pages_preview_key(UINT vk)
+{
+    if (!g_preview) return 0;
+    const FormatPreview *p = preview_ready();
+    if (vk == VK_ESCAPE) preview_close(FALSE);
+    else if (vk == VK_RETURN && p && p->ok) preview_close(TRUE);
+    return 1;                                     /* the dialog owns the keyboard while it is open */
+}
+
+int pages_preview_wheel(int delta)
+{
+    if (!g_preview) return 0;
+    g_previewScroll = SP_CLAMP(g_previewScroll - delta / 120.0f * 56.0f, 0.0f, g_previewMax);
+    ui_invalidate();
+    return 1;
+}
+
+/* one wallpaper: its picture, then label/value rows; returns the height it takes */
+static float preview_item(Ui *u, const FormatItem *it, float x, float y, float w, int large, float clipTop, float clipBottom)
+{
+    Theme *t = &u->t;
+    float tw = large ? SP_MIN(300.0f, w * 0.42f) : 136.0f, th = tw * 9.0f / 16.0f;
+    float rx = x + tw + 20, rw = w - tw - 20, ry = y, lw = large ? 150.0f : 136.0f;
+    int visible = y + 600 > clipTop && y < clipBottom;
+    if (visible) {
+        if (it->ok) ui_draw_thumb(&it->e, rectf(x, y, tw, th), 10, large);
+        else {
+            ui_rrect(rectf(x, y, tw, th), 10, t->chip);
+            ui_icon(GL_WARNING, u->fIcon, rectf(x, y, tw, th), t->text3);
+        }
+    }
+    if (!large) {
+        if (visible) ui_text(it->ok ? it->e.name : L"Damaged item", u->fBodyB, rectf(rx, ry, rw, 24), t->text);
+        ry += 28;
+    }
+    if (!it->ok) {
+        if (visible) ui_text(L"This wallpaper can't be read and will be skipped.", u->fSmall, rectf(rx, ry, rw, 20), t->text2);
+        return SP_MAX(th, ry + 20 - y);
+    }
+    wchar_t rows[16][2][200];
+    int n = sp_preview_rows(it, rows, 16);
+    for (int i = 0; i < n; i++) {
+        float h = SP_MAX(20.0f, ui_text_height(rows[i][1], u->fSmall, rw - lw));
+        if (ry + h > clipTop && ry < clipBottom) {
+            ui_text(rows[i][0], u->fSmall, rectf(rx, ry, lw, 20), t->text3);
+            ui_text(rows[i][1], u->fSmall, rectf(rx + lw, ry, rw - lw, h), t->text);
+        }
+        ry += h + 7;
+    }
+    return SP_MAX(th, ry - y);
+}
+
+static void draw_preview(Ui *u)
+{
+    if (!g_preview) return;
+    Theme *t = &u->t;
+    u->hitCount = 0;                              /* the dialog owns input while it is open */
+    ui_fill(rectf(0, 0, u->w, u->h), col(0x000000, 0.52f));
+    ui_hit(HIT_ID(HK_PREVIEW_CANCEL, 0), rectf(0, 0, u->w, u->h), 0, 0);
+    float w = SP_MIN(780.0f, u->w - 48.0f), h = SP_MIN(620.0f, u->h - 48.0f);
+    float x = SP_MAX(24.0f, SIDEBAR_W + (u->w - SIDEBAR_W - w) * 0.5f);
+    if (x + w > u->w - 24.0f) x = (u->w - w) * 0.5f;
+    float y = (u->h - h) * 0.5f;
+    D2D1_RECT_F panel = rectf(x, y, w, h);
+    ui_rrect(rectf(x, y + 8, w, h), 18, col(0x000000, t->dark ? 0.34f : 0.18f));
+    ui_rrect(panel, 18, col(t->dark ? 0x29292D : 0xFFFFFF, 1.0f));
+    ui_rrect_stroke(panel, 18, 1, t->dark ? col(0xFFFFFF, 0.16f) : col(0x000000, 0.08f));
+    ui_hit(HIT_ID(HK_PREVIEW_PANEL, 0), panel, 0, 0);
+
+    const FormatPreview *p = preview_ready();
+    int playlist = str_ieq(path_ext(g_preview->file), L".spp");
+    wchar_t size[32], sub[SP_MAX_PATH + 96];
+    if (g_preview->bytes >= 1024LL * 1024 * 1024) str_printf(size, SP_COUNTOF(size), L"%.1f GB", g_preview->bytes / 1073741824.0);
+    else if (g_preview->bytes >= 1024 * 1024) str_printf(size, SP_COUNTOF(size), L"%.1f MB", g_preview->bytes / 1048576.0);
+    else str_printf(size, SP_COUNTOF(size), L"%d KB", (int)SP_MAX(1, (g_preview->bytes + 1023) / 1024));
+    str_printf(sub, SP_COUNTOF(sub), L"%ls · %ls", path_filename(g_preview->file), size);
+    if (p && playlist && p->count) {
+        wchar_t more[96];
+        if (p->minutes > 0) str_printf(more, SP_COUNTOF(more), L" · %d wallpaper%ls · slideshow every %d min", p->count,
+                                       p->count == 1 ? L"" : L"s", p->minutes);
+        else str_printf(more, SP_COUNTOF(more), L" · %d wallpaper%ls", p->count, p->count == 1 ? L"" : L"s");
+        str_cat(sub, SP_COUNTOF(sub), more);
+    }
+    float px = x + 28, pw = w - 56;
+    ui_text(playlist ? L"SCREEN+ COLLECTION" : L"SCREEN+ WALLPAPER", u->fCaption, rectf(px, y + 22, pw, 18), t->text3);
+    ui_text(p && p->name[0] ? p->name : path_filename(g_preview->file), u->fTitle, rectf(px, y + 42, pw, 34), t->text);
+    ui_text(sub, u->fSmall, rectf(px, y + 78, pw, 20), t->text2);
+
+    float top = y + 114, bottom = y + h - 76;
+    ui_fill(rectf(px, top - 8, pw, 1), t->separator);
+    ui_push_clip(rectf(x + 1, top, w - 2, bottom - top));
+    float cy = top + 10 - g_previewScroll;
+    if (!p) {
+        ui_text(L"Reading…", u->fBody, rectf(px, top + 24, pw, 24), t->text2);
+    } else if (!p->ok) {
+        ui_icon(GL_WARNING, u->fIcon, rectf(px, top + 20, 28, 28), t->warning);
+        ui_text(L"This file can't be opened. It may be damaged, or made by a newer Screen+.", u->fBody,
+                rectf(px + 38, top + 22, pw - 38, 48), t->text);
+        cy += 60;
+    } else if (!playlist) {
+        cy += preview_item(u, &p->items[0], px, cy, pw, 1, top, bottom);
+    } else {
+        for (int i = 0; i < p->count; i++) {
+            if (i) { if (cy > top && cy < bottom) ui_fill(rectf(px, cy - 9, pw, 1), t->separator); }
+            cy += preview_item(u, &p->items[i], px, cy, pw, 0, top, bottom) + 18;
+        }
+    }
+    ui_pop_clip();
+    float contentH = cy + g_previewScroll - top;
+    g_previewMax = SP_MAX(0.0f, contentH - (bottom - top));
+    if (g_previewScroll > g_previewMax) g_previewScroll = g_previewMax;
+    if (g_previewMax > 0) {                       /* a thin bar: there is more below */
+        float track = bottom - top - 8, bar = SP_MAX(28.0f, track * (bottom - top) / contentH);
+        float by = top + 4 + (track - bar) * (g_previewScroll / g_previewMax);
+        ui_rrect(rectf(x + w - 10, by, 4, bar), 2, col_a(t->text, 0.25f));
+    }
+    ui_fill(rectf(px, bottom + 8, pw, 1), t->separator);
+
+    wchar_t add[48];
+    if (p && playlist && p->ok > 1) str_printf(add, SP_COUNTOF(add), L"Add %d to library", p->ok);
+    else str_copy(add, SP_COUNTOF(add), L"Add to library");
+    float cancelW = ui_button_width(L"Cancel", 0), addW = ui_button_width(add, GL_ADD), right = x + w - 28;
+    float by = y + h - 56;
+    ui_button(HIT_ID(HK_PREVIEW_CANCEL, 1), rectf(right - addW - 10 - cancelW, by, cancelW, 36), L"Cancel", 0, BTN_SECONDARY);
+    ui_button(HIT_ID(HK_PREVIEW_ADD, 0), rectf(right - addW, by, addW, 36), add, GL_ADD,
+              p && p->ok ? BTN_PRIMARY : BTN_SECONDARY);
+    if (p && p->ok && playlist && p->ok < p->count)
+        ui_text(L"Damaged items will be skipped.", u->fSmall, rectf(px, by + 8, pw - addW - cancelW - 30, 20), t->text3);
 }
 
 /* ================================================================ store */
@@ -3071,7 +3237,10 @@ static float draw_url_panel(Ui *u, float x, float y, float w)
         ui_chip(HIT_ID(HK_URL_MODE, i), rectf(cx, ry, cw, 28), modes[i], urlp.mode == i);
         cx += cw + 8;
     }
+    static const wchar_t *hints[] = { L"Plays at once in high quality, streamed into RAM. Nothing is saved.",
+                                      L"Saves the best quality up to your screen's size.", L"Shows the page itself, live." };
     if (st.failed && st.text[0]) ui_text(st.text, u->fSmall, rectf(cx + 6, ry, x + w - 22 - cx, 28), t->danger);
+    else ui_text(hints[SP_CLAMP(urlp.mode, 0, 2)], u->fSmall, rectf(cx + 6, ry, x + w - 22 - cx, 28), t->text3);
     ui_pop_clip();
     return u->urlH + 12.0f * (u->urlH / h);
 }
@@ -4053,6 +4222,7 @@ void pages_draw(void)
     u->alpha = 1.0f;
     if (u->page == PAGE_CUSTOMIZE) draw_rec_presets(u);
     draw_collection_dialog(u);
+    draw_preview(u);
 }
 
 /* Every setting back to config_defaults; the library, assignments and Windows' screensaver settings stay. */
@@ -4383,10 +4553,14 @@ void pages_activate(int id, int dbl)
         if (u->page != data) {
             u->navFrom = u->navY;
             u->navT0 = time_ms();
-            u->pageDx = data > u->page ? 6.0f : -6.0f;
+            u->pageDx = data > u->page ? 28.0f : -28.0f;
             u->pageFrom = u->page;
             u->page = data;
             u->pageAnim = 0.0f;
+            if (data == PAGE_LIBRARY && u->motion == 0) {   /* the grid deals itself in */
+                u->flowOldCount = 0;
+                u->flowT0 = time_ms();
+            }
             ui_animate();
         }
         u->searchFocus = 0;
@@ -4419,6 +4593,11 @@ void pages_activate(int id, int dbl)
         break;
     case HK_COLL_CANCEL:  if (HIT_KIND(u->textFocus) == HK_COLL_TEXT) pages_text_end(0); break;
     case HK_COLL_PANEL:   break;
+    case HK_PREVIEW_ADD:
+        if (preview_ready() && preview_ready()->ok) preview_close(TRUE);
+        break;
+    case HK_PREVIEW_CANCEL: preview_close(FALSE); break;
+    case HK_PREVIEW_PANEL:  break;
     case HK_SEARCH_CLEAR:
         if (data == 2) {                 /* the Settings page's */
             if (HIT_KIND(u->textFocus) == HK_SEARCH) pages_text_end(0);
@@ -4836,18 +5015,17 @@ void pages_context(int id, int sx, int sy)
         if (k < 0 || k >= n) return;
         HMENU m = CreatePopupMenu();
         if (!m) return;
-        AppendMenuW(m, MF_STRING, 2, L"Export playlist as .spp…");
+        AppendMenuW(m, MF_STRING, 2, L"Export collection (.spp)…");
         AppendMenuW(m, MF_SEPARATOR, 0, NULL);
         AppendMenuW(m, MF_STRING, 1, L"Delete collection (keeps the wallpapers)");
         UINT cmd = (UINT)TrackPopupMenuEx(m, TPM_RETURNCMD | TPM_RIGHTBUTTON, sx, sy, u->hwnd, NULL);
         DestroyMenu(m);
         if (cmd == 2) {
-            wchar_t suggested[SP_NAME_LEN + 8], output[SP_MAX_PATH];
-            str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spp", names[k]);
+            wchar_t suggested[SP_MAX_PATH], output[SP_MAX_PATH];
+            sp_format_file_name(names[k], L"spp", suggested, SP_COUNTOF(suggested));
             if (sp_format_save_dialog(u->hwnd, suggested, L"spp", output, SP_COUNTOF(output))) {
-                BOOL ok = spp_export_start(names[k], output);
-                app_notice(ok ? NOTICE_INFO : NOTICE_WARN,
-                           ok ? L"Exporting playlist '%ls' in the background…" : L"Could not start the playlist export.", names[k]);
+                if (spp_export_start(names[k], output)) app_notice(NOTICE_INFO, L"Exporting collection '%ls'…", names[k]);
+                else app_notice(NOTICE_WARN, L"Could not start the export.");
             }
         } else if (cmd == 1) {
             for (int i = 0; i < g_app.cfg.count; i++) config_tag_set(&g_app.cfg.items[i], names[k], FALSE);
@@ -4881,11 +5059,11 @@ void pages_context(int id, int sx, int sy)
 #else
     AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, link ? L"Open link in browser" : L"Show in File Manager");
 #endif
+    AppendMenuW(m, MF_STRING | (e.missing && !link ? MF_GRAYED : 0), 8, L"Export (.spf)…");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING | ((e.flags & WPFLAG_FAV) ? MF_CHECKED : 0), 5, L"Favourite");
     AppendMenuW(m, MF_STRING, 6, L"Collections…");
     AppendMenuW(m, MF_STRING | ((e.uiMark & 1) ? MF_CHECKED : 0), 7, L"Select");
-    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 8, L"Export as .spf…");
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
     AppendMenuW(m, MF_STRING, 3, link ? L"Remove from library" : download ? L"Remove from library and delete the download"
                                                                           : L"Remove from library (keeps the file)");
@@ -4904,11 +5082,12 @@ void pages_context(int id, int sx, int sy)
         u->selAnchor = vi;
     }
     else if (cmd == 8) {
-        wchar_t suggested[SP_NAME_LEN + 8], output[SP_MAX_PATH];
-        str_printf(suggested, SP_COUNTOF(suggested), L"%ls.spf", e.name);
+        wchar_t suggested[SP_MAX_PATH], output[SP_MAX_PATH];
+        sp_format_file_name(e.name, L"spf", suggested, SP_COUNTOF(suggested));
         if (sp_format_save_dialog(u->hwnd, suggested, L"spf", output, SP_COUNTOF(output))) {
-            BOOL ok = spf_export(&e, output);
-            app_notice(ok ? NOTICE_INFO : NOTICE_WARN, ok ? L"Wallpaper export finished." : L"Could not export the wallpaper.");
+            const wchar_t *paths[1] = { output };   /* packs on a worker: a big video doesn't freeze the window */
+            if (spf_export_start(&e, 1, paths, NULL)) app_notice(NOTICE_INFO, L"Exporting '%ls'…", e.name);
+            else app_notice(NOTICE_WARN, L"Could not start the export.");
         }
     }
     ui_invalidate();

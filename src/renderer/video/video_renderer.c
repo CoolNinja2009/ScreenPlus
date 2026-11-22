@@ -525,7 +525,7 @@ static int open_input(VideoSource *s)
     fmt->interrupt_callback.callback = interrupt_cb;
     fmt->interrupt_callback.opaque = s;
     if (wallpaper_is_url(s->path)) {               /* stream wallpaper: FFmpeg has no network code */
-        if (!s->net) s->net = netstream_open(s->path, s->ytdlp, s->maxRes, &s->quit, s->err, SP_COUNTOF(s->err));
+        if (!s->net) s->net = netstream_open(s->path, s->ytdlp, s->maxRes, 0, &s->quit, s->err, SP_COUNTOF(s->err));
         if (!s->net) {
             avformat_free_context(fmt);
             return AVERROR(EIO);
@@ -631,6 +631,45 @@ static int push_video_frame(VideoSource *s)
     return fq_push(&s->fq, q, t, dur);
 }
 
+/* A stream's sound kept apart (s->afmt, like mpv): its packets go to the audio queue up to `upTo`
+ * seconds of the media's own timeline, a second ahead of the picture. */
+static void feed_sound(VideoSource *s, double upTo)
+{
+    if (!s->afmt || !s->adec || !s->apkt || s->aEof || s->aidx < 0) return;
+    AVStream *st = s->afmt->streams[s->aidx];
+    for (int guard = 0; guard < 512; guard++) {
+        if (!s->aHave) {
+            int r = av_read_frame(s->afmt, s->apkt);
+            if (r < 0) {
+                s->aEof = r == AVERROR_EOF || avio_feof(s->afmt->pb);
+                if (!s->aEof && r == AVERROR_EXIT) return;
+                if (!s->aEof) continue;
+                return;
+            }
+            if (s->apkt->stream_index != s->aidx) {
+                av_packet_unref(s->apkt);
+                continue;
+            }
+            s->aHave = 1;
+        }
+        int64_t ts = s->apkt->pts != AV_NOPTS_VALUE ? s->apkt->pts : s->apkt->dts;
+        if (ts != AV_NOPTS_VALUE && ts * av_q2d(st->time_base) > upTo) return;
+        AVPacket *a = av_packet_clone(s->apkt);
+        av_packet_unref(s->apkt);
+        s->aHave = 0;
+        if (a) pq_put(&s->aq, a, -1.0);
+    }
+}
+
+/* The separate sound back to the start, with the picture. */
+static void rewind_sound(VideoSource *s)
+{
+    if (!s->afmt) return;
+    if (s->aHave) av_packet_unref(s->apkt);
+    s->aHave = 0;
+    s->aEof = avformat_seek_file(s->afmt, -1, INT64_MIN, 0, INT64_MAX, 0) < 0;
+}
+
 static void switch_to_software(VideoSource *s, const wchar_t *why)
 {
     LOGW(L"video: hardware decoding failed (%ls); switching to software decoding", why);
@@ -639,6 +678,7 @@ static void switch_to_software(VideoSource *s, const wchar_t *why)
     if (!open_video_decoder(s, 0)) return;
     AVStream *st = s->fmt->streams[s->vidx];
     av_seek_frame(s->fmt, s->vidx, st->start_time != AV_NOPTS_VALUE ? st->start_time : 0, AVSEEK_FLAG_BACKWARD);
+    rewind_sound(s);
     s->rebase = s->haveStart;
 }
 
@@ -716,6 +756,7 @@ static void handle_eof(VideoSource *s)
         video_source_fail(s, E_FAIL, L"Could not loop the video (seek failed)");
         return;
     }
+    rewind_sound(s);
     s->rebase = 1;
     s->framesThisLoop = 0;
     s->loops++;
@@ -760,10 +801,16 @@ static unsigned __stdcall decode_main(void *arg)
         }
         readErrors = 0;
         if (pkt->stream_index == s->vidx) {
+            if (s->afmt) {
+                int64_t ts = pkt->pts != AV_NOPTS_VALUE ? pkt->pts : pkt->dts;
+                if (ts != AV_NOPTS_VALUE) feed_sound(s, ts * av_q2d(s->fmt->streams[s->vidx]->time_base) + 1.0);
+            }
             if (!decode_video(s, pkt)) {
                 av_packet_unref(pkt);
                 break;
             }
+        } else if (s->afmt) {
+            /* the sound comes from afmt */
         } else if (pkt->stream_index == s->aidx && s->adec) {
             AVPacket *a = av_packet_clone(pkt);
             if (a) pq_put(&s->aq, a, -1.0);

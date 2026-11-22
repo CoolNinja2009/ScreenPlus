@@ -172,7 +172,7 @@ static int request(int argc, wchar_t **argv, JVal **reply)
         err(L"%lsCould not open a reply channel (error %lu).%ls\n", c_red(), GetLastError(), c_off());
         return EXIT_FAILED;
     }
-    int pathArgs = argc && (str_ieq(argv[0], L"import") || str_ieq(argv[0], L"add"));
+    int pathArgs = argc && (str_ieq(argv[0], L"import") || str_ieq(argv[0], L"add") || str_ieq(argv[0], L"inspect"));
     int exportPath = argc && str_ieq(argv[0], L"export");
     int maybePath = argc && (str_ieq(argv[0], L"apply") || str_ieq(argv[0], L"set"));
     StrBuf b = { 0 };
@@ -295,6 +295,7 @@ static const wchar_t k_help[] =
     L"                                         missing active favourites slides, a collection, or part of a name\n"
     L"  apply <wallpaper> [--display N]        by name, number from 'list', id, or a file/folder path\n"
     L"  import <path>... [--apply]             add files, folders, .spf or .spp to the library\n"
+    L"  inspect <file.spf|file.spp>            what a Screen+ file holds, without adding it\n"
     L"  export <wallpaper> <file.spf>           export a wallpaper with its customisation\n"
     L"  export collection:<name> <file.spp>   export a collection with slideshow interval\n"
     L"  import <link> [--download | --page]    a web link: long videos stream, short ones and images are saved\n"

@@ -4,6 +4,7 @@
 #include "../common/common.h"
 
 BOOL ui_show(void);
+void ui_preview_file(const wchar_t *path);   /* the window, showing a .spf/.spp before it is added */
 BOOL ui_show_screensaver(void);   /* the window on Settings, where the screensaver section is */
 void ui_destroy(void);
 BOOL ui_is_open(void);

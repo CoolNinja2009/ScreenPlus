@@ -145,6 +145,8 @@ void url_import_get(UrlImportState *out);
 void url_import_on_event(WPARAM wp, LPARAM lp);        /* WM_SP_URLIMPORT */
 void url_import_shutdown(void);
 void url_import_sweep(void);                           /* startup: delete half-finished downloads */
+void url_import_fetch_thumbs(void);                    /* startup: stream wallpapers without a preview image get it */
+BOOL remux_join(const wchar_t *video, const wchar_t *audio, const wchar_t *out);   /* remux.c: one .mkv, no re-encoding */
 /* An entry was removed: deletes what Screen+ made for it (its download, a stream's cached address and
  * preview). TRUE when a downloaded wallpaper file was deleted. */
 BOOL url_import_forget(const wchar_t *path, const wchar_t *thumb);
