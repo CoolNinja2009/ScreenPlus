@@ -312,6 +312,8 @@ static int find_next(Find *f, WIN32_FIND_DATAW *out)
         if (!stat(full, &st)) {
             out->dwFileAttributes = attrs_of(&st);
             out->size.QuadPart = st.st_size;
+            out->nFileSizeHigh = (DWORD)((uint64_t)st.st_size >> 32);
+            out->nFileSizeLow = (DWORD)st.st_size;
             sp_filetime(st.st_mtime, &out->ftLastWriteTime);
         } else {
             out->dwFileAttributes = FILE_ATTRIBUTE_NORMAL;

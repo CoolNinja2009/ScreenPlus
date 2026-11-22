@@ -1994,6 +1994,7 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             int back = export_card_drag(u, reorder);
             if (g_ui != u) return 0; /* the Shell drag loop can process a window close */
             u->cardAway = 0;
+#ifdef _WIN32
             if (back && (GetAsyncKeyState(VK_LBUTTON) & 0x8000)) {   /* dragged back in: carry on reordering */
                 POINT pt;
                 GetCursorPos(&pt); ScreenToClient(h, &pt);
@@ -2004,6 +2005,9 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
                 ui_invalidate();
                 return 0;
             }
+#else
+            (void)back;
+#endif
             u->cardDrag = 0;
             u->pressed = u->hot = 0;
             ui_invalidate();

@@ -51,6 +51,7 @@ typedef struct WIN32_FIND_DATAW {
     DWORD         dwFileAttributes;
     FILETIME      ftLastWriteTime;
     LARGE_INTEGER size;
+    DWORD         nFileSizeHigh, nFileSizeLow;
     wchar_t       cFileName[1024];
 } WIN32_FIND_DATAW;
 typedef struct WIN32_FILE_ATTRIBUTE_DATA {
@@ -109,6 +110,7 @@ typedef enum { GetFileExInfoStandard } GET_FILEEX_INFO_LEVELS;
 #define _wcsdup                    wcsdup_sp
 #define _strdup                    strdup
 #define InterlockedExchange(p, v)  __atomic_exchange_n((p), (v), __ATOMIC_SEQ_CST)
+#define InterlockedCompareExchange(p, v, c)     __extension__({ __typeof__(+*(p)) c_ = (c); __atomic_compare_exchange_n((p), &c_, (v), 0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST); c_; })
 #define InterlockedIncrement(p)    __atomic_add_fetch((p), 1, __ATOMIC_SEQ_CST)
 #define InterlockedDecrement(p)    __atomic_sub_fetch((p), 1, __ATOMIC_SEQ_CST)
 
