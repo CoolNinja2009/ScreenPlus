@@ -497,6 +497,8 @@ void wpapi_clear_override(const wchar_t *wallpaperId)
     DeleteFileW(p);
 }
 
+static void layout_from(const JVal *l, WallpaperLayout *out);
+
 void wpapi_clear_properties(const wchar_t *wallpaperId)
 {
     wchar_t p[SP_MAX_PATH];
@@ -504,11 +506,14 @@ void wpapi_clear_properties(const wchar_t *wallpaperId)
     JVal *over = file_exists(p) ? json_parse_file(p) : NULL;
     const JVal *a = json_geti(over, "_screenplus_adjust");
     int up = SP_CLAMP((int)json_num(json_geti(over, "_screenplus_upscale"), 0), UPSCALE_OFF, UPSCALE_REALESRGAN);
+    WallpaperLayout lay;
+    layout_from(json_geti(over, "_screenplus_layout"), &lay);
     StrBuf b = { 0 };
     if (a) json_write(&b, a);
     DeleteFileW(p);
     if (a && !b.failed && b.p) save_override_file(wallpaperId, "_screenplus_adjust", b.p);   /* keep the look */
-    if (up) wpapi_save_upscale(wallpaperId, up);                                           /* and the upscaling */
+    if (up) wpapi_save_upscale(wallpaperId, up);                                           /* the upscaling */
+    wpapi_save_layout(wallpaperId, &lay);                                                  /* and the layout */
     sb_free(&b);
     json_free(over);
 }
@@ -533,6 +538,165 @@ void wpapi_save_upscale(const wchar_t *wallpaperId, int mode)
     char v[8];
     snprintf(v, sizeof v, "%d", mode);
     save_override_file(wallpaperId, "_screenplus_upscale", mode ? v : NULL);
+}
+
+/* ---------------------------------------------------------------- layout */
+
+const char *const k_layoutNames[LAYOUT_COUNT] = { "fill", "fit", "fit-width", "fit-height", "stretch", "original", "custom" };
+const char *const k_lfillNames[LFILL_COUNT] = { "black", "blur", "mirror", "edges", "color" };
+
+static void layout_from(const JVal *l, WallpaperLayout *out)
+{
+    ZeroMemory(out, sizeof *out);
+    out->rect[2] = out->rect[3] = 1.0f;
+    if (!l || l->t != J_OBJ) return;
+    const JVal *r = json_geti(l, "rect");
+    out->mode = SP_CLAMP((int)json_num(json_geti(l, "mode"), 0), 0, LAYOUT_COUNT - 1);
+    out->fill = SP_CLAMP((int)json_num(json_geti(l, "fill"), 0), 0, LFILL_COUNT - 1);
+    out->color = (uint32_t)json_num(json_geti(l, "color"), 0) & 0xFFFFFF;
+    if (r && r->t == J_ARR && r->n == 4) {
+        for (int i = 0; i < 4; i++) out->rect[i] = (float)SP_CLAMP(json_num(&r->kids[i], 0), -20.0, 20.0);
+        out->rect[2] = SP_MAX(out->rect[2], 0.01f);
+        out->rect[3] = SP_MAX(out->rect[3], 0.01f);
+    }
+}
+
+void wpapi_load_layout(const wchar_t *wallpaperId, WallpaperLayout *out)
+{
+    wchar_t p[SP_MAX_PATH];
+    layout_from(NULL, out);
+    if (!wallpaperId || !wallpaperId[0]) return;
+    wpapi_overrides_path(wallpaperId, p, SP_COUNTOF(p));
+    if (!file_exists(p)) return;
+    JVal *over = json_parse_file(p);
+    layout_from(json_geti(over, "_screenplus_layout"), out);
+    json_free(over);
+}
+
+void wpapi_save_layout(const wchar_t *wallpaperId, const WallpaperLayout *l)
+{
+    if (!wallpaperId || !wallpaperId[0]) return;
+    char v[200];
+    snprintf(v, sizeof v, "{\"mode\":%d,\"fill\":%d,\"color\":%u,\"rect\":[%.5f,%.5f,%.5f,%.5f]}", l->mode, l->fill,
+             (unsigned)(l->color & 0xFFFFFF), l->rect[0], l->rect[1], l->rect[2], l->rect[3]);
+    save_override_file(wallpaperId, "_screenplus_layout", l->mode || l->fill || l->color ? v : NULL);
+}
+
+void layout_rect(const WallpaperLayout *l, double sw, double sh, double dw, double dh, float out[4])
+{
+    double s, w, h;
+    if (dw <= 0 || dh <= 0) dw = dh = 1;
+    if (sw <= 0 || sh <= 0) { sw = dw; sh = dh; }
+    switch (l ? l->mode : LAYOUT_FILL) {
+    case LAYOUT_CUSTOM:
+        memcpy(out, l->rect, sizeof(float) * 4);
+        return;
+    case LAYOUT_STRETCH:
+        out[0] = out[1] = 0.0f;
+        out[2] = out[3] = 1.0f;
+        return;
+    case LAYOUT_FIT:        s = SP_MIN(dw / sw, dh / sh); break;
+    case LAYOUT_FIT_WIDTH:  s = dw / sw; break;
+    case LAYOUT_FIT_HEIGHT: s = dh / sh; break;
+    case LAYOUT_ORIGINAL:   s = 1.0; break;
+    default:                s = SP_MAX(dw / sw, dh / sh); break;
+    }
+    w = sw * s / dw;
+    h = sh * s / dh;
+    out[0] = (float)((1.0 - w) * 0.5);
+    out[1] = (float)((1.0 - h) * 0.5);
+    out[2] = (float)w;
+    out[3] = (float)h;
+}
+
+int layout_uncovered(const float r[4])
+{
+    const float e = 0.0005f;
+    return r[0] > e || r[1] > e || r[0] + r[2] < 1.0f - e || r[1] + r[3] < 1.0f - e;
+}
+
+/* bilinear BGRA at (x, y) in pixel centres, edges clamped */
+static void sample(const uint8_t *p, int w, int h, float x, float y, uint8_t *o)
+{
+    x = SP_CLAMP(x - 0.5f, 0.0f, (float)(w - 1));
+    y = SP_CLAMP(y - 0.5f, 0.0f, (float)(h - 1));
+    int x0 = (int)x, y0 = (int)y, x1 = SP_MIN(x0 + 1, w - 1), y1 = SP_MIN(y0 + 1, h - 1);
+    float fx = x - x0, fy = y - y0;
+    const uint8_t *a = p + ((size_t)y0 * w + x0) * 4, *b = p + ((size_t)y0 * w + x1) * 4;
+    const uint8_t *c = p + ((size_t)y1 * w + x0) * 4, *d = p + ((size_t)y1 * w + x1) * 4;
+    for (int k = 0; k < 3; k++) {
+        float t = a[k] + (b[k] - a[k]) * fx, u = c[k] + (d[k] - c[k]) * fx;
+        o[k] = (uint8_t)(t + (u - t) * fy + 0.5f);
+    }
+    o[3] = 255;
+}
+
+static float fold(float q) { return fabsf(q - 2.0f * floorf(q * 0.5f + 0.5f)); }   /* mirrored repeat */
+
+void layout_compose(const uint8_t *pic, int pw, int ph, const float r[4], const WallpaperLayout *l,
+                    uint8_t *out, int dw, int dh)
+{
+    float X = r[0] * dw, Y = r[1] * dh, W = SP_MAX(r[2] * dw, 1.0f), H = SP_MAX(r[3] * dh, 1.0f);
+    int fill = l ? l->fill : LFILL_BLACK;
+    uint8_t *blur = NULL;
+    int bw = SP_MAX(dw / 32, 2), bh = SP_MAX(dh / 32, 2);
+    if (fill == LFILL_BLUR && (blur = (uint8_t *)malloc((size_t)bw * bh * 4 * 2)) != NULL) {
+        /* the picture covering the display, area-averaged down to 1/32, then a 3x3 box twice */
+        double s = SP_MAX((double)dw / pw, (double)dh / ph);
+        double ox = (pw - dw / s) * 0.5, oy = (ph - dh / s) * 0.5, cx = (double)dw / bw / s, cy = (double)dh / bh / s;
+        uint8_t *tmp = blur + (size_t)bw * bh * 4;
+        for (int j = 0; j < bh; j++)
+            for (int i = 0; i < bw; i++) {
+                unsigned acc[3] = { 0 };
+                for (int k = 0; k < 16; k++) {
+                    uint8_t px[4];
+                    sample(pic, pw, ph, (float)(ox + (i + ((k & 3) + 0.5) / 4.0) * cx),
+                           (float)(oy + (j + ((k >> 2) + 0.5) / 4.0) * cy), px);
+                    acc[0] += px[0]; acc[1] += px[1]; acc[2] += px[2];
+                }
+                uint8_t *o = blur + ((size_t)j * bw + i) * 4;
+                for (int c = 0; c < 3; c++) o[c] = (uint8_t)(acc[c] / 16);
+                o[3] = 255;
+            }
+        for (int pass = 0; pass < 2; pass++) {
+            for (int j = 0; j < bh; j++)
+                for (int i = 0; i < bw; i++)
+                    for (int c = 0; c < 3; c++) {
+                        unsigned a = 0;
+                        for (int dy = -1; dy <= 1; dy++)
+                            for (int dx = -1; dx <= 1; dx++)
+                                a += blur[((size_t)SP_CLAMP(j + dy, 0, bh - 1) * bw + SP_CLAMP(i + dx, 0, bw - 1)) * 4 + c];
+                        tmp[((size_t)j * bw + i) * 4 + c] = (uint8_t)(a / 9);
+                    }
+            for (size_t k = 0; k < (size_t)bw * bh * 4; k++) blur[k] = (k & 3) == 3 ? 255 : tmp[k];
+        }
+    }
+    uint8_t solid[4] = { 0, 0, 0, 255 };
+    if (fill == LFILL_COLOR) {
+        solid[0] = (uint8_t)(l->color & 255);
+        solid[1] = (uint8_t)((l->color >> 8) & 255);
+        solid[2] = (uint8_t)((l->color >> 16) & 255);
+    }
+    for (int y = 0; y < dh; y++) {
+        uint8_t *row = out + (size_t)y * dw * 4;
+        float qy = (y + 0.5f - Y) / H;
+        for (int x = 0; x < dw; x++) {
+            float qx = (x + 0.5f - X) / W;
+            int inside = qx >= 0 && qx <= 1 && qy >= 0 && qy <= 1;
+            uint8_t *o = row + (size_t)x * 4;
+            if (inside || fill == LFILL_MIRROR || fill == LFILL_EDGES) {
+                float ux = inside ? qx : fill == LFILL_MIRROR ? fold(qx) : SP_CLAMP(qx, 0.0f, 1.0f);
+                float uy = inside ? qy : fill == LFILL_MIRROR ? fold(qy) : SP_CLAMP(qy, 0.0f, 1.0f);
+                sample(pic, pw, ph, ux * pw, uy * ph, o);
+            } else if (blur) {
+                sample(blur, bw, bh, (x + 0.5f) * bw / dw, (y + 0.5f) * bh / dh, o);
+                for (int c = 0; c < 3; c++) o[c] = (uint8_t)(o[c] * 3 / 4);
+            } else {
+                memcpy(o, solid, 4);
+            }
+        }
+    }
+    free(blur);
 }
 
 BOOL wpapi_load_adjust(const wchar_t *wallpaperId, WallpaperAdjust *out)

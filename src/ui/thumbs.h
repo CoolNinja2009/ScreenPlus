@@ -22,6 +22,9 @@ void thumbs_start(HWND notify);
 void thumbs_request(const WallpaperEntry *e, int w, int h, int large);
 void thumbs_stop(void);
 void thumbs_free(ThumbResult *r);
+/* The picture's shape for the layout editor (images: the header, EXIF orientation applied; local videos: the
+ * container; depth pages: their picture); FALSE for other pages, links and anything unreadable. No decoding. */
+BOOL thumbs_media_size(const WallpaperEntry *e, int *w, int *h);
 
 /* FFmpeg frame grab (renderer/video/ffmpeg_thumb.c): BGRA w x h cover crop, caller frees with free(). */
 BOOL ffmpeg_thumbnail(const wchar_t *path, int w, int h, uint8_t **bgra);

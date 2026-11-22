@@ -188,6 +188,37 @@ static void mpv_upscale(Slot *s, const WallpaperEntry *e)
     mpv_set_property_string(s->mpv, "glsl-shaders", m == UPSCALE_SHARP && shader[0] ? shader : "");
 }
 
+/* Customise layout: the picture at its rect (mpv's own scale and pan on a stretched picture), the window's
+ * background the fill: black or a colour (a blurred or mirrored border would mean a CPU filter on every frame).
+ * Span keeps covering the whole box. */
+static void mpv_layout(Slot *s, const WallpaperEntry *e)
+{
+    WallpaperLayout l;
+    char v[32];
+    int sw = 0, sh = 0;
+    float r[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    wpapi_load_layout(e->id, &l);
+    int laid = l.mode != LAYOUT_FILL && !s->span;
+    if (laid) {
+        if (!sp_media_size(e, &sw, &sh)) { sw = 16; sh = 9; }
+        layout_rect(&l, sw, sh, s->geo.width, s->geo.height, r);
+    }
+    mpv_set_property_string(s->mpv, "panscan", laid ? "0" : "1.0");
+    mpv_set_property_string(s->mpv, "keepaspect", laid ? "no" : "yes");
+    snprintf(v, sizeof v, "%.5f", r[2]);
+    mpv_set_property_string(s->mpv, "video-scale-x", v);
+    snprintf(v, sizeof v, "%.5f", r[3]);
+    mpv_set_property_string(s->mpv, "video-scale-y", v);
+    snprintf(v, sizeof v, "%.5f", (r[0] + r[2] * 0.5f - 0.5f) / r[2]);       /* pan: in the scaled picture's size */
+    mpv_set_property_string(s->mpv, "video-pan-x", v);
+    snprintf(v, sizeof v, "%.5f", (r[1] + r[3] * 0.5f - 0.5f) / r[3]);
+    mpv_set_property_string(s->mpv, "video-pan-y", v);
+    snprintf(v, sizeof v, "#%06X", l.fill == LFILL_COLOR ? (unsigned)l.color : 0u);
+    mpv_set_property_string(s->mpv, "background-color", v);                 /* mpv 0.38+ */
+    if (mpv_set_property_string(s->mpv, "background", "color") < 0)         /* older: background is the colour */
+        mpv_set_property_string(s->mpv, "background", v);
+}
+
 /* Span: each display shows its share of the picture. */
 static void mpv_crop(Slot *s, const GdkRectangle *box)
 {
@@ -225,6 +256,8 @@ static GtkWidget *mpv_view(Slot *s, const WallpaperEntry *e, const GdkRectangle 
     s->gl = gl;
     mpv_look(s, e);
     mpv_upscale(s, e);
+    s->span = span != NULL;                     /* mpv_layout reads it */
+    mpv_layout(s, e);
     free(s->uri);
     s->uri = sp_file_uri(e->path);
     return gl;
@@ -556,7 +589,7 @@ static void sync_slots(void)
                 if (e) slot_open(s, m, e, useSpan ? &box : NULL);
             } else {
                 s->geo = g;
-                if (s->mpv) { mpv_look(s, e); mpv_upscale(s, e); }
+                if (s->mpv) { mpv_look(s, e); mpv_upscale(s, e); mpv_layout(s, e); }
                 if (s->web) web_send_properties(s, e);
             }
             if (s->win) slot_set_sound(s, g_cfg.s.audio && !g_micHeld);

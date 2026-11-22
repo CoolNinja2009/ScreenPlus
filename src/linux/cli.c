@@ -60,6 +60,8 @@ static const char k_help[] =
     "  collection [list | add <name> <wallpaper>... | remove <name> <wallpaper>... | play <name> [every <minutes>]]\n"
     "  look [set <key> <value>... | reset]   Colour grading of what's showing\n"
     "  upscale [off|smooth|sharp]            Upscaling of a video or image smaller than the display\n"
+    "  layout [fill|fit|fit-width|fit-height|stretch|original | custom <x> <y> <w> <h>] [border black|blur|mirror|edges|color [#RRGGBB]] | reset\n"
+    "                                        Where the picture sits (x y w h: % of the display) and what fills the rest\n"
     "  props [set <name> <value> | reset]    Settings of the wallpaper that's showing\n"
     "  settings [get <key> | set <key> <value>] (accent_color #RRGGBB)\n"
     "  rules [pause|mute add|remove <app>]   Pause while an app is in front, mute while one uses the mic (* any)\n"

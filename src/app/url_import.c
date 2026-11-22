@@ -203,7 +203,7 @@ static int media_ext(const wchar_t *type, const wchar_t *leaf, wchar_t *ext, siz
             return 1;
         }
     }
-    if (known && (!type[0] || wcsstr(type, L"octet-stream"))) {   /* servers often send media as binary */
+    if (known && (!type[0] || wcsstr(type, L"octet-stream") || str_ieq(type, L"binary/data"))) {   /* servers often send media as binary */
         str_copy(ext, cap, path_ext(leaf));
         return 1;
     }

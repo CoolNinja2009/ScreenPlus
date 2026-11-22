@@ -7,6 +7,7 @@ Item {
     property bool paused
     property bool muted: true
     property real volume: 1
+    property bool stretch       /* a Customise layout: the item is the picture's rect */
 
     /* source is set after the Loader has made this item: only ever ask once the player has a file */
     function sync() {
@@ -30,6 +31,6 @@ Item {
     VideoOutput {
         id: output
         anchors.fill: parent
-        fillMode: VideoOutput.PreserveAspectCrop
+        fillMode: view.stretch ? VideoOutput.Stretch : VideoOutput.PreserveAspectCrop
     }
 }

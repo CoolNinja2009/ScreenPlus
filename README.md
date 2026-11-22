@@ -36,6 +36,7 @@ Linux support is experimental and may be unstable on some setups.
 - Colour grading and wallpaper properties, and recordings of your changes that play on a loop
 - A customisable accent colour across the app
 - Upscaling for videos and pictures smaller than the display (Smooth or Sharp)
+- Layout editor: fit, stretch, original or drag your own size (Shift keeps the shape), with a black, blurred, mirrored, edge or colour border
 - Pauses for fullscreen apps, covered desktops, the lock screen and battery power
 - App rules: pause while chosen apps are in front, mute while chosen apps use the microphone (calls)
 - Starts the moment you sign in, with a still of your wallpaper on screen until it does
@@ -73,7 +74,7 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
   the group in the background. URL wallpapers keep their link and customisation settings in the archive; they need
   an internet connection when played.
   The [file format documentation](docs/file-formats.md) describes both archives and their manifests.
-- **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut and Wallhaven. Sites that don't allow
+- **Store**: search MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, Wallhaven and 4K Wallpapers. Sites that don't allow
   direct downloads open in your browser.
 - **Displays**: choose Independent, Duplicate or Span.
 - **Customise**: adjust colours and the wallpaper's own properties. **Make wallpaper cooler** works on pictures and

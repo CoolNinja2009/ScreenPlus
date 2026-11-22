@@ -256,7 +256,28 @@ static char *recording_json(const WallpaperEntry *e)
     return b.p;
 }
 
-static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int paused, const RECT *span)
+/* Customise layout for the plugin: the picture's rect and its cover (for the blur) in the display's (or span box's)
+ * fractions, "" when it covers as always; the fill (black, blur, colour: mirror and edges show black here). */
+static void put_layout(StrBuf *b, const WallpaperEntry *e, int dw, int dh)
+{
+    WallpaperLayout l;
+    float r[4], cover[4];
+    int sw = 0, sh = 0;
+    wpapi_load_layout(e ? e->id : NULL, &l);
+    if (e && l.mode != LAYOUT_FILL) {
+        if (!sp_media_size(e, &sw, &sh) && e->type == WP_VIDEO) { sw = 16; sh = 9; }
+        layout_rect(&l, sw, sh, dw, dh, r);
+        layout_rect(NULL, sw, sh, dw, dh, cover);
+        sb_printf(b, ",\"Layout\":\"%.5f,%.5f,%.5f,%.5f\",\"LayoutCover\":\"%.5f,%.5f,%.5f,%.5f\"", r[0], r[1], r[2], r[3],
+                  cover[0], cover[1], cover[2], cover[3]);
+    } else {
+        sb_puts(b, ",\"Layout\":\"\",\"LayoutCover\":\"\"");
+    }
+    int fill = l.fill == LFILL_BLUR && e && e->type != WP_HTML ? 1 : l.fill == LFILL_COLOR ? 4 : 0;
+    sb_printf(b, ",\"LayoutFill\":%d,\"LayoutColor\":\"#%06x\"", fill, (unsigned)l.color);
+}
+
+static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int paused, const RECT *span, int dw, int dh)
 {
     const WallpaperEntry *e = id && id[0] ? config_find((Config *)c, id) : NULL;
     char *uri = !e ? NULL : (e->flags & WPFLAG_YTDLP) ? stream_address(e->path)
@@ -278,6 +299,7 @@ static void put_wallpaper(StrBuf *b, const Config *c, const wchar_t *id, int pau
               span ? span->right - span->left : 0, span ? span->bottom - span->top : 0);
     sb_printf(b, ",\"Brightness\":%d,\"Contrast\":%d,\"Saturation\":%d", a.brightness, a.contrast, a.saturation);
     sb_printf(b, ",\"Upscale\":%d", e && e->type != WP_HTML ? wpapi_load_upscale(e->id) : 0);
+    put_layout(b, e, span ? span->right - span->left : dw, span ? span->bottom - span->top : dh);
     char *rec = e ? recording_json(e) : NULL;
     char *recUrl = rec ? webhost_recording(e->id, rec) : NULL;   /* too big for the script: the plugin fetches it */
     sb_puts(b, ",\"Recording\":");
@@ -324,7 +346,8 @@ int kde_apply(const Config *c, const MonitorInfo *mons, int monCount, int paused
             part.bottom = part.top + (all.bottom - all.top);
             span = &part;
         }
-        put_wallpaper(&s, c, id, paused, span);
+        int dw = monCount ? mons[i].rect.right - mons[i].rect.left : 1920, dh = monCount ? mons[i].rect.bottom - mons[i].rect.top : 1080;
+        put_wallpaper(&s, c, id, paused, span, dw, dh);
     }
     sb_puts(&s, "];var ds=desktops();for(var i=0;i<ds.length;i++){var d=ds[i];if(d.screen<0)continue;"
                 "var c=cfg[d.screen]||cfg[0];d.wallpaperPlugin=\"" PLUGIN_ID "\";"

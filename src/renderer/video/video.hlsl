@@ -1,6 +1,9 @@
 // Screen+ video presentation shaders (compiled at build time with fxc, shader model 4.0).
-// A single full-screen triangle samples the decoded frame with cover-crop texture coordinates
-// and converts YUV to RGB using the frame's matrix/range (supplied in the constant buffer).
+// A single full-screen triangle places the decoded frame at the Customise layout's rect (cover by default)
+// and converts YUV to RGB using the frame's matrix/range (supplied in the constant buffer). Outside the rect
+// the fill shows: a colour, the picture mirrored or its edges stretched (free: folded or clamped coordinates),
+// or a blur, which costs two tiny passes (the picture covering the display drawn at 1/8 size, then 1/32, a
+// dual-filter style downsample) and a 9-tap tent on that, only where the border shows.
 
 cbuffer Params : register(b0)
 {
@@ -14,6 +17,10 @@ cbuffer Params : register(b0)
     float4 hue;      // x hue rotation, radians; yzw unused
     float4 tint;     // xyz tint rgb (0..1, includes tint brightness), w tint lift (0..1)
     float4 up;       // x upscale: 0 bilinear, 1 bicubic, 2 bicubic + sharpen, 3 sharpen only; y sharpness 0..1; zw texel size
+                     // (blur source pass: zw = the tap offset)
+    float4 lay;      // the picture's rect on the output (uv): xy offset, zw size
+    float4 fill;     // x fill (0 colour, 1 blur, 2 mirror, 3 edges); y pass (0 draw, 1 blur source); zw texBlur texel
+    float4 fillColor;// rgb the colour; w the blur's dimming
 };
 
 Texture2DArray<float>  texY   : register(t0);
@@ -21,6 +28,7 @@ Texture2DArray<float2> texUV  : register(t1);
 Texture2DArray<float>  texU   : register(t2);
 Texture2DArray<float>  texV   : register(t3);
 Texture2DArray<float4> texRGB : register(t4);
+Texture2D<float4>      texBlur: register(t5);
 SamplerState smp : register(s0);
 
 struct VSOut
@@ -130,9 +138,9 @@ float3 sharpen(int fmt, float2 t, float3 c)
     return saturate(clamp(r, mn - 0.02, mx + 0.02));
 }
 
-float3 picture(int fmt, float2 uv)
+float3 picture(int fmt, float2 q)
 {
-    float2 t = uvRect.xy + uv * uvRect.zw;
+    float2 t = uvRect.xy + q * uvRect.zw;
     float3 c;
     if (up.x < 0.5 || up.x > 2.5) c = fetch(fmt, t);
     else c = bicubic(fmt, t);
@@ -140,17 +148,56 @@ float3 picture(int fmt, float2 uv)
     return c;
 }
 
+// the blurred cover of the picture: a tent over the 1/32 copy
+float3 blurred(float2 uv)
+{
+    float2 d = fill.zw;
+    float3 c = texBlur.SampleLevel(smp, uv, 0).rgb * 4.0;
+    c += (texBlur.SampleLevel(smp, uv + float2(d.x, 0), 0) + texBlur.SampleLevel(smp, uv - float2(d.x, 0), 0) +
+          texBlur.SampleLevel(smp, uv + float2(0, d.y), 0) + texBlur.SampleLevel(smp, uv - float2(0, d.y), 0)).rgb * 2.0;
+    c += (texBlur.SampleLevel(smp, uv + d, 0) + texBlur.SampleLevel(smp, uv - d, 0) +
+          texBlur.SampleLevel(smp, uv + float2(d.x, -d.y), 0) + texBlur.SampleLevel(smp, uv + float2(-d.x, d.y), 0)).rgb;
+    return c / 16.0;
+}
+
+float4 shade(int fmt, float2 uv)
+{
+    float2 q = (uv - lay.xy) / lay.zw;
+    float3 c;
+    if (fill.y > 0.5) {                                   // blur source: four taps of the cover picture
+        float2 t = uvRect.xy + q * uvRect.zw, o = up.zw;
+        c = (fetch(fmt, t - o) + fetch(fmt, t + o) + fetch(fmt, t + float2(o.x, -o.y)) + fetch(fmt, t + float2(-o.x, o.y))) * 0.25;
+    } else {
+        bool outside = any(q < 0.0) || any(q > 1.0);
+        if (outside && fill.x > 2.5) q = saturate(q);
+        else if (outside && fill.x > 1.5) q = abs(q - 2.0 * floor(q * 0.5 + 0.5));
+        if (!outside || fill.x > 1.5) c = apply_grade(picture(fmt, q));
+        else if (fill.x > 0.5) c = apply_grade(blurred(uv)) * fillColor.w;
+        else c = fillColor.rgb;
+    }
+    return float4(c, 1.0);
+}
+
 float4 ps_nv12(VSOut i) : SV_Target
 {
-    return float4(apply_grade(picture(0, i.uv)), 1.0);
+    return shade(0, i.uv);
 }
 
 float4 ps_i420(VSOut i) : SV_Target
 {
-    return float4(apply_grade(picture(1, i.uv)), 1.0);
+    return shade(1, i.uv);
 }
 
 float4 ps_rgb(VSOut i) : SV_Target
 {
-    return float4(apply_grade(picture(2, i.uv)), 1.0);
+    return shade(2, i.uv);
+}
+
+// blur chain: 1/8 -> 1/32, four bilinear taps half a source texel out (each averages 4x4 texels)
+float4 ps_down(VSOut i) : SV_Target
+{
+    float2 d = fill.zw;
+    float3 c = texBlur.SampleLevel(smp, i.uv - d, 0).rgb + texBlur.SampleLevel(smp, i.uv + d, 0).rgb +
+               texBlur.SampleLevel(smp, i.uv + float2(d.x, -d.y), 0).rgb + texBlur.SampleLevel(smp, i.uv + float2(-d.x, d.y), 0).rgb;
+    return float4(c * 0.25, 1.0);
 }

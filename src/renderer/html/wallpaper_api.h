@@ -71,6 +71,31 @@ enum { UPSCALE_OFF = 0, UPSCALE_SMOOTH = 1, UPSCALE_SHARP = 2, UPSCALE_REALESRGA
 int  wpapi_load_upscale(const wchar_t *wallpaperId);
 void wpapi_save_upscale(const wchar_t *wallpaperId, int mode);
 
+/* Layout (Customise, every wallpaper): where the picture sits on the display and what fills the rest, under
+ * "_screenplus_layout" {"mode","fill","color","rect":[x,y,w,h]}; absent = Fill (cover, today's scaling). Not part of
+ * the look either. rect is the picture in display fractions (Custom only; it may reach past the edges). */
+enum { LAYOUT_FILL = 0, LAYOUT_FIT, LAYOUT_FIT_WIDTH, LAYOUT_FIT_HEIGHT, LAYOUT_STRETCH, LAYOUT_ORIGINAL, LAYOUT_CUSTOM,
+       LAYOUT_COUNT };
+enum { LFILL_BLACK = 0, LFILL_BLUR, LFILL_MIRROR, LFILL_EDGES, LFILL_COLOR, LFILL_COUNT };
+typedef struct WallpaperLayout {
+    int      mode, fill;
+    uint32_t color;                    /* LFILL_COLOR: 0xRRGGBB */
+    float    rect[4];                  /* LAYOUT_CUSTOM: x, y, w, h */
+} WallpaperLayout;
+extern const char *const k_layoutNames[LAYOUT_COUNT];   /* "fill", "fit", "fit-width", … (CLI, JSON-free names) */
+extern const char *const k_lfillNames[LFILL_COUNT];     /* "black", "blur", "mirror", "edges", "color" */
+void wpapi_load_layout(const wchar_t *wallpaperId, WallpaperLayout *out);  /* defaults when nothing is stored */
+void wpapi_save_layout(const wchar_t *wallpaperId, const WallpaperLayout *l);
+/* The picture's rect on a dw x dh display (display fractions, x y w h) for a source of sw x sh square pixels
+ * (0: unknown, taken as the display's shape). Fill covers; Original is 1:1 pixels. */
+void layout_rect(const WallpaperLayout *l, double sw, double sh, double dw, double dh, float out[4]);
+/* The rect leaves part of the display uncovered (so the fill shows). */
+int  layout_uncovered(const float r[4]);
+/* CPU compose for stills: pic (pw x ph BGRA, the whole picture at roughly its on-screen size) placed at r on a
+ * dw x dh BGRA canvas, the rest filled the way the renderers fill it. */
+void layout_compose(const uint8_t *pic, int pw, int ph, const float r[4], const WallpaperLayout *l,
+                    uint8_t *out, int dw, int dh);
+
 /* Stores one override value; native type (checkbox bool, slider/dropdown number,
  * colour/text string). Returns 1 when the file was written. */
 int wpapi_save_override(const WallpaperEntry *wp, const char *name, const JVal *value);

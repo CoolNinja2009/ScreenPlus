@@ -1526,6 +1526,8 @@ static void segmented(Ui *u, float x, float y, int kind, const wchar_t *const *o
         u->segment[slot].pos = (float)sel;
         u->segment[slot].to = sel;
     }
+    int none = sel < 0;                         /* nothing chosen: no pill, and the last one is kept to slide from */
+    if (none) sel = u->segment[slot].to;
     if (u->segment[slot].to != sel) {
         u->segment[slot].from = u->segment[slot].pos;
         u->segment[slot].to = sel;
@@ -1539,10 +1541,12 @@ static void segmented(Ui *u, float x, float y, int kind, const wchar_t *const *o
     } else u->segment[slot].pos = (float)sel;
     ui_rrect(rectf(x - 3, y - 3, segW * n + 6, 38), 10, t->chip);
     D2D1_RECT_F pill = rectf(x + u->segment[slot].pos * segW, y, segW, 32);
-    ui_rrect(pill, 8, t->dark ? col(0xFFFFFF, 0.14f) : col(0xFFFFFF, 1.0f));
-    ui_rrect_stroke(pill, 8, 1, t->border);
+    if (!none) {
+        ui_rrect(pill, 8, t->dark ? col(0xFFFFFF, 0.14f) : col(0xFFFFFF, 1.0f));
+        ui_rrect_stroke(pill, 8, 1, t->border);
+    }
     for (int i = 0; i < n; i++) {
-        int id = HIT_ID(kind, data ? data[i] : i), on = i == sel;
+        int id = HIT_ID(kind, data ? data[i] : i), on = !none && i == sel;
         D2D1_RECT_F r = rectf(x + i * segW, y, segW, 32);
         if (!on && ui_is_hot(id)) {
             ui_rrect(r, 8, col_a(t->chip, t->chip.a * 1.5f));
@@ -2193,6 +2197,8 @@ static struct {
     wchar_t         wpId[SP_ID_LEN];
     WallpaperAdjust adj;               /* working copy: edits land here and are saved on commit */
     int             upscale;           /* UPSCALE_* */
+    WallpaperLayout layout;            /* working copy of the layout */
+    int             srcW, srcH;        /* the picture's shape (0: a page or unknown: the display's) */
     CustomProp     *props;
     int             propCount;
     wchar_t         edit[SP_MAX_PATH]; /* text of the field being typed into (u->textFocus) */
@@ -2263,6 +2269,11 @@ static void customise_refresh(void)
     cus.forceReload = 0;
     wpapi_load_adjust(e->id, &cus.adj);
     cus.upscale = wpapi_load_upscale(e->id);
+    wpapi_load_layout(e->id, &cus.layout);
+    if (!thumbs_media_size(e, &cus.srcW, &cus.srcH) && e->type == WP_VIDEO) {
+        cus.srcW = 16;                                 /* a stream: most are 16:9 */
+        cus.srcH = 9;
+    }
     wpapi_props_free(cus.props, cus.propCount);
     cus.props = wpapi_props_list(e, &cus.propCount);
     if (cus.take && cus.takePropCount != cus.propCount) rec_drop_take();   /* the list changed under the take */
@@ -2696,7 +2707,7 @@ int pages_is_drag(int kind)
 {
     return kind == HK_SLIDER || kind == HK_DISC || kind == HK_PSLIDER || kind == HK_REC_SPEED || kind == HK_REC_SMOOTH || kind == HK_VOLUME ||
            kind == HK_SCROLLBAR ||
-           kind == HK_REC_GRAPH;
+           kind == HK_REC_GRAPH || kind == HK_LAYOUT_PIC;
 }
 
 /* A drawn or preset sample: v is 0..1 up the graph, stored as the track's value (rounded to its step or choice). */
@@ -2783,6 +2794,8 @@ void pages_card_drop(void)
     ui_on_config_changed();
 }
 
+static void layout_drag(int op, float x, float y, int commit);
+
 void pages_drag(int id, float x, float y, int commit)
 {
     int kind = HIT_KIND(id), data = HIT_DATA(id);
@@ -2794,6 +2807,10 @@ void pages_drag(int id, float x, float y, int commit)
     }
     if (kind == HK_SCROLLBAR) {
         scrollbar_drag(g_ui, data, y, x == g_ui->pressX && y == g_ui->pressY && !commit);
+        return;
+    }
+    if (kind == HK_LAYOUT_PIC) {
+        layout_drag(data, x, y, commit);
         return;
     }
     if (kind == HK_VOLUME) {                             /* heard while dragging (saved at most every 120 ms) */
@@ -3770,6 +3787,294 @@ static float draw_look_section(Ui *u, float x, float y, float w, const Wallpaper
     return y + card + 26.0f;
 }
 
+/* ---- layout: where the picture sits on the display and what fills the rest. The editor is the display in
+ * small: drag the picture to move it, an edge or corner to size it (Shift keeps its shape; edges snap to the
+ * display's edges and centre). Presets compute the rect; a drag makes it Custom. */
+
+static struct {
+    D2D1_RECT_F canvas;                /* the display, as last drawn */
+    float       start[4];              /* the rect when the drag began */
+    float       box[4];                /* the editor's view (display fractions: x0 y0 x1 y1): the display and the picture */
+    int         frozen;                /* a drag holds the view still */
+} g_lay;
+
+/* Undo / redo for the layout: every settled change (not each step of a drag), per wallpaper */
+#define LAY_HIST 40
+static struct {
+    wchar_t         id[SP_COUNTOF(((WallpaperEntry *)0)->id)];
+    WallpaperLayout s[LAY_HIST];
+    int             n, at;
+} g_hist;
+
+static void hist_sync(const WallpaperEntry *e)       /* a new wallpaper (or none yet): its history starts here */
+{
+    if (e && !str_ieq(g_hist.id, e->id)) {
+        str_copy(g_hist.id, SP_COUNTOF(g_hist.id), e->id);
+        g_hist.s[0] = cus.layout;
+        g_hist.n = 1;
+        g_hist.at = 0;
+    }
+}
+
+static void hist_push(void)
+{
+    if (g_hist.n && !memcmp(&g_hist.s[g_hist.at], &cus.layout, sizeof cus.layout)) return;
+    g_hist.n = g_hist.at + 1;
+    if (g_hist.n == LAY_HIST) {
+        memmove(g_hist.s, g_hist.s + 1, sizeof g_hist.s[0] * (LAY_HIST - 1));
+        g_hist.n--;
+    }
+    g_hist.s[g_hist.n++] = cus.layout;
+    g_hist.at = g_hist.n - 1;
+}
+
+static void layout_display(int *dw, int *dh)
+{
+    Ui *u = g_ui;
+    RECT b = { 0, 0, 1920, 1080 };
+    if (g_app.monCount && g_app.cfg.s.displayMode == DM_SPAN) {
+        b = g_app.mons[0].rect;
+        for (int i = 1; i < g_app.monCount; i++) UnionRect(&b, &b, &g_app.mons[i].rect);
+    } else if (g_app.monCount) {
+        b = g_app.mons[target_id() && u->target >= 0 && u->target < g_app.monCount ? u->target : 0].rect;
+    }
+    *dw = SP_MAX((int)(b.right - b.left), 1);
+    *dh = SP_MAX((int)(b.bottom - b.top), 1);
+}
+
+static void layout_now(float r[4])
+{
+    int dw, dh;
+    layout_display(&dw, &dh);
+    layout_rect(&cus.layout, cus.srcW, cus.srcH, dw, dh, r);
+}
+
+static void layout_commit(int live)
+{
+    ui_invalidate();
+    WallpaperEntry *e = customise_entry();
+    double now = time_ms();
+    if (!e) return;
+    if (!live) {
+        hist_sync(e);
+        hist_push();
+    }
+    if (live && now - cus.lastSend < LIVE_MS) return;
+    cus.lastSend = now;
+    wpapi_save_layout(e->id, &cus.layout);
+    app_apply_customise();
+}
+
+static int layout_history(int step)
+{
+    WallpaperEntry *e = customise_entry();
+    if (!e) return 0;
+    hist_sync(e);
+    int at = g_hist.at + step;
+    if (at < 0 || at >= g_hist.n) return 0;
+    g_hist.at = at;
+    cus.layout = g_hist.s[at];
+    ui_invalidate();
+    cus.lastSend = time_ms();
+    wpapi_save_layout(e->id, &cus.layout);
+    app_apply_customise();
+    return 1;
+}
+
+static float snap(float v, float d)
+{
+    static const float k[] = { 0.0f, 0.5f, 1.0f };
+    for (int i = 0; i < 3; i++)
+        if (fabsf(v - k[i]) < d) return k[i];
+    return v;
+}
+
+static void layout_drag(int op, float x, float y, int commit)
+{
+    Ui *u = g_ui;
+    float cw = SP_MAX(g_lay.canvas.right - g_lay.canvas.left, 1.0f), ch = SP_MAX(g_lay.canvas.bottom - g_lay.canvas.top, 1.0f);
+    if (x == u->pressX && y == u->pressY && !commit) {
+        layout_now(g_lay.start);
+        g_lay.frozen = 1;
+        return;
+    }
+    if (commit) g_lay.frozen = 0;
+    const float *s = g_lay.start;
+    float dx = (x - u->pressX) / cw, dy = (y - u->pressY) / ch, sx = 8.0f / cw, sy = 8.0f / ch;
+    int shift = GetKeyState(VK_SHIFT) < 0;
+    float L = s[0], T = s[1], R = s[0] + s[2], B = s[1] + s[3];
+    if (!op) {                                         /* move: the edges or the centre snap */
+        float w = s[2], h = s[3];
+        L = s[0] + dx;
+        T = s[1] + dy;
+        if (!shift) {
+            float a = snap(L, sx), b = snap(L + w, sx) - w, c = snap(L + w * 0.5f, sx) - w * 0.5f;
+            L = a != L ? a : b != L ? b : c;
+            a = snap(T, sy), b = snap(T + h, sy) - h, c = snap(T + h * 0.5f, sy) - h * 0.5f;
+            T = a != T ? a : b != T ? b : c;
+        }
+        R = L + w;
+        B = T + h;
+    } else {
+        if (op & 1) L = shift ? L + dx : snap(L + dx, sx);
+        if (op & 2) R = shift ? R + dx : snap(R + dx, sx);
+        if (op & 4) T = shift ? T + dy : snap(T + dy, sy);
+        if (op & 8) B = shift ? B + dy : snap(B + dy, sy);
+        const float m = 0.02f;
+        if (R - L < m) { if (op & 1) L = R - m; else R = L + m; }
+        if (B - T < m) { if (op & 4) T = B - m; else B = T + m; }
+        if (shift && s[2] > 0 && s[3] > 0) {           /* keep the shape */
+            float a = s[3] / s[2], w = R - L, h = B - T;
+            if ((op & 3) && (op & 12)) {
+                float k = SP_MAX(w / s[2], h / s[3]);
+                w = s[2] * k;
+                h = s[3] * k;
+                if (op & 1) L = R - w; else R = L + w;
+                if (op & 4) T = B - h; else B = T + h;
+            } else if (op & 3) {
+                float cy = s[1] + s[3] * 0.5f;
+                h = w * a;
+                T = cy - h * 0.5f;
+                B = T + h;
+            } else {
+                float cx = s[0] + s[2] * 0.5f;
+                w = h / a;
+                L = cx - w * 0.5f;
+                R = L + w;
+            }
+        }
+    }
+    float n[4] = { L, T, R - L, B - T };
+    if (cus.layout.mode == LAYOUT_CUSTOM && !memcmp(n, cus.layout.rect, sizeof n) && !commit) return;
+    cus.layout.mode = LAYOUT_CUSTOM;
+    memcpy(cus.layout.rect, n, sizeof n);
+    layout_commit(!commit);
+}
+
+/* A depth page is its picture: it takes every preset and border like an image does. */
+static int layout_is_page(const WallpaperEntry *e)
+{
+    return e->type == WP_HTML && !(e->flags & WPFLAG_DEPTH);
+}
+
+static float draw_wp_layout_section(Ui *u, float x, float y, float w, const WallpaperEntry *e)
+{
+    static const wchar_t *modes[] = { L"Fill", L"Fit", L"Width", L"Height", L"Stretch", L"Original" };
+    static const wchar_t *fills[] = { L"Black", L"Blur", L"Mirror", L"Edges", L"Colour" };
+    static const wchar_t *pageFills[] = { L"Black", L"Colour" };
+    static const int pageFillData[] = { LFILL_BLACK, LFILL_COLOR };
+    Theme *t = &u->t;
+    int page = layout_is_page(e), dw, dh;
+    hist_sync(e);
+    layout_display(&dw, &dh);
+    float r[4];
+    layout_rect(&cus.layout, cus.srcW, cus.srcH, dw, dh, r);
+    float segW = SP_CLAMP((w - 36.0f - 130.0f) / 6.0f, 52.0f, 80.0f);
+    float aw = w - 36.0f, ah = SP_MIN(300.0f, aw * dh / dw);          /* the editor's area */
+    float card = 62.0f + ah + 44.0f + 62.0f;
+    y = section(u, x, y, L"LAYOUT");
+    ui_glass(rectf(x, y, w, card), 14, 0, 0);
+
+    row_label(u, x, y, w - 6 * segW - 52, L"Size", cus.layout.mode == LAYOUT_CUSTOM ? L"Custom" : NULL);
+    static const wchar_t *pageModes[] = { L"Full" };
+    segmented(u, x + w - 18 - 6 * segW, y + 15, HK_LAYOUT_MODE, page ? pageModes : modes, page ? 1 : 6,
+              cus.layout.mode == LAYOUT_CUSTOM ? -1 : cus.layout.mode, segW, NULL);
+
+    /* the view: the display and the whole picture (zoomed out when the picture runs past the display), held still
+     * while a drag lasts so the picture follows the pointer */
+    if (!(g_lay.frozen && HIT_KIND(u->pressed) == HK_LAYOUT_PIC)) {
+        g_lay.frozen = 0;
+        g_lay.box[0] = SP_MAX(SP_MIN(0.0f, r[0]), -3.0f);
+        g_lay.box[1] = SP_MAX(SP_MIN(0.0f, r[1]), -3.0f);
+        g_lay.box[2] = SP_MIN(SP_MAX(1.0f, r[0] + r[2]), 4.0f);
+        g_lay.box[3] = SP_MIN(SP_MAX(1.0f, r[1] + r[3]), 4.0f);
+    }
+    const float *bx = g_lay.box;
+    float pad = 10.0f;                                               /* room for the handles */
+    float k = SP_MIN((aw - 2 * pad) / ((bx[2] - bx[0]) * dw), (ah - 2 * pad) / ((bx[3] - bx[1]) * dh));
+    float cw = dw * k, ch = dh * k;
+    D2D1_RECT_F area = rectf(x + 18.0f, y + 62.0f, aw, ah);
+    float ox = area.left + (aw - (bx[2] - bx[0]) * cw) * 0.5f - bx[0] * cw;
+    float oy = area.top + (ah - (bx[3] - bx[1]) * ch) * 0.5f - bx[1] * ch;
+    D2D1_RECT_F cv = rectf(ox, oy, cw, ch);
+    g_lay.canvas = cv;
+    int fill = page && cus.layout.fill != LFILL_COLOR ? LFILL_BLACK : cus.layout.fill;
+    uint32_t c = cus.layout.color;
+    float aspect = cus.srcW > 0 && cus.srcH > 0 ? (float)cus.srcW / cus.srcH : (float)dw / dh;
+    if (page) aspect = (float)dw / dh;
+    D2D1_RECT_F pic = rectf(cv.left + r[0] * cw, cv.top + r[1] * ch, r[2] * cw, r[3] * ch);
+
+    ui_push_clip(area);
+    ui_draw_thumb_stretch(e, pic, aspect, 0.28f);                    /* what falls off the display, faint */
+    ui_pop_clip();
+    ui_push_clip(cv);
+    ui_rrect(cv, 0, fill == LFILL_COLOR ? col(c, 1.0f) : col(0x000000, 1.0f));
+    if (fill == LFILL_BLUR || fill == LFILL_MIRROR || fill == LFILL_EDGES) {   /* a hint of what fills */
+        float cover[4];
+        layout_rect(NULL, cus.srcW, cus.srcH, dw, dh, cover);
+        ui_draw_thumb_stretch(e, rectf(cv.left + cover[0] * cw, cv.top + cover[1] * ch, cover[2] * cw, cover[3] * ch), aspect,
+                              fill == LFILL_BLUR ? 0.3f : 0.5f);
+    }
+    if (!ui_draw_thumb_stretch(e, pic, aspect, 1.0f)) ui_rrect(pic, 0, t->chip);
+    ui_pop_clip();
+    ui_rrect_stroke(cv, 0, 1, col(0xFFFFFF, 0.55f));               /* the display's edge */
+
+    int pressedPic = HIT_KIND(u->pressed) == HK_LAYOUT_PIC;
+    ui_rrect_stroke(pic, 0, 1.5f, col_a(t->accent, pressedPic || ui_is_hot(HIT_ID(HK_LAYOUT_PIC, 0)) ? 1.0f : 0.75f));
+    D2D1_RECT_F grab = { SP_MAX(pic.left, area.left), SP_MAX(pic.top, area.top), SP_MIN(pic.right, area.right),
+                         SP_MIN(pic.bottom, area.bottom) };
+    if (grab.right > grab.left + 2 && grab.bottom > grab.top + 2) ui_hit(HIT_ID(HK_LAYOUT_PIC, 0), grab, 0, 4);
+    /* the handles, on the picture's own edges; corners last so they win */
+    float hx[3] = { pic.left, (pic.left + pic.right) * 0.5f, pic.right }, hy[3] = { pic.top, (pic.top + pic.bottom) * 0.5f, pic.bottom };
+    static const int ops[3][3] = { { 5, 4, 6 }, { 1, 0, 2 }, { 9, 8, 10 } };
+    static const int curs[3][3] = { { 5, 8, 6 }, { 7, 0, 7 }, { 6, 8, 5 } };
+    for (int pass = 0; pass < 2; pass++)
+        for (int j = 0; j < 3; j++)
+            for (int i = 0; i < 3; i++) {
+                int op = ops[j][i], corner = (op & 3) && (op & 12);
+                if (!op || corner != pass) continue;
+                D2D1_RECT_F hr = rectf(hx[i] - 7, hy[j] - 7, 14, 14);
+                if (!corner) {                     /* an edge: the whole side, minus the corners */
+                    if (op & 3) hr = (D2D1_RECT_F){ hx[i] - 5, pic.top + 8, hx[i] + 5, pic.bottom - 8 };
+                    else hr = (D2D1_RECT_F){ pic.left + 8, hy[j] - 5, pic.right - 8, hy[j] + 5 };
+                }
+                ui_hit(HIT_ID(HK_LAYOUT_PIC, op), hr, 0, curs[j][i]);
+                if (corner || (op & 3 ? pic.bottom - pic.top : pic.right - pic.left) > 40) {
+                    D2D1_RECT_F dot = rectf(hx[i] - 4, hy[j] - 4, 8, 8);
+                    ui_rrect(dot, 2, col(0xFFFFFF, 1.0f));
+                    ui_rrect_stroke(dot, 2, 1, t->accent);
+                }
+            }
+
+    float by = area.bottom + 6.0f;
+    wchar_t cap[120];
+    str_printf(cap, SP_COUNTOF(cap), L"%d × %d on a %d × %d display · Shift keeps the shape",
+               (int)lroundf(r[2] * dw), (int)lroundf(r[3] * dh), dw, dh);
+    float rw = ui_button_width(L"Reset", GL_REFRESH), uw = ui_button_width(L"Undo", 0), dw2 = ui_button_width(L"Redo", 0);
+    ui_text(cap, u->fBody, rectf(x + 18, by + 4, w - 36 - rw - uw - dw2 - 16, 24), t->text2);
+    float bx0 = x + w - 18 - rw;
+    ui_button(HIT_ID(HK_LAYOUT_RESET, 0), rectf(bx0, by, rw, 32), L"Reset", GL_REFRESH, BTN_GHOST);
+    ui_button(HIT_ID(HK_LAYOUT_RESET, 2), rectf(bx0 - 6 - dw2, by, dw2, 32), L"Redo", 0,
+              BTN_GHOST);
+    ui_button(HIT_ID(HK_LAYOUT_RESET, 1), rectf(bx0 - 12 - dw2 - uw, by, uw, 32), L"Undo", 0,
+              BTN_GHOST);
+
+    float ry = area.bottom + 44.0f;
+    row_separator(u, x, ry, w);
+    int nf = page ? 2 : 5, sel = page ? (fill == LFILL_COLOR) : fill;
+    float sw = 34.0f, fw = SP_CLAMP((w - 36.0f - 130.0f - sw - 10.0f) / nf, 52.0f, 80.0f);
+    row_label(u, x, ry, w - nf * fw - sw - 62, L"Border", layout_uncovered(r) ? NULL : L"The picture covers the display");
+    segmented(u, x + w - 18 - nf * fw - sw - 10, ry + 15, HK_LAYOUT_FILL, page ? pageFills : fills, nf, sel, fw,
+              page ? pageFillData : NULL);
+    D2D1_RECT_F sr = rectf(x + w - 18 - sw, ry + 14, sw, 34);
+    int hot = ui_is_hot(HIT_ID(HK_LAYOUT_COLOR, 0));
+    ui_rrect(sr, 8, col(c, 1.0f));
+    ui_rrect_stroke(sr, 8, hot ? 2.0f : 1.0f, hot ? t->accent : t->border);
+    ui_hit(HIT_ID(HK_LAYOUT_COLOR, 0), sr, 1, 1);
+    ui_focus_ring(sr, 8, HIT_ID(HK_LAYOUT_COLOR, 0));
+    return y + card + 26.0f;
+}
+
 /* Which wallpapers the Upscaling card is for: videos, images and depth pages (not SHARP's 3D splats). */
 static int upscale_applies(const WallpaperEntry *e)
 {
@@ -4168,6 +4473,7 @@ static void draw_customise(Ui *u, float cx, float cw)
         if (rec_shown(REC_LOOK)) wprec_look(&cus.rec[REC_LOOK], wprec_pos(&cus.rec[REC_LOOK], wprec_now()), &cus.adj);
         y = draw_look_section(u, x, y, w, e);
         cus.adj = own;
+        y = draw_wp_layout_section(u, x, y, w, e);
         if (upscale_applies(e)) y = draw_upscale_section(u, x, y, w, e);
         if (e->type != WP_IMAGE) y = draw_sound_section(u, x, y, w, e);
         y = draw_props_section(u, x, y, w);
@@ -4811,6 +5117,48 @@ void pages_activate(int id, int dbl)
         cus.adj = adjust_defaults();
         look_commit(0);
         break;
+    case HK_LAYOUT_MODE:
+        cus.layout.mode = SP_CLAMP(data, 0, LAYOUT_COUNT - 1);
+        layout_commit(0);
+        break;
+    case HK_LAYOUT_FILL:
+        if (data == LFILL_COLOR && cus.layout.fill != LFILL_COLOR) goto pick_colour;   /* Colour: pick one right away */
+        cus.layout.fill = SP_CLAMP(data, 0, LFILL_COUNT - 1);
+        layout_commit(0);
+        break;
+    case HK_LAYOUT_RESET: {
+        if (data) {                            /* 1 undo, 2 redo */
+            layout_history(data == 1 ? -1 : 1);
+            break;
+        }
+        uint32_t keep = cus.layout.color;
+        ZeroMemory(&cus.layout, sizeof cus.layout);
+        cus.layout.rect[2] = cus.layout.rect[3] = 1.0f;
+        cus.layout.color = keep;               /* the colour stays picked; Black shows */
+        layout_commit(0);
+        break;
+    }
+    case HK_LAYOUT_COLOR:
+    pick_colour: {
+        uint32_t rgb = cus.layout.color;
+#ifdef _WIN32
+        static COLORREF custom[16];
+        CHOOSECOLORW cc = { sizeof cc };
+        cc.hwndOwner = u->hwnd;
+        cc.lpCustColors = custom;
+        cc.rgbResult = RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255);
+        cc.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ENABLEHOOK;
+        cc.lpfnHook = colour_dialog_hook;      /* from black, a spectrum pick would keep it black */
+        if (!ChooseColorW(&cc)) break;
+        rgb = ((uint32_t)GetRValue(cc.rgbResult) << 16) | ((uint32_t)GetGValue(cc.rgbResult) << 8) | GetBValue(cc.rgbResult);
+#else
+        if (!sp_pick_colour(&rgb)) break;
+#endif
+        cus.layout.color = rgb & 0xFFFFFF;
+        cus.layout.fill = LFILL_COLOR;
+        layout_commit(0);
+        break;
+    }
     case HK_UPSCALE: {
         WallpaperEntry *e = customise_entry();
         int previous = cus.upscale;
@@ -5118,7 +5466,8 @@ void pages_scroll_into_view(int id)
 int pages_key(UINT vk, int ctrl, int shift)
 {
     Ui *u = g_ui;
-    (void)ctrl;
+    if (u->page == PAGE_CUSTOMIZE && ctrl && !u->textFocus && (vk == 'Z' || vk == 'Y') && customise_entry())
+        return layout_history(vk == 'Z' && !shift ? -1 : 1), 1;
     if (u->page == PAGE_CUSTOMIZE && customise_key(vk, shift)) return 1;
     if (HIT_KIND(u->focus) == HK_VOLUME && (vk == VK_LEFT || vk == VK_RIGHT)) {   /* a focused volume slider */
         WallpaperEntry *e = HIT_DATA(u->focus) ? customise_entry() : NULL;

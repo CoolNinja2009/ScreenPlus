@@ -16,6 +16,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <ctype.h>
+#include <wctype.h>
 
 #define MAX_ARGS 64
 
@@ -923,7 +925,7 @@ static void cmd_store(Reply *r, const Req *q)
     if (s->failed) say(r, L"The Store could not be read: %ls\n", s->error);
     for (int i = 0; i < s->viewCount && i < 60; i++) {
         const StoreItem *it = &s->items[s->view[i]];
-        say(r, L"%4d  %-12ls %-5ls %ls\n", i + 1, store_source_name(it->source), it->kind == SKIND_LIVE ? L"live" : L"still", it->title);
+        say(r, L"%4d  %-13ls %-5ls %ls\n", i + 1, store_source_name(it->source), it->kind == SKIND_LIVE ? L"live" : L"still", it->title);
     }
     say(r, L"%d shown%ls\n", s->viewCount, s->loading ? L", still loading" : L"");
 }
@@ -1050,6 +1052,65 @@ static void cmd_upscale(Reply *r, const Req *q)
         customise_changed();
     }
     say(r, L"Upscaling: %ls\n", names[wpapi_load_upscale(e->id)]);
+}
+
+/* layout [<preset> | custom x y w h] [border <fill> [#RRGGBB]] | reset: where the picture sits and what fills the rest */
+static int named(const wchar_t *w, const char *a)             /* ASCII names, any case */
+{
+    while (*w && *a && towlower(*w) == (wint_t)tolower((unsigned char)*a)) { w++; a++; }
+    return !*w && !*a;
+}
+
+static void cmd_layout(Reply *r, const Req *q)
+{
+    const MonitorInfo *mon;
+    WallpaperEntry *e = target_wallpaper(r, q, &mon);
+    if (!e) return;
+    WallpaperLayout l;
+    wpapi_load_layout(e->id, &l);
+    int page = e->type == WP_HTML && !(e->flags & WPFLAG_DEPTH), changed = 0;   /* a depth page is its picture */
+    for (int i = 1; i < q->argc; i++) {
+        const wchar_t *a = q->argv[i];
+        int m = -1, f = -1;
+        for (int k = 0; k < LAYOUT_COUNT; k++) if (named(a, k_layoutNames[k])) m = k;
+        if (named(a, "reset")) {
+            ZeroMemory(&l, sizeof l);
+            l.rect[2] = l.rect[3] = 1.0f;
+            changed = 1;
+        } else if (m == LAYOUT_CUSTOM) {
+            if (i + 4 >= q->argc) { fail(r, L"Usage: screenplus layout [fill|fit|fit-width|fit-height|stretch|original | custom <x> <y> <w> <h>]\n                         [border black|blur|mirror|edges|color [#RRGGBB]] | layout reset   (x y w h: % of the display)"); return; }
+            for (int k = 0; k < 4; k++) l.rect[k] = (float)(_wtof(q->argv[++i]) / 100.0);
+            if (l.rect[2] < 0.01f || l.rect[3] < 0.01f) { fail(r, L"The width and height must be at least 1%."); return; }
+            l.mode = LAYOUT_CUSTOM;
+            changed = 1;
+        } else if (m >= 0) {
+            l.mode = page ? LAYOUT_FILL : m;
+            changed = 1;
+        } else if (named(a, "border") && i + 1 < q->argc) {
+            a = q->argv[++i];
+            for (int k = 0; k < LFILL_COUNT; k++) if (named(a, k_lfillNames[k]) || (k == LFILL_COLOR && named(a, "colour"))) f = k;
+            if (f < 0 || (page && f != LFILL_BLACK && f != LFILL_COLOR)) {
+                fail(r, page ? L"Web wallpapers take border black or color." : L"Usage: screenplus layout [fill|fit|fit-width|fit-height|stretch|original | custom <x> <y> <w> <h>]\n                         [border black|blur|mirror|edges|color [#RRGGBB]] | layout reset   (x y w h: % of the display)");
+                return;
+            }
+            l.fill = f;
+            if (f == LFILL_COLOR && i + 1 < q->argc && q->argv[i + 1][0] == L'#') l.color = (uint32_t)wcstoul(q->argv[++i] + 1, NULL, 16) & 0xFFFFFF;
+            changed = 1;
+        } else {
+            fail(r, L"Usage: screenplus layout [fill|fit|fit-width|fit-height|stretch|original | custom <x> <y> <w> <h>]\n                         [border black|blur|mirror|edges|color [#RRGGBB]] | layout reset   (x y w h: % of the display)");
+            return;
+        }
+    }
+    if (changed) {
+        wpapi_save_layout(e->id, &l);
+        customise_changed();
+    }
+    say(r, L"Layout: %hs", k_layoutNames[l.mode]);
+    if (l.mode == LAYOUT_CUSTOM)
+        say(r, L" %.1f %.1f %.1f %.1f", l.rect[0] * 100.0, l.rect[1] * 100.0, l.rect[2] * 100.0, l.rect[3] * 100.0);
+    say(r, L"\nBorder: %hs", k_lfillNames[l.fill]);
+    if (l.fill == LFILL_COLOR) say(r, L" #%06X", (unsigned)l.color);
+    say(r, L"\n");
 }
 
 /* ------------------------------------------------------------------ wallpaper properties */
@@ -1762,6 +1823,8 @@ static void run(Reply *r, const Req *q)
         cmd_look(r, q);
     } else if (str_ieq(c, L"upscale")) {
         cmd_upscale(r, q);
+    } else if (str_ieq(c, L"layout")) {
+        cmd_layout(r, q);
     } else if (str_ieq(c, L"props") || str_ieq(c, L"prop") || str_ieq(c, L"properties")) {
         cmd_props(r, q);
     } else if (str_ieq(c, L"settings") || str_ieq(c, L"setting") || str_ieq(c, L"config")) {

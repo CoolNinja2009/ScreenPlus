@@ -26,6 +26,7 @@
 #include <WebView2.h>
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -34,6 +35,10 @@
 #define WALLPAPER_ORIGIN L"https://" WALLPAPER_HOST L"/"
 
 typedef struct HtmlRenderer HtmlRenderer;
+
+static void place_view(HtmlRenderer *r);
+static void present_border(HtmlRenderer *r);
+static void view_rect(const HtmlRenderer *r, float f[4]);
 
 /* ------------------------------------------------------------ generic COM callback objects */
 
@@ -150,6 +155,13 @@ struct HtmlRenderer {
     HWND                      hwnd;
     HWND                      notify;
     int                       w, h;
+    RECT                      view;           /* the page's bounds in the window (Customise layout) */
+    WallpaperLayout           layout;
+    int                       srcW, srcH;     /* a depth page's picture (0: the page is the display's shape) */
+    uint8_t                  *src;            /* that picture, read once for the border (lazy) */
+    int                       srcPW, srcPH, srcFailed;
+    ID3D11Texture2D          *srcTex;         /* the part of it the page shows (or 1x1 black for other pages) */
+    int                       texW, texH;
     wchar_t                   folder[SP_MAX_PATH];
     wchar_t                   url[SP_MAX_PATH + 64];
     ICoreWebView2Controller  *ctl;
@@ -188,6 +200,8 @@ static void html_release(HtmlRenderer *r)
 {
     if (InterlockedDecrement(&r->refs) == 0) {
         if (r->snapshot) DeleteObject(r->snapshot);
+        SP_RELEASE(r->srcTex);
+        free(r->src);
         SP_RELEASE(r->capture);
         SP_RELEASE(r->grab);
         json_free(r->sent);
@@ -359,7 +373,10 @@ static HRESULT on_captured(HtmlRenderer *r, void *hrv, void *unused)
         LARGE_INTEGER zero = { 0 };
         IStream_Seek(r->capture, zero, STREAM_SEEK_SET, NULL);
         HRESULT dh = S_OK;
-        HBITMAP bmp = image_decode_cover(NULL, r->capture, r->w, r->h, &dh);
+        int vw = SP_MAX(r->view.right - r->view.left, 1), vh = SP_MAX(r->view.bottom - r->view.top, 1);
+        float f[4];
+        view_rect(r, f);
+        HBITMAP bmp = image_decode_cover(NULL, r->capture, vw, vh, &dh);
         if (bmp) {
             /* Present the frozen frame on the host window (flip model, visible on every desktop
              * host); the WebView is hidden afterwards so this frame stays on screen. */
@@ -367,8 +384,8 @@ static HRESULT on_captured(HtmlRenderer *r, void *hrv, void *unused)
             ID3D11Texture2D *tex = NULL;
             wchar_t err[SP_ERR_LEN];
             if (GetObjectW(bmp, sizeof ds, &ds) == sizeof ds && ds.dsBm.bmBits &&
-                gfx_texture_from_bgra(ds.dsBm.bmBits, r->w, r->h, &tex, err, SP_COUNTOF(err)) &&
-                SUCCEEDED(gfx_present(r->hwnd, &r->snapSwap, tex, r->w, r->h, NULL, 0))) {
+                gfx_texture_from_bgra(ds.dsBm.bmBits, vw, vh, &tex, err, SP_COUNTOF(err)) &&
+                SUCCEEDED(gfx_present(r->hwnd, &r->snapSwap, tex, vw, vh, r->w, r->h, NULL, 0, f, &r->layout))) {
                 DeleteObject(bmp);
             } else {
                 if (r->snapshot) DeleteObject(r->snapshot);
@@ -414,7 +431,8 @@ static void apply_state(HtmlRenderer *r)
             DeleteObject(r->snapshot);
             r->snapshot = NULL;
         }
-        gfx_release(&r->snapSwap);   /* the live page covers the host window again */
+        gfx_release(&r->snapSwap);   /* the live page covers the host window again, */
+        present_border(r);           /* and its border the rest */
         break;
     case RS_OCCLUDED:
         notify_playback(r, 1);
@@ -689,8 +707,8 @@ static HRESULT on_controller(HtmlRenderer *r, void *hrv, void *ctlv)
         }
     }
     LOGI(L"html: controller ready, navigating to %ls", r->url);
-    RECT rc = { 0, 0, r->w, r->h };
-    ICoreWebView2Controller_put_Bounds(r->ctl, rc);
+    SetRectEmpty(&r->view);
+    place_view(r);
     ICoreWebView2Controller_put_IsVisible(r->ctl, TRUE);
     apply_audio(r);
 
@@ -846,11 +864,7 @@ static void hr_resize(Renderer *base, int w, int h)
     HtmlRenderer *r = (HtmlRenderer *)base;
     r->w = w;
     r->h = h;
-    if (r->ctl) {
-        RECT rc = { 0, 0, w, h };
-        ICoreWebView2Controller_put_Bounds(r->ctl, rc);
-        ICoreWebView2Controller_NotifyParentWindowPositionChanged(r->ctl);
-    }
+    place_view(r);
 }
 
 static void hr_set_audio(Renderer *base, BOOL on)
@@ -864,11 +878,21 @@ static BOOL hr_paint(Renderer *base, HDC dc, const RECT *rc)
 {
     HtmlRenderer *r = (HtmlRenderer *)base;
     if (r->snapSwap) return TRUE;
-    if (!r->snapshot) return FALSE;
+    if (!r->snapshot) {
+        RECT full = { 0, 0, r->w, r->h };
+        if (EqualRect(&r->view, &full) || IsRectEmpty(&r->view)) return FALSE;
+        uint32_t c = r->layout.fill == LFILL_COLOR ? r->layout.color : 0;
+        HBRUSH b = CreateSolidBrush(RGB((c >> 16) & 255, (c >> 8) & 255, c & 255));
+        if (b) {
+            FillRect(dc, rc, b);           /* the page's own window covers its part */
+            DeleteObject(b);
+        }
+        return TRUE;
+    }
     HDC mem = CreateCompatibleDC(dc);
     if (!mem) return FALSE;
     HGDIOBJ old = SelectObject(mem, r->snapshot);
-    BitBlt(dc, 0, 0, rc->right - rc->left, rc->bottom - rc->top, mem, 0, 0, SRCCOPY);
+    BitBlt(dc, r->view.left, r->view.top, r->view.right - r->view.left, r->view.bottom - r->view.top, mem, 0, 0, SRCCOPY);
     SelectObject(mem, old);
     DeleteDC(mem);
     return TRUE;
@@ -900,6 +924,9 @@ static int hr_wants(Renderer *base)
 static void hr_apply(Renderer *base)
 {
     HtmlRenderer *r = (HtmlRenderer *)base;
+    wpapi_load_layout(r->wp.id, &r->layout);
+    if (!r->srcW && r->layout.fill != LFILL_COLOR) r->layout.fill = LFILL_BLACK;
+    place_view(r);
     if (!r->wv || r->closed || !r->readyPosted) return;   /* the first navigation applies everything */
     apply_fps(r);
     apply_properties(r);
@@ -907,6 +934,78 @@ static void hr_apply(Renderer *base)
 }
 
 static HRESULT on_moved(HtmlRenderer *r, void *a, void *b);
+
+/* The page's rect as display fractions. */
+static void view_rect(const HtmlRenderer *r, float f[4])
+{
+    float w = (float)SP_MAX(r->w, 1), h = (float)SP_MAX(r->h, 1);
+    f[0] = r->view.left / w;
+    f[1] = r->view.top / h;
+    f[2] = (r->view.right - r->view.left) / w;
+    f[3] = (r->view.bottom - r->view.top) / h;
+}
+
+/* The border around a page that doesn't cover its display, presented on the host window by the GPU path images
+ * use (GDI on a desktop-hosted window never shows): a depth page's picture filled around (black, colour, blur,
+ * mirror, edges), other pages' black or colour. The live page's own window covers the rect. */
+static void present_border(HtmlRenderer *r)
+{
+    float f[4];
+    view_rect(r, f);
+    if (r->state == RS_SUSPENDED) return;                   /* the pause snapshot is on screen */
+    if (!layout_uncovered(f) || r->w < 1 || r->h < 1) {
+        gfx_release(&r->snapSwap);
+        return;
+    }
+    if (r->srcW && !r->src && !r->srcFailed && !(r->src = wallpaper_source_pixels(&r->wp, r->w, r->h, &r->srcPW, &r->srcPH)))
+        r->srcFailed = 1;
+    /* a depth page covers its rect (crops to it), so the border is made from the same part of the picture */
+    int cw = 1, ch = 1, cx = 0, cy = 0;
+    if (r->src) {
+        double want = (double)f[2] * r->w / SP_MAX((double)f[3] * r->h, 1.0), have = (double)r->srcPW / r->srcPH;
+        cw = r->srcPW;
+        ch = r->srcPH;
+        if (want > have * 1.005) ch = SP_MAX((int)(cw / want + 0.5), 1);
+        else if (want < have / 1.005) cw = SP_MAX((int)(ch * want + 0.5), 1);
+        cx = (r->srcPW - cw) / 2;
+        cy = (r->srcPH - ch) / 2;
+    }
+    if (r->srcTex && (r->texW != cw || r->texH != ch)) SP_RELEASE(r->srcTex);
+    if (!r->srcTex) {
+        wchar_t err[SP_ERR_LEN];
+        uint8_t black[4] = { 0, 0, 0, 255 }, *px = black;
+        if (r->src && (px = (uint8_t *)malloc((size_t)cw * ch * 4)) != NULL)
+            for (int y = 0; y < ch; y++) memcpy(px + (size_t)y * cw * 4, r->src + ((size_t)(cy + y) * r->srcPW + cx) * 4, (size_t)cw * 4);
+        if (px && gfx_texture_from_bgra(px, px == black ? 1 : cw, px == black ? 1 : ch, &r->srcTex, err, SP_COUNTOF(err))) {
+            r->texW = px == black ? 1 : cw;
+            r->texH = px == black ? 1 : ch;
+        }
+        if (px != black) free(px);
+    }
+    if (r->srcTex && FAILED(gfx_present(r->hwnd, &r->snapSwap, r->srcTex, r->texW, r->texH, r->w, r->h, NULL, 0, f, &r->layout)))
+        gfx_release(&r->snapSwap);
+}
+
+/* A page is laid out at the layout's rect: a depth page has its picture's shape, so every preset moves it; other
+ * pages are the display's shape, so only Custom does. The window around it shows the border: black or a colour,
+ * or for a depth page its picture blurred, mirrored or stretched from the edges. */
+static void place_view(HtmlRenderer *r)
+{
+    float f[4];
+    layout_rect(&r->layout, r->srcW, r->srcH, r->w, r->h, f);
+    RECT rc = { (LONG)lroundf(f[0] * r->w), (LONG)lroundf(f[1] * r->h), (LONG)lroundf((f[0] + f[2]) * r->w),
+                (LONG)lroundf((f[1] + f[3]) * r->h) };
+    if (rc.right <= rc.left) rc.right = rc.left + 1;
+    if (rc.bottom <= rc.top) rc.bottom = rc.top + 1;
+    BOOL moved = !EqualRect(&rc, &r->view);
+    r->view = rc;
+    if (r->ctl && moved) {
+        ICoreWebView2Controller_put_Bounds(r->ctl, rc);
+        ICoreWebView2Controller_NotifyParentWindowPositionChanged(r->ctl);
+    }
+    present_border(r);
+    InvalidateRect(r->hwnd, NULL, FALSE);
+}
 
 static void send_mouse(HtmlRenderer *r, const char *type, double x, double y, const char *button, int buttons,
                        int clicks, double dy, Callback *done)
@@ -949,7 +1048,7 @@ static void hr_input(Renderer *base, const RendererInput *in)
 {
     HtmlRenderer *r = (HtmlRenderer *)base;
     if (!r->wv || r->closed || !r->readyPosted || r->state != RS_ACTIVE) return;
-    double x = in->x / r->scale, y = in->y / r->scale, dy = 0.0;
+    double x = (in->x - r->view.left) / r->scale, y = (in->y - r->view.top) / r->scale, dy = 0.0;
     if (in->kind == RIN_MOVE) {
         send_move(r, x, y, in->buttons);
         return;
@@ -1068,6 +1167,9 @@ Renderer *html_renderer_create(const RendererContext *ctx, wchar_t *err, size_t 
     r->audio = SP_CLAMP(ctx->audio, 0, 100);
     r->state = RS_ACTIVE;
     r->wp = *ctx->wp;
+    if ((r->wp.flags & WPFLAG_DEPTH) && !wallpaper_source_size(&r->wp, &r->srcW, &r->srcH)) r->srcW = r->srcH = 0;
+    wpapi_load_layout(r->wp.id, &r->layout);
+    if (!r->srcW && r->layout.fill != LFILL_COLOR) r->layout.fill = LFILL_BLACK;
     r->isUrl = isUrl;
     r->scale = ctx->dpi ? ctx->dpi / 96.0 : 1.0;
     r->raster = ctx->rasterScale;

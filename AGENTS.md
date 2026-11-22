@@ -118,7 +118,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 | `src/app/rotate.c` | Shared (both platforms): Next (`rotate_next_id`: the slideshow's source `slideshow_from` "", "*" favourites or a collection; order or shuffle), slideshow timer and day/night schedule (`T_SHELL_ROTATE`, at most 20 s, only while either is on; the schedule applies on a period change and rests the slideshow), `rotate_play` (Library Play / `collection play`) |
 | `src/app/pptx.c` | PowerPoint files: a hidden PowerShell child drives PowerPoint's `CreateVideo` (every transition incl. Morph), result `WM_SP_PPTX`; `<data>\slides\<folder>\slides-<sec>.mp4` + `source.txt`; entry = WP_VIDEO + `WPFLAG_PPTX`, `slideSec`; Customise's seconds render again. Linux: a notice only |
 | `src/app/store.c` | Store page's feed: every site's page n read in parallel on worker threads over one keep-alive session (`http_open_shared`) and merged in turn, copies folded by preview hash, filters, previews cached in `cache\store`, Download queued into `url_import_start_titled` (`WM_SP_STORE`) |
-| `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, Wallhaven): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
+| `src/app/store_sources.c`, `store_src.h` | One table entry per site (MotionBGS, Lively, MoeWalls, wallsflow, DesktopHut, Wallhaven, 4K Wallpapers): listing/search addresses per filter, card and page parsers, preview and file addresses (`file_url` NULL: Download opens its page) |
 | `src/app/startup.c`, `supervisor.c` | Start with Windows (`startup_sync` 3 s after start moves a Run entry to the logon task); engine process lifecycle |
 | `src/app/samples_update.c` | Sample wallpaper updates (see Build): latest release's samples list vs the downloaded samples, changed files unpacked from its zip (`WM_SP_SAMPLES`, `T_SHELL_SAMPLES`); uses update.c's `release_latest`/`release_asset` |
 | `src/app/update.c` | Auto update (`auto_update`, Settings Check now, `screenplus update`): GitHub's latest release vs `SP_VERSION_W`, the setup asset downloaded into `<data>\updates` and checked against the size + SHA-256 GitHub lists, run as `/S /UPDATE` (setup closes the app and relaunches it `--tray`). Installed copies only (`uninstall.exe` beside the exe); waits while the window is open |
@@ -145,6 +145,20 @@ Renderer details:
 - **Video**: one D3D11 swapchain per display and one `VideoSource` per path, shared across displays. Decode
   and present run on their own threads; decoding uses D3D11VA with a software fallback (`SCREENPLUS_HWDEC`).
   `video_stream.c` handles stream wallpapers.
+- **Layout** (Customise card above Upscaling, CLI `layout`; `wpapi_load/save_layout` in `_screenplus_layout`
+  {mode, fill, color, rect}, kept by Reset look). Presets Fill (cover, the default) / Fit / Fit width / Fit height /
+  Stretch / Original, or Custom: drag the picture or its handles in the editor (Shift keeps the shape, else snaps to
+  edges and centre). `layout_rect` turns it into a rect in output UV; the border is Black / Blur / Mirror / Edges /
+  Colour. Video and images: one draw in `video.hlsl` (`lay`, `fill`); Blur renders the covering picture into a 1/8
+  then 1/32 target (`ps_down`) and tents it, only while a border shows. Images decode at their rect size; stills use
+  `layout_compose` (CPU). A depth page is its picture (`wallpaper_source_size/pixels` read its `thumb`): every
+  preset and border; other pages: Custom rect + Black/Colour. The WebView gets the rect's bounds and the border is
+  `present_border`: the picture (or 1x1 black) through `gfx_present` on the host window's swap chain, cropped like
+  the page crops (GDI on a desktop-hosted window never shows). The editor zooms out to show the whole picture
+  (overflow faint, handles on its edges, the view held still while dragging); Undo/Redo (and Ctrl+Z / Ctrl+Y)
+  step through settled changes per wallpaper (`g_hist`). Linux: Hyprland (mpv) does the rect
+  with a black or colour border (blur/mirror would need a CPU filter per frame); Plasma does black, colour and blur
+  (MultiEffect), mirror/edges show black; span always covers on Hyprland.
 - **Upscaling** (Customise card, CLI `upscale`; `wpapi_load/save_upscale`, not part of the look, so recordings and
   Reset look leave it). Smooth = Catmull-Rom bicubic, only while the picture is smaller than the display; Sharp =
   that plus a deblur at any size (two-radius unsharp mask on luma, clamped to the 3x3 range: no halos), the same maths
@@ -194,7 +208,7 @@ Renderer details:
   | Path | Contents |
   | --- | --- |
   | `config.ini` | Settings and library |
-  | `props\<id>.json` | Customise: author property overrides, plus grading under `_screenplus_adjust` and Upscaling under `_screenplus_upscale` |
+  | `props\<id>.json` | Customise: author property overrides, plus grading under `_screenplus_adjust` and Upscaling under `_screenplus_upscale`, Layout under `_screenplus_layout` |
   | `logs\` | `screenplus.log`, `engine.log`, `capture.log`, `crash\` minidumps |
   | `cache\` | `previews\`, `yt-dlp\`, `streams\` (stream addresses and thumbnails), `store\` (Store previews, kept a week), `stills\` (Windows wallpaper stills, `original.txt`) |
   | `WebView2\` | WebView2 user data |

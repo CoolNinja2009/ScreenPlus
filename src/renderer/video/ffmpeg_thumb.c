@@ -219,6 +219,25 @@ double ffmpeg_duration(const wchar_t *path)
     return secs;
 }
 
+/* The video's display size (sample aspect applied) from the container, for layouts; FALSE: unknown. */
+BOOL ffmpeg_media_size(const wchar_t *path, int *w, int *h)
+{
+    BOOL ok = FALSE;
+    Src s;
+    char *u = video_ffmpeg_available(NULL, 0) ? utf8_from_wide(path, NULL) : NULL;
+    *w = *h = 0;
+    if (u && src_open(&s, u, 0)) {
+        const AVCodecParameters *cp = s.fmt->streams[s.vi]->codecpar;
+        AVRational sar = cp->sample_aspect_ratio;
+        *w = (int)(cp->width * (sar.num > 0 && sar.den > 0 ? av_q2d(sar) : 1.0) + 0.5);
+        *h = cp->height;
+        ok = *w > 0 && *h > 0;
+        src_close(&s);
+    }
+    free(u);
+    return ok;
+}
+
 static int count_frames(const char *u)
 {
     AVPacket *pkt = av_packet_alloc();

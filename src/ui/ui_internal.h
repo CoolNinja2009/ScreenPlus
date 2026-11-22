@@ -59,7 +59,12 @@ enum HitKind {
     HK_PLAY_SET,                      /* Library: play the shown collection or favourites as a slideshow (data 1: stop) */
     HK_PLAY_EVERY,                    /* Library: its minutes menu */
     HK_DOWNLOAD_UPSCALE,              /* Customise: download the upscaling model */
-    HK_MODEL_DL, HK_MODEL_DEL, HK_MODEL_CANCEL /* Settings: Model Manager */
+    HK_MODEL_DL, HK_MODEL_DEL, HK_MODEL_CANCEL, /* Settings: Model Manager */
+    HK_LAYOUT_MODE,                   /* Customise layout: a preset; data: LAYOUT_* */
+    HK_LAYOUT_FILL,                   /* the border fill; data: LFILL_* */
+    HK_LAYOUT_PIC,                    /* the editor: drag the picture (data 0) or a handle (left 1, right 2, top 4, bottom 8) */
+    HK_LAYOUT_COLOR,                  /* pick the fill colour */
+    HK_LAYOUT_RESET
 };
 enum { SEL_FAV, SEL_COLL, SEL_REMOVE, SEL_CLEAR, SEL_ALL };
 
@@ -76,7 +81,7 @@ typedef struct Hit {
     int         id;
     D2D1_RECT_F r;
     int         focusable;
-    int         cursor;    /* 0 arrow, 1 hand, 2 ibeam, 3 crosshair */
+    int         cursor;    /* 0 arrow, 1 hand, 2 ibeam, 3 crosshair, 4 move, 5 size NW-SE, 6 NE-SW, 7 W-E, 8 N-S */
 } Hit;
 
 typedef struct Theme {
@@ -236,6 +241,8 @@ float        ui_motion_curve(float p, int curve);
 D2D1_COLOR_F ui_motion_color(D2D1_COLOR_F a, D2D1_COLOR_F b, float p);
 void         ui_refresh_theme(void);
 void         ui_draw_thumb(const WallpaperEntry *e, D2D1_RECT_F r, float radius, int large);
+/* The whole picture (aspect: its width / height) stretched over r, as a layout shows it; FALSE: not loaded yet. */
+BOOL         ui_draw_thumb_stretch(const WallpaperEntry *e, D2D1_RECT_F r, float aspect, float opacity);
 const wchar_t *ui_type_icon(WallpaperType t);
 
 /* widgets */

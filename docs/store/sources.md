@@ -14,14 +14,15 @@ are explained in [sites-without-one-click-download.md](sites-without-one-click-d
 | wallsflow | live | `/live-wallpapers/[<category>/]page/<n>/`, `index.php?do=search&subaction=search&story=&search_start=<n>` (9 a page) | none (resolution and size on its page) | `cloud.wallsflow.com/posts/…/thumbs/….webp` | opens the page |
 | DesktopHut | live | `/?page=<n>` (29 a page), `/search/<words>?page=<n>` (`%20` between words), `/category/<slug>?page=<n>` (17 a page); a search with no (more) results says "No matches for" in its h1 and shows popular cards, which are dropped | none (resolution on each card) | `/images/<image>.webp` (480x270; `.jpg` on older uploads) | `/files/<image stem>.mp4` (newer) or `/files/<10 digits>.mp4` (older), from its page's own Download button (resolution and size from its text); web wallpapers (`WEB` badge, a `.zip`) are left out |
 | Wallhaven | still | `api/v1/search?q=&categories=&purity=100&sorting=&atleast=&ratios=landscape&page=` (JSON, 24 a page) | everything; safe for work forced (`purity=100`, `"sfw"` checked) | `thumbs.original` | `w.wallhaven.cc/full/<id[0..1]>/wallhaven-<id>.<ext>` |
+| 4K Wallpapers | still | `/?page=<n>`, `/most-popular-4k-wallpapers/?page=<n>` (Popular / Most downloaded), `/<category>/?page=<n>` (24 a page), `/search/?q=<words>` (lower case, `-` between words, a typed `-` becomes `–`; one page of 24; no results: `class="search-none"`) | categories (City searched) | `/images/walls/thumbs/<id>.jpg` (400x225) / `thumbs_2t` (800x450) | the page's "Download Original" link, `/images/wallpapers/<slug>-<w>x<h>-<id>.<jpg\|png>` (sent as `binary/data`) |
 
 - **Common categories** (Anime, Games, Nature, Cars, Space, Animals, Fantasy, City, Abstract, Movies & TV, Sport,
   Technology, Minimal) map to each site's own category where it has one. Otherwise the site searches the
   category's word, unless something was typed: few sites can combine both, so the typed words win.
-- **Resolution** goes to the sites that filter by it (Wallhaven, MotionBGS's 4K listing); the Store
+- **Resolution** goes to the sites that filter by it (Wallhaven, MotionBGS's 4K listing; 4K Wallpapers' cards carry 8K/5K from their keywords); the Store
   hides known smaller cards from the rest. Sites whose best is below the filter (5K and 8K are Wallhaven
-  only) aren't asked.
-- **Sort** (Best match, Latest, Popular, Most downloaded) goes to Wallhaven; the others keep their own
+  and 4K Wallpapers only) aren't asked.
+- **Sort** (Best match, Latest, Popular, Most downloaded) goes to Wallhaven (Popular and Most downloaded also to 4K Wallpapers' popular listing); the others keep their own
   order, which is newest first.
 - **Copies:** each preview's 64-bit difference hash, taken from its centre 16:9 crop, decides. Hashes within 5
   bits, or within 12 bits when the titles share half their words, of the same kind (live or still) are one

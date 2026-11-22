@@ -69,6 +69,20 @@ int sp_run_read(const char *const *argv, char *out, size_t cap, size_t *got)
 
 int sp_run(const char *const *argv, char *out, size_t cap) { return sp_run_read(argv, out, cap, NULL); }
 
+int sp_media_size(const WallpaperEntry *e, int *w, int *h)
+{
+    char out[64] = "", *p;
+    int depth = e && e->type == WP_HTML && (e->flags & WPFLAG_DEPTH);
+    const wchar_t *src = depth ? e->thumb : e ? e->path : NULL;
+    *w = *h = 0;
+    if (!e || (e->type == WP_HTML && !depth) || !src[0] || wallpaper_is_url(src) || !(p = sp_path_utf8(src))) return 0;
+    const char *argv[] = { "ffprobe", "-v", "quiet", "-select_streams", "v:0", "-show_entries", "stream=width,height",
+                           "-of", "csv=p=0:s=x", p, NULL };
+    if (sp_run(argv, out, sizeof out) || sscanf(out, "%dx%d", w, h) != 2) *w = *h = 0;
+    free(p);
+    return *w > 0 && *h > 0;
+}
+
 int sp_on_path(const char *name)
 {
     const char *path = getenv("PATH");

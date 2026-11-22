@@ -299,3 +299,9 @@ void thumbs_free(ThumbResult *r)
     free(r->delays);
     free(r);
 }
+
+/* ffprobe's view of the first video stream (pictures too), rotation not applied */
+BOOL thumbs_media_size(const WallpaperEntry *e, int *w, int *h)
+{
+    return sp_media_size(e, w, h) != 0;
+}

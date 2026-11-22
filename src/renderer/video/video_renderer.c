@@ -24,6 +24,7 @@
 #include "video_ps_nv12.h"
 #include "video_ps_i420.h"
 #include "video_ps_rgb.h"
+#include "video_ps_down.h"
 
 #define WIDEN2(s) L##s
 #define WIDEN(s)  WIDEN2(s)
@@ -39,6 +40,9 @@ typedef struct CBParams {
     float hue[4];      /* x: hue rotation (radians) */
     float tint[4];     /* xyz tint colour, w lift (blacks -> tint) */
     float up[4];       /* x: 0 bilinear, 1 bicubic, 2 bicubic + sharpen, 3 sharpen; y sharpness; zw texel size */
+    float lay[4];      /* the picture's rect on the output (uv) */
+    float fill[4];     /* x fill (0 colour, 1 blur, 2 mirror, 3 edges), y pass (1 blur source), zw blur texel */
+    float fillColor[4];/* rgb colour, w blur dimming */
 } CBParams;
 
 typedef struct PlaneSet {
@@ -61,7 +65,7 @@ static struct {
     volatile LONG        deviceLost;
     int                  videoSupport, nv12Srv, p010Srv;
     ID3D11VertexShader  *vs;
-    ID3D11PixelShader   *psNV12, *psI420, *psRGB;
+    ID3D11PixelShader   *psNV12, *psI420, *psRGB, *psDown;
     ID3D11SamplerState  *smp;
     ID3D11Buffer        *cb;
     AVBufferRef         *hwdev;
@@ -161,6 +165,7 @@ static void device_release(void)
     if (g.hwdev) av_buffer_unref(&g.hwdev);   /* never touch FFmpeg unless it was loaded */
     SP_RELEASE(g.cb);
     SP_RELEASE(g.smp);
+    SP_RELEASE(g.psDown);
     SP_RELEASE(g.psRGB);
     SP_RELEASE(g.psI420);
     SP_RELEASE(g.psNV12);
@@ -239,6 +244,7 @@ static BOOL device_init(wchar_t *err, size_t cap)
     if (SUCCEEDED(hr)) hr = ID3D11Device_CreatePixelShader(g.dev, g_ps_nv12, sizeof g_ps_nv12, NULL, &g.psNV12);
     if (SUCCEEDED(hr)) hr = ID3D11Device_CreatePixelShader(g.dev, g_ps_i420, sizeof g_ps_i420, NULL, &g.psI420);
     if (SUCCEEDED(hr)) hr = ID3D11Device_CreatePixelShader(g.dev, g_ps_rgb, sizeof g_ps_rgb, NULL, &g.psRGB);
+    if (SUCCEEDED(hr)) hr = ID3D11Device_CreatePixelShader(g.dev, g_ps_down, sizeof g_ps_down, NULL, &g.psDown);
     if (SUCCEEDED(hr)) {
         D3D11_SAMPLER_DESC sd;
         ZeroMemory(&sd, sizeof sd);
@@ -1109,55 +1115,138 @@ static void output_apply_resize(VideoOutput *o)
     }
 }
 
+/* ---------------------------------------------------------------- layout and fill (video.hlsl) */
+
+static void blur_release(BlurChain *bc)
+{
+    for (int i = 0; i < 2; i++) {
+        SP_RELEASE(bc->srv[i]);
+        SP_RELEASE(bc->rtv[i]);
+        SP_RELEASE(bc->tex[i]);
+        bc->w[i] = bc->h[i] = 0;
+    }
+}
+
+/* 1/32 of the output, and four times that: each 1/32 texel is the exact 4x4 box of the 1/8 copy */
+static BOOL blur_ensure(BlurChain *bc, int w, int h)
+{
+    int bw = SP_MAX(w / 32, 2), bh = SP_MAX(h / 32, 2);
+    if (bc->w[1] == bw && bc->h[1] == bh && bc->srv[1]) return TRUE;
+    blur_release(bc);
+    for (int i = 0; i < 2; i++) {
+        D3D11_TEXTURE2D_DESC d;
+        ZeroMemory(&d, sizeof d);
+        d.Width = (UINT)(i ? bw : bw * 4);
+        d.Height = (UINT)(i ? bh : bh * 4);
+        d.MipLevels = d.ArraySize = 1;
+        d.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        d.SampleDesc.Count = 1;
+        d.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        if (FAILED(ID3D11Device_CreateTexture2D(g.dev, &d, NULL, &bc->tex[i])) ||
+            FAILED(ID3D11Device_CreateRenderTargetView(g.dev, (ID3D11Resource *)bc->tex[i], NULL, &bc->rtv[i])) ||
+            FAILED(ID3D11Device_CreateShaderResourceView(g.dev, (ID3D11Resource *)bc->tex[i], NULL, &bc->srv[i]))) {
+            blur_release(bc);
+            return FALSE;
+        }
+        bc->w[i] = (int)d.Width;
+        bc->h[i] = (int)d.Height;
+    }
+    return TRUE;
+}
+
+/* One full-screen triangle into rtv (w x h) with these constants and views (t0..t5). */
+static void draw_pass(ID3D11RenderTargetView *rtv, int w, int h, ID3D11PixelShader *psh,
+                      ID3D11ShaderResourceView *const *srv, const CBParams *cb)
+{
+    D3D11_MAPPED_SUBRESOURCE m;
+    if (SUCCEEDED(ID3D11DeviceContext_Map(g.ctx, (ID3D11Resource *)g.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
+        memcpy(m.pData, cb, sizeof *cb);
+        ID3D11DeviceContext_Unmap(g.ctx, (ID3D11Resource *)g.cb, 0);
+    }
+    D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
+    ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 1, &rtv, NULL);
+    ID3D11DeviceContext_RSSetViewports(g.ctx, 1, &vp);
+    ID3D11DeviceContext_IASetInputLayout(g.ctx, NULL);
+    ID3D11DeviceContext_IASetPrimitiveTopology(g.ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ID3D11DeviceContext_VSSetShader(g.ctx, g.vs, NULL, 0);
+    ID3D11DeviceContext_PSSetShader(g.ctx, psh, NULL, 0);
+    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 0, 6, srv);
+    ID3D11DeviceContext_PSSetSamplers(g.ctx, 0, 1, &g.smp);
+    ID3D11DeviceContext_PSSetConstantBuffers(g.ctx, 0, 1, &g.cb);
+    ID3D11DeviceContext_Draw(g.ctx, 3, 0);
+    ID3D11ShaderResourceView *nulls[6] = { 0 };
+    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 0, 6, nulls);
+    ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 0, NULL, NULL);
+}
+
+/* Draws the picture (planes t0..t4 through psh; cb holds uvRect, grading, upscaling) at rect r of the w x h
+ * target with the layout's fill around it. sw x sh: the frame's shape, for the blur's cover. */
+static void draw_layout(ID3D11RenderTargetView *rtv, int w, int h, ID3D11PixelShader *psh,
+                        ID3D11ShaderResourceView *const *planes, CBParams *cb, const float r[4],
+                        const WallpaperLayout *l, BlurChain *bc, double sw, double sh)
+{
+    ID3D11ShaderResourceView *srv[6] = { planes[0], planes[1], planes[2], planes[3], planes[4], NULL };
+    int fill = l ? l->fill : LFILL_BLACK;
+    memcpy(cb->lay, r, sizeof cb->lay);
+    if (l && fill == LFILL_COLOR) {
+        cb->fillColor[0] = ((l->color >> 16) & 255) / 255.0f;
+        cb->fillColor[1] = ((l->color >> 8) & 255) / 255.0f;
+        cb->fillColor[2] = (l->color & 255) / 255.0f;
+    }
+    cb->fillColor[3] = 0.75f;
+    cb->fill[0] = fill == LFILL_BLUR ? 1.0f : fill == LFILL_MIRROR ? 2.0f : fill == LFILL_EDGES ? 3.0f : 0.0f;
+    if (fill == LFILL_BLUR && layout_uncovered(r) && g.psDown && bc && blur_ensure(bc, w, h)) {
+        CBParams src = *cb;
+        float cover[4];
+        layout_rect(NULL, sw, sh, w, h, cover);
+        memcpy(src.lay, cover, sizeof src.lay);
+        src.fill[1] = 1.0f;
+        src.up[0] = 0.0f;                     /* taps a quarter of a 1/8 texel's footprint out */
+        src.up[2] = 0.25f / bc->w[0] / cover[2] * cb->uvRect[2];
+        src.up[3] = 0.25f / bc->h[0] / cover[3] * cb->uvRect[3];
+        draw_pass(bc->rtv[0], bc->w[0], bc->h[0], psh, srv, &src);
+        ID3D11ShaderResourceView *down[6] = { NULL, NULL, NULL, NULL, NULL, bc->srv[0] };
+        src.fill[2] = 1.0f / bc->w[0];
+        src.fill[3] = 1.0f / bc->h[0];
+        draw_pass(bc->rtv[1], bc->w[1], bc->h[1], g.psDown, down, &src);
+        srv[5] = bc->srv[1];
+        cb->fill[2] = 1.0f / bc->w[1];
+        cb->fill[3] = 1.0f / bc->h[1];
+    } else if (fill == LFILL_BLUR) {
+        cb->fill[0] = 0.0f;                   /* nothing shows, or no chain: plain black */
+        if (bc && !layout_uncovered(r)) blur_release(bc);
+    }
+    draw_pass(rtv, w, h, psh, srv, cb);
+}
+
 static void draw_output(VideoOutput *o, const PlaneSet *ps, const AVFrame *f)
 {
     CBParams cb;
     ZeroMemory(&cb, sizeof cb);
     double sar = (f->sample_aspect_ratio.num > 0 && f->sample_aspect_ratio.den > 0) ? av_q2d(f->sample_aspect_ratio) : 1.0;
-    double da = (double)ps->frameW * sar / (double)SP_MAX(ps->frameH, 1);
-    double ta = (double)o->w / (double)SP_MAX(o->h, 1);
-    double u0 = 0, v0 = 0, u1 = 1, v1 = 1;
-    if (da > ta) { double vis = ta / da; u0 = (1.0 - vis) * 0.5; u1 = u0 + vis; }
-    else         { double vis = da / ta; v0 = (1.0 - vis) * 0.5; v1 = v0 + vis; }
+    double sw = (double)ps->frameW * sar, sh = SP_MAX(ps->frameH, 1);
+    float r[4];
+    layout_rect(&o->layout, sw, sh, o->w, o->h, r);
     double fx = ps->frameW / ps->texW, fy = ps->frameH / ps->texH;
-    cb.uvRect[0] = (float)(u0 * fx);
-    cb.uvRect[1] = (float)(v0 * fy);
-    cb.uvRect[2] = (float)((u1 - u0) * fx);
-    cb.uvRect[3] = (float)((v1 - v0) * fy);
+    cb.uvRect[2] = (float)fx;
+    cb.uvRect[3] = (float)fy;
     cb.uvClamp[0] = (float)(fx - 1.0 / ps->texW);
     cb.uvClamp[1] = (float)(fy - 1.0 / ps->texH);
     if (ps->yuv) yuv_matrix(f, &cb);
     cb.off[3] = ps->slice;
     grade_fill(&cb, &o->adj);
-    /* bicubic only when the visible part of the frame has fewer pixels than the output; Sharp always sharpens,
-     * one source texel apart when enlarged, else one output pixel apart */
-    double visW = (u1 - u0) * ps->frameW, visH = (v1 - v0) * ps->frameH;
-    int enlarged = o->w > visW * 1.02 || o->h > visH * 1.02;
+    /* bicubic only when the picture shows larger than the frame; Sharp always sharpens, one source texel apart
+     * when enlarged, else one output pixel apart */
+    double onW = r[2] * (double)o->w, onH = r[3] * (double)o->h;
+    int enlarged = onW > sw * 1.02 || onH > sh * 1.02;
     if (o->upscale == UPSCALE_SHARP || (o->upscale == UPSCALE_SMOOTH && enlarged)) {
         cb.up[0] = !enlarged ? 3.0f : o->upscale == UPSCALE_SHARP ? 2.0f : 1.0f;
         cb.up[1] = 1.0f;
-        cb.up[2] = enlarged ? 1.0f / ps->texW : cb.uvRect[2] / (float)o->w;
-        cb.up[3] = enlarged ? 1.0f / ps->texH : cb.uvRect[3] / (float)o->h;
+        cb.up[2] = enlarged ? 1.0f / ps->texW : (float)(cb.uvRect[2] / SP_MAX(onW, 1.0));
+        cb.up[3] = enlarged ? 1.0f / ps->texH : (float)(cb.uvRect[3] / SP_MAX(onH, 1.0));
     }
-
-    D3D11_MAPPED_SUBRESOURCE m;
-    if (SUCCEEDED(ID3D11DeviceContext_Map(g.ctx, (ID3D11Resource *)g.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
-        memcpy(m.pData, &cb, sizeof cb);
-        ID3D11DeviceContext_Unmap(g.ctx, (ID3D11Resource *)g.cb, 0);
-    }
-    D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)o->w, (float)o->h, 0.0f, 1.0f };
-    ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 1, &o->rtv, NULL);
-    ID3D11DeviceContext_RSSetViewports(g.ctx, 1, &vp);
-    ID3D11DeviceContext_IASetInputLayout(g.ctx, NULL);
-    ID3D11DeviceContext_IASetPrimitiveTopology(g.ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D11DeviceContext_VSSetShader(g.ctx, g.vs, NULL, 0);
-    ID3D11DeviceContext_PSSetShader(g.ctx, ps->ps, NULL, 0);
-    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 0, 5, (ID3D11ShaderResourceView *const *)ps->srv);
-    ID3D11DeviceContext_PSSetSamplers(g.ctx, 0, 1, &g.smp);
-    ID3D11DeviceContext_PSSetConstantBuffers(g.ctx, 0, 1, &g.cb);
-    ID3D11DeviceContext_Draw(g.ctx, 3, 0);
-    ID3D11ShaderResourceView *nulls[5] = { 0 };
-    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 0, 5, nulls);
+    draw_layout(o->rtv, o->w, o->h, ps->ps, (ID3D11ShaderResourceView *const *)ps->srv, &cb, r, &o->layout, &o->blur,
+                sw, sh);
 }
 
 static void render_frame(VideoSource *s, AVFrame *f, int redraw)
@@ -1432,9 +1521,12 @@ static void vo_apply(Renderer *base)
     WallpaperAdjust a;
     wpapi_load_adjust(o->wpId, &a);
     int up = wpapi_load_upscale(o->wpId);
+    WallpaperLayout l;
+    wpapi_load_layout(o->wpId, &l);
     EnterCriticalSection(&o->src->outLock);   /* the present thread reads adj under this lock */
     o->adj = a;
     o->upscale = up;
+    o->layout = l;
     LeaveCriticalSection(&o->src->outLock);
     InterlockedExchange(&o->src->redraw, 1);  /* re-present the current frame, also while paused */
     SetEvent(o->src->wake);
@@ -1468,6 +1560,7 @@ static void vo_destroy(Renderer *base)
     ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 0, NULL, NULL);
     SP_RELEASE(o->rtv);
     SP_RELEASE(o->swap);
+    blur_release(&o->blur);
     LeaveCriticalSection(&g.renderLock);
     if (remaining == 0) {
         for (int i = 0; i < g.sourceCount; i++) {
@@ -1541,6 +1634,7 @@ Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     o->notify = ctx->notify;
     str_copy(o->wpId, SP_COUNTOF(o->wpId), ctx->wp->id);
     wpapi_load_adjust(o->wpId, &o->adj);
+    wpapi_load_layout(o->wpId, &o->layout);
     o->upscale = upscale;
     o->w = SP_MAX(ctx->width, 1);
     o->h = SP_MAX(ctx->height, 1);
@@ -1623,9 +1717,10 @@ BOOL gfx_texture_from_bgra(const void *bits, int w, int h, struct ID3D11Texture2
     return TRUE;
 }
 
-/* Draws tex into the back buffer through the grading shader (caller holds g.lock + renderLock).
- * FALSE when a view could not be created: the caller copies instead. */
-static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int w, int h, const WallpaperAdjust *adj, int sharpen)
+/* Draws tex (tw x th) into the w x h back buffer through the grading shader at rect r with the layout's fill
+ * (caller holds g.lock + renderLock). FALSE when a view could not be created: the caller copies instead. */
+static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int tw, int th, int w, int h, const WallpaperAdjust *adj,
+                        int sharpen, const float r[4], const WallpaperLayout *l)
 {
     if (!g.psRGB || !g.vs || !g.cb) return FALSE;
     ID3D11RenderTargetView *rtv = NULL;
@@ -1646,39 +1741,28 @@ static BOOL draw_graded(ID3D11Texture2D *bb, ID3D11Texture2D *tex, int w, int h,
     cb.uvRect[2] = cb.uvRect[3] = 1.0f;
     cb.uvClamp[0] = cb.uvClamp[1] = 1.0f;
     grade_fill(&cb, adj);
-    if (sharpen) {                     /* the image is already scaled to the display: sharpen only, 1:1 */
+    if (sharpen) {                     /* the image is already scaled to its size on screen: sharpen only, 1:1 */
         cb.up[0] = 3.0f;
         cb.up[1] = 1.0f;
-        cb.up[2] = 1.0f / (float)w;
-        cb.up[3] = 1.0f / (float)h;
+        cb.up[2] = 1.0f / (float)tw;
+        cb.up[3] = 1.0f / (float)th;
     }
-    D3D11_MAPPED_SUBRESOURCE m;
-    if (SUCCEEDED(ID3D11DeviceContext_Map(g.ctx, (ID3D11Resource *)g.cb, 0, D3D11_MAP_WRITE_DISCARD, 0, &m))) {
-        memcpy(m.pData, &cb, sizeof cb);
-        ID3D11DeviceContext_Unmap(g.ctx, (ID3D11Resource *)g.cb, 0);
-    }
-    D3D11_VIEWPORT vp = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
-    ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 1, &rtv, NULL);
-    ID3D11DeviceContext_RSSetViewports(g.ctx, 1, &vp);
-    ID3D11DeviceContext_IASetInputLayout(g.ctx, NULL);
-    ID3D11DeviceContext_IASetPrimitiveTopology(g.ctx, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    ID3D11DeviceContext_VSSetShader(g.ctx, g.vs, NULL, 0);
-    ID3D11DeviceContext_PSSetShader(g.ctx, g.psRGB, NULL, 0);
-    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 4, 1, &srv);
-    ID3D11DeviceContext_PSSetSamplers(g.ctx, 0, 1, &g.smp);
-    ID3D11DeviceContext_PSSetConstantBuffers(g.ctx, 0, 1, &g.cb);
-    ID3D11DeviceContext_Draw(g.ctx, 3, 0);
-    ID3D11ShaderResourceView *nullSrv = NULL;
-    ID3D11DeviceContext_PSSetShaderResources(g.ctx, 4, 1, &nullSrv);
-    ID3D11DeviceContext_OMSetRenderTargets(g.ctx, 0, NULL, NULL);   /* no lingering back-buffer reference */
+    ID3D11ShaderResourceView *planes[5] = { NULL, NULL, NULL, NULL, srv };
+    BlurChain bc;                      /* a still presents rarely: its blur targets live for this draw only */
+    ZeroMemory(&bc, sizeof bc);
+    draw_layout(rtv, w, h, g.psRGB, planes, &cb, r, l, &bc, tw, th);
+    blur_release(&bc);
     SP_RELEASE(srv);
     SP_RELEASE(rtv);
     return TRUE;
 }
 
-HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h,
-                    const WallpaperAdjust *adj, int sharpen)
+HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int tw, int th, int w, int h,
+                    const WallpaperAdjust *adj, int sharpen, const float rect[4], const WallpaperLayout *layout)
 {
+    static const float full[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    const float *r = rect ? rect : full;
+    int placed = tw != w || th != h || r[0] != 0.0f || r[1] != 0.0f || r[2] != 1.0f || r[3] != 1.0f;
     HRESULT hr = S_OK;
     AcquireSRWLockExclusive(&g.lock);
     if (!g.dev) {
@@ -1713,7 +1797,8 @@ HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Textu
         if (SUCCEEDED(hr)) {
             /* neutral grading keeps the free copy; a failed graded draw falls back to it too */
             int graded = adj && adjust_active(adj);
-            if (!((graded || sharpen) && draw_graded(bb, tex, w, h, graded ? adj : NULL, sharpen)))
+            if (!((graded || sharpen || placed) && draw_graded(bb, tex, tw, th, w, h, graded ? adj : NULL, sharpen, r, layout)) &&
+                !placed)
                 ID3D11DeviceContext_CopyResource(g.ctx, (ID3D11Resource *)bb, (ID3D11Resource *)tex);
             ID3D11Texture2D_Release(bb);
             hr = IDXGISwapChain1_Present(*swap, 0, 0);

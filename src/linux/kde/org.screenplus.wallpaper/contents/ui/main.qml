@@ -20,6 +20,14 @@ WallpaperItem {
     /* Upscaling Sharp (2): sharpen.frag deblurs the picture as Qt shows it, at any size.
      * Smooth has nothing to change here: Qt only scales bilinearly. */
     readonly property bool sharp: configuration.Upscale === 2
+    /* Customise layout: the picture's rect in the display's (or the span box's) fractions, null: it covers. The
+     * border is black, a colour, or the picture blurred over the whole box (GPU: MultiEffect on a live copy). */
+    readonly property var lay: configuration.Layout ? configuration.Layout.split(",").map(Number) : null
+    readonly property var cover: configuration.LayoutCover ? configuration.LayoutCover.split(",").map(Number) : null
+    readonly property real boxX: configuration.SpanW > 0 ? -configuration.SpanX : 0
+    readonly property real boxY: configuration.SpanW > 0 ? -configuration.SpanY : 0
+    readonly property real boxW: configuration.SpanW > 0 ? configuration.SpanW : width
+    readonly property real boxH: configuration.SpanW > 0 ? configuration.SpanH : height
 
     /* A Customise recording's value while one plays, else the stored one. */
     function lookValue(key, stored) {
@@ -59,7 +67,24 @@ WallpaperItem {
 
     Rectangle {
         anchors.fill: parent
-        color: "black"
+        color: root.lay && root.configuration.LayoutFill === 4 ? root.configuration.LayoutColor : "black"
+    }
+
+    ShaderEffectSource {
+        visible: root.lay !== null && root.cover !== null && root.configuration.LayoutFill === 1 && root.shownKind !== "html"
+        sourceItem: visible ? view : null
+        live: true
+        x: root.cover ? root.boxX + root.cover[0] * root.boxW : 0
+        y: root.cover ? root.boxY + root.cover[1] * root.boxH : 0
+        width: root.cover ? root.cover[2] * root.boxW : 0
+        height: root.cover ? root.cover[3] * root.boxH : 0
+        layer.enabled: visible
+        layer.effect: MultiEffect {
+            blurEnabled: true
+            blur: 1.0
+            blurMax: 64
+            brightness: -0.25
+        }
     }
 
     Item {
@@ -72,15 +97,16 @@ WallpaperItem {
 
         Loader {
             id: view
-            x: root.configuration.SpanW > 0 ? -root.configuration.SpanX : 0     /* span: this display's part of the whole */
-            y: root.configuration.SpanW > 0 ? -root.configuration.SpanY : 0
-            width: root.configuration.SpanW > 0 ? root.configuration.SpanW : root.width
-            height: root.configuration.SpanW > 0 ? root.configuration.SpanH : root.height
+            x: root.boxX + (root.lay ? root.lay[0] * root.boxW : 0)     /* span: this display's part of the whole */
+            y: root.boxY + (root.lay ? root.lay[1] * root.boxH : 0)
+            width: root.lay ? root.lay[2] * root.boxW : root.boxW
+            height: root.lay ? root.lay[3] * root.boxH : root.boxH
             onLoaded: {
                 if (root.shownKind === "html") {    /* the shim first: it has to be in place when the page loads */
                     item.shim = Qt.binding(() => root.configuration.ShimUrl)
                     item.script = Qt.binding(() => root.configuration.Script)
                 }
+                if (item.stretch !== undefined) item.stretch = Qt.binding(() => root.lay !== null)
                 item.paused = Qt.binding(() => root.held)
                 item.muted = Qt.binding(() => root.configuration.Muted)
                 if (item.volume !== undefined) item.volume = Qt.binding(() => root.configuration.Volume / 100)

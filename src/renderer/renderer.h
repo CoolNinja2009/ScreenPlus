@@ -99,11 +99,22 @@ BOOL html_grab(Renderer *r);
  * into a top-down 32-bpp DIB of exactly w x h. Caller owns the HBITMAP. */
 HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut);
 /* Same, and *scale gets how much the picture was enlarged (< 1: shrunk). */
+struct WallpaperLayout;
+/* The picture for a layout: Fill = image_decode_cover_ex; else the whole picture at its size on screen, rect = where it
+ * goes (display fractions) */
+HBITMAP image_decode_layout(const wchar_t *path, int w, int h, const struct WallpaperLayout *l, float rect[4],
+                            HRESULT *hrOut, double *scale);
 HBITMAP image_decode_cover_ex(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut, double *scale);
 /* The frame a video starts on, BGRA w x h cover crop (ffmpeg_thumb.c), for the Windows wallpaper still;
  * the caller frees it with free(). */
 BOOL ffmpeg_first_frame(const wchar_t *path, int w, int h, uint8_t **bgra);
 double ffmpeg_duration(const wchar_t *path);                               /* seconds, 0: unknown */
+BOOL   ffmpeg_media_size(const wchar_t *path, int *w, int *h);
+/* The picture a wallpaper shows, for its layout: an image's or a video's own shape (EXIF applied), a depth page's
+ * picture (its thumb); FALSE for other pages, links and anything unreadable. Headers only. */
+BOOL     wallpaper_source_size(const WallpaperEntry *e, int *w, int *h);
+/* That picture whole, at most about w x h, BGRA (free()); NULL when it can't be read. */
+uint8_t *wallpaper_source_pixels(const WallpaperEntry *e, int w, int h, int *pw, int *ph);             /* the picture's shape (square pixels) */
 struct IWICBitmapFrameDecode;
 UINT image_exif_orientation(struct IWICBitmapFrameDecode *frame);   /* 1..8 (1: upright or unknown) */
 int  image_orientation_transform(UINT orientation);                /* WICBitmapTransformOptions that makes it upright */
@@ -114,7 +125,11 @@ struct ID3D11Texture2D;
 struct IDXGISwapChain1;
 BOOL    gfx_texture_from_bgra(const void *bits, int w, int h, struct ID3D11Texture2D **tex, wchar_t *err, size_t cap);
 struct WallpaperAdjust;
-HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int w, int h,
+struct WallpaperLayout;
+HRESULT gfx_present(HWND hwnd, struct IDXGISwapChain1 **swap, struct ID3D11Texture2D *tex, int tw, int th, /* tex's size */
+                    int w, int h,                         /* the window's */
                     const struct WallpaperAdjust *adj,    /* NULL: no colour grading */
-                    int sharpen);                         /* sharpen the (upscaled) picture, 1:1 */
+                    int sharpen,                          /* sharpen the (upscaled) picture, 1:1 */
+                    const float rect[4],                  /* where tex goes (display fractions); NULL: all of it */
+                    const struct WallpaperLayout *layout);/* the fill around it; NULL: black */
 void    gfx_release(struct IDXGISwapChain1 **swap);

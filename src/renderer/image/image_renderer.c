@@ -69,7 +69,24 @@ HBITMAP image_decode_cover(const wchar_t *path, IStream *stream, int w, int h, H
     return image_decode_cover_ex(path, stream, w, h, hrOut, NULL);
 }
 
+static HBITMAP decode_core(const wchar_t *path, IStream *stream, int w, int h, const WallpaperLayout *l, float *rect,
+                           HRESULT *hrOut, double *scaleOut);
+
 HBITMAP image_decode_cover_ex(const wchar_t *path, IStream *stream, int w, int h, HRESULT *hrOut, double *scaleOut)
+{
+    return decode_core(path, stream, w, h, NULL, NULL, hrOut, scaleOut);
+}
+
+HBITMAP image_decode_layout(const wchar_t *path, int w, int h, const WallpaperLayout *l, float rect[4], HRESULT *hrOut,
+                            double *scaleOut)
+{
+    return decode_core(path, NULL, w, h, l, rect, hrOut, scaleOut);
+}
+
+/* Fill (no layout): scaled to cover w x h and centre-cropped to it. A layout: the whole picture at its size on
+ * screen (rect, display fractions), at most twice the display's area; the GPU places and fills around it. */
+static HBITMAP decode_core(const wchar_t *path, IStream *stream, int w, int h, const WallpaperLayout *l, float *rect,
+                           HRESULT *hrOut, double *scaleOut)
 {
     IWICImagingFactory *f = NULL;
     IWICBitmapDecoder *dec = NULL;
@@ -109,11 +126,25 @@ HBITMAP image_decode_cover_ex(const wchar_t *path, IStream *stream, int w, int h
         }
     }
 
-    /* scale to cover the target, then center-crop */
     double scale = SP_MAX((double)w / sw, (double)h / sh);
-    if (scaleOut) *scaleOut = scale;
     UINT dw = (UINT)SP_MAX((double)w, ceil(sw * scale));
     UINT dh = (UINT)SP_MAX((double)h, ceil(sh * scale));
+    int ow = w, oh = h;
+    if (rect) {
+        rect[0] = rect[1] = 0.0f;
+        rect[2] = rect[3] = 1.0f;
+    }
+    if (l && l->mode != LAYOUT_FILL && rect) {
+        layout_rect(l, sw, sh, w, h, rect);
+        double tw = SP_MAX(rect[2] * (double)w, 1.0), th = SP_MAX(rect[3] * (double)h, 1.0);
+        double cap = SP_MIN(1.0, sqrt(2.0 * w * h / (tw * th)));
+        dw = (UINT)SP_MAX(1.0, floor(tw * cap + 0.5));
+        dh = (UINT)SP_MAX(1.0, floor(th * cap + 0.5));
+        ow = (int)dw;
+        oh = (int)dh;
+        scale = SP_MAX((double)dw / sw, (double)dh / sh);
+    }
+    if (scaleOut) *scaleOut = scale;
     hr = IWICImagingFactory_CreateBitmapScaler(f, &scaler);
     if (FAILED(hr)) goto done;
     hr = IWICBitmapScaler_Initialize(scaler, src, dw, dh, WICBitmapInterpolationModeHighQualityCubic);
@@ -128,16 +159,16 @@ HBITMAP image_decode_cover_ex(const wchar_t *path, IStream *stream, int w, int h
     BITMAPINFO bi;
     ZeroMemory(&bi, sizeof bi);
     bi.bmiHeader.biSize = sizeof bi.bmiHeader;
-    bi.bmiHeader.biWidth = w;
-    bi.bmiHeader.biHeight = -h;
+    bi.bmiHeader.biWidth = ow;
+    bi.bmiHeader.biHeight = -oh;
     bi.bmiHeader.biPlanes = 1;
     bi.bmiHeader.biBitCount = 32;
     bi.bmiHeader.biCompression = BI_RGB;
     void *bits = NULL;
     bmp = CreateDIBSection(NULL, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
     if (!bmp || !bits) { hr = E_OUTOFMEMORY; goto done; }
-    WICRect rc = { (INT)((dw - (UINT)w) / 2), (INT)((dh - (UINT)h) / 2), w, h };
-    hr = IWICFormatConverter_CopyPixels(conv, &rc, (UINT)w * 4, (UINT)w * 4 * (UINT)h, (BYTE *)bits);
+    WICRect rc = { (INT)((dw - (UINT)ow) / 2), (INT)((dh - (UINT)oh) / 2), ow, oh };
+    hr = IWICFormatConverter_CopyPixels(conv, &rc, (UINT)ow * 4, (UINT)ow * 4 * (UINT)oh, (BYTE *)bits);
     if (FAILED(hr)) { DeleteObject(bmp); bmp = NULL; }
 
 done:
@@ -169,11 +200,13 @@ typedef struct ImageRenderer {
     wchar_t          wpId[SP_ID_LEN];
     WallpaperAdjust  adj;          /* Customise panel colour grading (reloadable) */
     int              upscale;      /* UPSCALE_* (reloadable) */
+    WallpaperLayout  layout;       /* Customise layout (reloadable) */
     int              w, h;
     /* guarded by lock */
     ID3D11Texture2D *tex;          /* decoded GPU copy; retained so grading can re-present */
     int              texW, texH;
     int              enlarged;     /* the picture is smaller than the display */
+    float            rect[4];      /* where the texture goes (display fractions) */
     HBITMAP          bmp;          /* GDI fallback only */
     int              bmpW, bmpH;
     /* engine thread */
@@ -188,16 +221,20 @@ typedef struct DecodeJob {
     LONG           generation;
     int            w, h;
     int            upscale;
+    WallpaperLayout layout;
 } DecodeJob;
 
-static HBITMAP decode_upscaled(ImageRenderer *r, int width, int height, HRESULT *hr)
+static HBITMAP decode_upscaled(ImageRenderer *r, int width, int height, const WallpaperLayout *l, float rect[4], HRESULT *hr)
 {
     int iw = SP_MAX(8, (width + 3) / 4), ih = SP_MAX(8, (height + 3) / 4);
     double scale = 1.0;
-    HBITMAP src = image_decode_cover_ex(r->path, NULL, iw, ih, hr, &scale);
+    HBITMAP src = image_decode_layout(r->path, iw, ih, l, rect, hr, &scale);
     if (!src) return NULL;
     DIBSECTION ds;
     if (GetObjectW(src, sizeof ds, &ds) != sizeof ds || !ds.dsBm.bmBits) { DeleteObject(src); return NULL; }
+    iw = ds.dsBm.bmWidth;
+    ih = ds.dsBm.bmHeight;
+    if (iw < 8 || ih < 8 || iw > 2048 || ih > 2048) { DeleteObject(src); return NULL; }
     size_t count = (size_t)iw * ih;
     uint8_t *rgb = (uint8_t *)malloc(count * 3);
     if (!rgb) { DeleteObject(src); return NULL; }
@@ -245,16 +282,19 @@ static void CALLBACK decode_work(PTP_CALLBACK_INSTANCE inst, void *ctx)
     (void)inst;
     DecodeJob *job = (DecodeJob *)ctx;
     ImageRenderer *r = job->r;
+    if (job->generation != r->generation) {          /* superseded before it began (a layout being dragged) */
+        free(job);
+        img_release(r);
+        return;
+    }
     HRESULT hrInit = CoInitializeEx(NULL, COINIT_MULTITHREADED);
     double t0 = time_ms();
     HRESULT hr = S_OK;
     double scale = 1.0;
-    HBITMAP bmp = job->upscale == UPSCALE_REALESRGAN ? decode_upscaled(r, job->w, job->h, &hr)
-                                                      : image_decode_cover_ex(r->path, NULL, job->w, job->h, &hr, &scale);
-    if (!bmp && job->upscale == UPSCALE_REALESRGAN) {
-        LOGW(L"image: Real-ESRGAN failed; displaying the original image scaling");
-        bmp = image_decode_cover_ex(r->path, NULL, job->w, job->h, &hr, &scale);
-    }
+    float rect[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+    HBITMAP bmp = job->upscale == UPSCALE_REALESRGAN ? decode_upscaled(r, job->w, job->h, &job->layout, rect, &hr) : NULL;
+    if (!bmp && job->upscale == UPSCALE_REALESRGAN) LOGW(L"image: Real-ESRGAN failed; displaying the original image scaling");
+    if (!bmp) bmp = image_decode_layout(r->path, job->w, job->h, &job->layout, rect, &hr, &scale);
     if (SUCCEEDED(hrInit)) CoUninitialize();
 
     ID3D11Texture2D *tex = NULL;
@@ -294,6 +334,7 @@ static void CALLBACK decode_work(PTP_CALLBACK_INSTANCE inst, void *ctx)
         r->texW = r->bmpW = resultW;
         r->texH = r->bmpH = resultH;
         r->enlarged = job->upscale == UPSCALE_REALESRGAN || scale > 1.02;
+        memcpy(r->rect, rect, sizeof r->rect);
         r->bmp = bmp;
         ReleaseSRWLockExclusive(&r->lock);
         InterlockedExchange(&r->repaint, 1);    /* new texture (first decode or resize): present it */
@@ -318,6 +359,7 @@ static void schedule_decode(ImageRenderer *r)
     job->w = r->w;
     job->h = r->h;
     job->upscale = r->upscale;
+    job->layout = r->layout;
     InterlockedIncrement(&r->refs);
     if (!TrySubmitThreadpoolCallback(decode_work, job, NULL)) {
         free(job);
@@ -335,7 +377,12 @@ static void img_apply(Renderer *base)
     ImageRenderer *r = (ImageRenderer *)base;
     wpapi_load_adjust(r->wpId, &r->adj);
     int upscale = wpapi_load_upscale(r->wpId);
-    if (upscale != r->upscale) {
+    WallpaperLayout l;
+    wpapi_load_layout(r->wpId, &l);
+    /* a new size on screen decodes again; only the fill changed: present again */
+    int resized = l.mode != r->layout.mode || (l.mode == LAYOUT_CUSTOM && memcmp(l.rect, r->layout.rect, sizeof l.rect));
+    r->layout = l;
+    if (upscale != r->upscale || resized) {
         r->upscale = upscale;
         schedule_decode(r);
         return;
@@ -360,6 +407,8 @@ static BOOL img_paint(Renderer *base, HDC dc, const RECT *rc)
     AcquireSRWLockShared(&r->lock);
     ID3D11Texture2D *tex = NULL;               /* retained: re-presentable when grading changes */
     int tw = r->texW, th = r->texH, sharpen = r->upscale == UPSCALE_SHARP;
+    float rect[4];
+    memcpy(rect, r->rect, sizeof rect);
     if (r->tex) {
         tex = r->tex;
         ID3D11Texture2D_AddRef(tex);
@@ -367,7 +416,7 @@ static BOOL img_paint(Renderer *base, HDC dc, const RECT *rc)
     ReleaseSRWLockShared(&r->lock);
     if (tex) {
         if (InterlockedExchange(&r->repaint, 0) || !r->presented) {
-            HRESULT hr = gfx_present(r->hwnd, &r->swap, tex, tw, th, &r->adj, sharpen);
+            HRESULT hr = gfx_present(r->hwnd, &r->swap, tex, tw, th, r->w, r->h, &r->adj, sharpen, rect, &r->layout);
             if (FAILED(hr)) {
                 ID3D11Texture2D_Release(tex);
                 renderer_post(r->notify, r->base.rid, REV_FAILED, hr, L"Could not present the image (0x%08lX)", (unsigned long)hr);
@@ -439,9 +488,80 @@ Renderer *image_renderer_create(const RendererContext *ctx, wchar_t *err, size_t
     str_copy(r->wpId, SP_COUNTOF(r->wpId), ctx->wp->id);
     wpapi_load_adjust(r->wpId, &r->adj);
     r->upscale = wpapi_load_upscale(r->wpId);
+    wpapi_load_layout(r->wpId, &r->layout);
+    r->rect[2] = r->rect[3] = 1.0f;
     r->w = ctx->width;
     r->h = ctx->height;
     str_copy(r->path, SP_COUNTOF(r->path), ctx->wp->path);
     schedule_decode(r);
     return &r->base;
+}
+
+static const wchar_t *source_path(const WallpaperEntry *e, int *video)
+{
+    int depth = e && e->type == WP_HTML && (e->flags & WPFLAG_DEPTH);
+    if (!e || (e->type == WP_HTML && !depth)) return NULL;
+    const wchar_t *p = depth ? e->thumb : e->path;
+    *video = depth ? (e->flags & WPFLAG_DEPTHVIDEO) != 0 : e->type == WP_VIDEO;
+    return p[0] && !wallpaper_is_url(p) ? p : NULL;
+}
+
+BOOL wallpaper_source_size(const WallpaperEntry *e, int *w, int *h)
+{
+    int video = 0;
+    const wchar_t *p = source_path(e, &video);
+    *w = *h = 0;
+    if (!p) return FALSE;
+    if (video) return ffmpeg_media_size(p, w, h);
+    IWICImagingFactory *f = NULL;
+    IWICBitmapDecoder *dec = NULL;
+    IWICBitmapFrameDecode *frame = NULL;
+    UINT sw = 0, sh = 0;
+    HRESULT init = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    if (SUCCEEDED(CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, &IID_IWICImagingFactory, (void **)&f)) &&
+        SUCCEEDED(IWICImagingFactory_CreateDecoderFromFilename(f, p, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &dec)) &&
+        SUCCEEDED(IWICBitmapDecoder_GetFrame(dec, 0, &frame)) && SUCCEEDED(IWICBitmapFrameDecode_GetSize(frame, &sw, &sh))) {
+        if (image_exif_orientation(frame) >= 5) { UINT t = sw; sw = sh; sh = t; }
+        *w = (int)sw;
+        *h = (int)sh;
+    }
+    if (frame) IWICBitmapFrameDecode_Release(frame);
+    if (dec) IWICBitmapDecoder_Release(dec);
+    if (f) IWICImagingFactory_Release(f);
+    if (SUCCEEDED(init)) CoUninitialize();
+    return *w > 0 && *h > 0;
+}
+
+uint8_t *wallpaper_source_pixels(const WallpaperEntry *e, int w, int h, int *pw, int *ph)
+{
+    int video = 0, sw = 0, sh = 0;
+    const wchar_t *p = source_path(e, &video);
+    uint8_t *px = NULL;
+    *pw = *ph = 0;
+    if (!p || w < 1 || h < 1) return NULL;
+    if (video) {
+        if (!ffmpeg_media_size(p, &sw, &sh)) return NULL;
+        double s = SP_MIN(1.0, SP_MIN((double)w / sw, (double)h / sh));
+        int fw = SP_MAX((int)(sw * s + 0.5), 1), fh = SP_MAX((int)(sh * s + 0.5), 1);
+        if (!ffmpeg_first_frame(p, fw, fh, &px)) return NULL;
+        *pw = fw;
+        *ph = fh;
+        return px;
+    }
+    WallpaperLayout fit;
+    float r[4];
+    HRESULT hr = S_OK;
+    DIBSECTION ds;
+    ZeroMemory(&fit, sizeof fit);
+    fit.mode = LAYOUT_FIT;
+    HBITMAP bmp = image_decode_layout(p, w, h, &fit, r, &hr, NULL);
+    if (!bmp) return NULL;
+    if (GetObjectW(bmp, (int)sizeof ds, &ds) == (int)sizeof ds && ds.dsBm.bmBits &&
+        (px = (uint8_t *)malloc((size_t)ds.dsBm.bmWidth * ds.dsBm.bmHeight * 4)) != NULL) {
+        *pw = ds.dsBm.bmWidth;
+        *ph = ds.dsBm.bmHeight;
+        memcpy(px, ds.dsBm.bmBits, (size_t)*pw * *ph * 4);
+    }
+    DeleteObject(bmp);
+    return px;
 }

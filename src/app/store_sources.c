@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <wctype.h>
 
 const StoreCategory k_categories[CAT_COUNT] = {
     { L"All categories", NULL }, { L"Anime", "anime" }, { L"Games", "games" }, { L"Nature", "nature" }, { L"Cars", "cars" },
@@ -766,6 +767,140 @@ static BOOL wh_file(const StoreItem *it, const StoreVariant *v, wchar_t *url, si
 
 static void wh_page(const StoreItem *it, wchar_t *url, size_t cap) { str_printf(url, cap, WH L"/w/%hs", it->ref); }
 
+/* ---------------------------------------------------------------- 4K Wallpapers (4kwallpapers.com): stills, 24 a page */
+
+#define FK L"https://4kwallpapers.com"
+static const char *const k_fkCats[CAT_COUNT] = { NULL, "anime", "games", "nature", "cars", "space", "animals", "fantasy",
+                                                 NULL, "abstract", "movies", "sports", "technology", "minimal" };
+
+static int fk_search(const StoreQuery *q) { return q->text[0] || (q->category && !k_fkCats[q->category]); }
+
+/* /search/?q= takes its own words: lower case, '-' between words (a typed '-' becomes '–'), one page only */
+static BOOL fk_list(const StoreQuery *q, int page, const char *tag, wchar_t *url, size_t cap)
+{
+    const char *c = q->category ? k_fkCats[q->category] : NULL;
+    wchar_t w[100], e[400];
+    (void)tag;
+    if (fk_search(q)) {
+        if (page > 1) return FALSE;
+        words(q, c, w, SP_COUNTOF(w));
+        for (wchar_t *s = w; *s; s++) *s = *s == L'-' ? 0x2013 : *s == L' ' ? L'-' : (wchar_t)towlower(*s);
+        encode(w, e, SP_COUNTOF(e));
+        str_printf(url, cap, FK L"/search/?q=%ls", e);
+        return TRUE;
+    }
+    if (c) str_printf(url, cap, FK L"/%hs/", c);
+    else str_copy(url, cap, q->sort >= SQ_POPULAR ? FK L"/most-popular-4k-wallpapers/" : FK L"/");
+    if (page > 1) {
+        str_printf(e, SP_COUNTOF(e), L"?page=%d", page);
+        str_cat(url, cap, e);
+    }
+    return TRUE;
+}
+
+/* tok as one of the comma-separated keywords in [a, b) */
+static int fk_keyword(const char *a, const char *b, const char *tok)
+{
+    size_t n = strlen(tok);
+    for (const char *p = find(a, b, tok); p; p = find(p + 1, b, tok))
+        if ((p == a || p[-1] == ' ' || p[-1] == ',') && (p + n == b || p[n] == ',')) return 1;
+    return 0;
+}
+
+/* <p … class="wallpapers__item" ><meta itemprop="keywords" content="…, 8K, 5K, …"> … <a title="Title Wallpaper" …
+ * href="/<category>/<slug>-<id>.html"> … </p>; ref: <category>/<slug>-<id>, media: id. Only the keywords hint at the
+ * resolution (8K / 5K); the page says the rest. A search with no results says so (class="search-none"). */
+static void fk_parse(const StoreQuery *q, int page, const char *tag, const char *html, int len, StoreList *out)
+{
+    static const char card[] = "class=\"wallpapers__item\"";
+    const char *end = html + len, *p = html;
+    (void)tag;
+    if (find(html, end, "class=\"search-none\"")) return;
+    while ((p = after(p, end, card)) != NULL) {
+        const char *ce = find(p, end, "</p>"), *kw, *kwe = NULL, *t, *te, *hv, *he = NULL;
+        if (!ce) break;
+        kw = attr(p, ce, "itemprop=\"keywords\" content=", &kwe);
+        t = after(p, ce, "<a title=\"");
+        te = until(t, ce, '"');
+        hv = te ? attr(te, ce, "href=", &he) : NULL;
+        if (hv && he - hv > 6 && *hv == '/' && !memcmp(he - 5, ".html", 5) && he - hv < (ptrdiff_t)sizeof out->items[0].ref) {
+            const char *s = hv + 1, *id = he - 5;
+            while (s < he - 5 && (is_slug(*s) || *s == '/')) s++;
+            while (id > hv && is_digit(id[-1])) id--;
+            StoreItem *it = s == he - 5 && id < he - 5 && id[-1] == '-' ? add(out) : NULL;
+            if (it) {
+                copy_of(hv + 1, he - 5, it->ref, sizeof it->ref);
+                copy_of(id, he - 5, it->media, sizeof it->media);
+                if (te - t > 10 && !memcmp(te - 10, " Wallpaper", 10)) te -= 10;
+                text_of(t, te, it->title, SP_COUNTOF(it->title));
+                if (kw && fk_keyword(kw, kwe, "8K")) str_copy(it->badge, SP_COUNTOF(it->badge), L"8K");
+                else if (kw && fk_keyword(kw, kwe, "5K")) str_copy(it->badge, SP_COUNTOF(it->badge), L"5K");
+                it->kind = SKIND_STILL;
+                if (it->title[0]) out->count++;
+            }
+        }
+        p = ce;
+    }
+    char pat[24];
+    snprintf(pat, sizeof pat, "?page=%d", page + 1);
+    out->more = !fk_search(q) && has_next(html, end, pat);
+}
+
+static BOOL fk_detail_url(const StoreItem *it, wchar_t *url, size_t cap)
+{
+    str_printf(url, cap, FK L"/%hs.html", it->ref);
+    return TRUE;
+}
+
+/* Every size is a link, <a title="Download <title> Original Wallpaper" href="/images/wallpapers/<slug>-<w>x<h>-<id>.<jpg|png>"
+ * …>Download Original (<w>x<h>)</a> among them; key: that file's name. Without an Original, the largest landscape one. */
+static int fk_detail(const char *html, int len, StoreItem *it)
+{
+    static const char files[] = "href=\"/images/wallpapers/";
+    const char *end = html + len;
+    StoreVariant best;
+    int bestOrig = 0;
+    ZeroMemory(&best, sizeof best);
+    it->varCount = 0;
+    for (const char *p = after(html, end, files); p; p = after(p, end, files)) {
+        const char *ve = until(p, end, '"'), *ext, *s;
+        StoreVariant v;
+        if (!ve || ve - p >= (ptrdiff_t)sizeof v.key) continue;
+        ZeroMemory(&v, sizeof v);
+        copy_of(p, ve, v.key, sizeof v.key);
+        ext = strrchr(v.key, '.');
+        if (!ext || (strcmp(ext, ".jpg") && strcmp(ext, ".jpeg") && strcmp(ext, ".png"))) continue;
+        for (s = v.key; *s && (is_slug(*s) || *s == '.'); s++) {}
+        if (*s) continue;
+        for (s = v.key; *s && !v.w; s++)
+            if (*s == '-' && is_digit(s[1])) res_at(s + 1, ext, &v.w, &v.h);
+        int orig = p - html > 60 && find(p - 60, p, " Original Wallpaper\"") != NULL;
+        if (bestOrig && !orig) continue;
+        if ((orig && !bestOrig) || (v.w >= v.h && (int64_t)v.w * v.h > (int64_t)best.w * best.h)) {
+            best = v;
+            bestOrig = orig;
+        }
+    }
+    if (!best.key[0]) return 0;
+    it->var[it->varCount++] = best;
+    return 1;
+}
+
+static void fk_preview(const StoreItem *it, int big, int webp, wchar_t *url, size_t cap)
+{
+    (void)webp;                                     /* 400x225, or 800x450 for big */
+    str_printf(url, cap, FK L"/images/walls/%hs/%hs.jpg", big ? "thumbs_2t" : "thumbs", it->media);
+}
+
+static BOOL fk_file(const StoreItem *it, const StoreVariant *v, wchar_t *url, size_t cap)
+{
+    (void)it;
+    str_printf(url, cap, FK L"/images/wallpapers/%hs", v->key);
+    return TRUE;
+}
+
+static void fk_page(const StoreItem *it, wchar_t *url, size_t cap) { str_printf(url, cap, FK L"/%hs.html", it->ref); }
+
 /* ---------------------------------------------------------------- the table (feed order: one card from each in turn) */
 
 const StoreSource k_sources[] = {
@@ -775,5 +910,6 @@ const StoreSource k_sources[] = {
     { L"wallsflow", SKIND_LIVE, SR_4K, 0, wf_list, wf_parse, wf_detail_url, wf_detail, wf_preview, NULL, wf_page },
     { L"DesktopHut", SKIND_LIVE, SR_4K, 0, dh_list, dh_parse, dh_detail_url, dh_detail, dh_preview, dh_file, dh_page },
     { L"Wallhaven", SKIND_STILL, SR_8K, 0, wh_list, wh_parse, NULL, NULL, wh_preview, wh_file, wh_page },
+    { L"4K Wallpapers", SKIND_STILL, SR_8K, 0, fk_list, fk_parse, fk_detail_url, fk_detail, fk_preview, fk_file, fk_page },
 };
 const int k_sourceCount = (int)SP_COUNTOF(k_sources);

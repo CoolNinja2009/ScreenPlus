@@ -16,6 +16,8 @@ const char *desktop_name(DesktopKind k);
 int  sp_socket_path(char *out, size_t cap);
 /* Runs argv[0] from PATH, waits, returns its exit code (-1: could not run). out: its stdout, may be NULL. */
 int  sp_run(const char *const *argv, char *out, size_t cap);
+/* A local video's or picture's shape (ffprobe); 0 when unknown (links, pages): the layout takes 16:9 / the display. */
+int  sp_media_size(const WallpaperEntry *e, int *w, int *h);
 struct WallpaperEntry;
 void kde_page_args(const struct WallpaperEntry *e, char **url, char **shim, char **script);   /* free() each */
 int  sp_keep_port(const wchar_t *path, char *token, size_t cap);

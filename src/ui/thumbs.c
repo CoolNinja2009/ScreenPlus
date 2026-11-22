@@ -3,6 +3,7 @@
 #include "../common/json.h"
 #include "../common/log.h"
 #include "../app/preview.h"
+#include "../renderer/renderer.h"
 #include <shobjidl.h>
 #include <wincodec.h>
 #include <process.h>
@@ -369,4 +370,9 @@ void thumbs_free(ThumbResult *r)
     free(r->bgra);
     free(r->delays);
     free(r);
+}
+
+BOOL thumbs_media_size(const WallpaperEntry *e, int *w, int *h)
+{
+    return wallpaper_source_size(e, w, h);
 }

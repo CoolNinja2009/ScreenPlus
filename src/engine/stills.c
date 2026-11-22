@@ -183,10 +183,59 @@ static HRESULT save_jpeg(const wchar_t *path, const uint8_t *bgra, int w, int h)
 
 /* A video's first frame, else a picture: the image itself, or what stands in for a page or stream
  * (a depth wallpaper's original picture, a stream's thumbnail). */
+/* A layout: the picture at its size on screen (at most twice the display's area), graded, placed and filled
+ * around (layout_compose, the renderers' fill on the CPU: a still is made once). */
+static HRESULT make_laid(const WallpaperEntry *e, const WallpaperLayout *l, const WallpaperAdjust *a, int w, int h,
+                         const wchar_t *out)
+{
+    uint8_t *pic = NULL, *bgra = NULL;
+    int pw = 0, ph = 0, sw = 0, sh = 0;
+    float r[4];
+    HRESULT hr = E_FAIL;
+    if (e->type == WP_VIDEO) {
+        if (!ffmpeg_media_size(e->path, &sw, &sh)) return E_FAIL;
+        layout_rect(l, sw, sh, w, h, r);
+        double tw = SP_MAX(r[2] * (double)w, 1.0), th = SP_MAX(r[3] * (double)h, 1.0);
+        double cap = SP_MIN(1.0, sqrt(2.0 * w * h / (tw * th)));
+        pw = (int)SP_MAX(1.0, floor(tw * cap + 0.5));
+        ph = (int)SP_MAX(1.0, floor(th * cap + 0.5));
+        if (!ffmpeg_first_frame(e->path, pw, ph, &pic)) return E_FAIL;
+    } else {
+        const wchar_t *src = e->type == WP_IMAGE ? e->path : e->thumb;
+        DIBSECTION ds;
+        HBITMAP bmp = src[0] && !wallpaper_is_url(src) ? image_decode_layout(src, w, h, l, r, &hr, NULL) : NULL;
+        if (!bmp) return FAILED(hr) ? hr : E_FAIL;
+        if (GetObjectW(bmp, (int)sizeof ds, &ds) == (int)sizeof ds && ds.dsBm.bmBits) {
+            pw = ds.dsBm.bmWidth;
+            ph = ds.dsBm.bmHeight;
+            if ((pic = (uint8_t *)malloc((size_t)pw * ph * 4)) != NULL) memcpy(pic, ds.dsBm.bmBits, (size_t)pw * ph * 4);
+        }
+        DeleteObject(bmp);
+        if (!pic) return E_OUTOFMEMORY;
+    }
+    if (a) grade(pic, (size_t)pw * ph, a);
+    if ((bgra = (uint8_t *)malloc((size_t)w * h * 4)) != NULL) {
+        layout_compose(pic, pw, ph, r, l, bgra, w, h);
+        hr = save_jpeg(out, bgra, w, h);
+    } else {
+        hr = E_OUTOFMEMORY;
+    }
+    free(pic);
+    free(bgra);
+    return hr;
+}
+
 static HRESULT make_from_file(const WallpaperEntry *e, int w, int h, const wchar_t *out)
 {
     uint8_t *bgra = NULL;
     HRESULT hr = E_FAIL;
+    WallpaperLayout l;
+    WallpaperAdjust ga;
+    wpapi_load_layout(e->id, &l);
+    if (l.mode != LAYOUT_FILL && !(e->type == WP_VIDEO && wallpaper_is_url(e->path))) {
+        int graded = wpapi_load_adjust(e->id, &ga) && adjust_active(&ga);
+        return make_laid(e, &l, graded ? &ga : NULL, w, h, out);
+    }
     if (e->type == WP_VIDEO && !wallpaper_is_url(e->path)) {
         if (!ffmpeg_first_frame(e->path, w, h, &bgra)) return E_FAIL;
     } else {

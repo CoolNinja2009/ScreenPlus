@@ -1430,6 +1430,43 @@ static Thumb *thumb_get(const wchar_t *id, int large)
     return t;
 }
 
+/* Like ui_draw_thumb's large one, but asked for in the picture's own shape (a thumbnail is a cover crop of the size
+ * asked for) and drawn stretched over r. */
+BOOL ui_draw_thumb_stretch(const WallpaperEntry *e, D2D1_RECT_F r, float aspect, float opacity)
+{
+    Ui *u = g_ui;
+    float rw = r.right - r.left, rh = r.bottom - r.top;
+    Thumb *th = thumb_get(e->id, 1);
+    if (!th || aspect <= 0.0f || rw < 1.0f || rh < 1.0f) return FALSE;
+    th->used = u->frame;
+    float big = SP_MAX(rw, rh) * u->scale;
+    int pw = ((int)(aspect >= 1.0f ? big : big * aspect) + 15) & ~15, ph = ((int)(aspect >= 1.0f ? big / aspect : big) + 15) & ~15;
+    pw = SP_CLAMP(pw, 16, 1024);
+    ph = SP_CLAMP(ph, 16, 1024);
+    if (th->state == 2 && (pw > th->reqW * 5 / 4 || ph > th->reqH * 5 / 4 ||
+                           fabsf((float)th->reqW / SP_MAX(th->reqH, 1) - (float)pw / ph) > 0.03f * pw / ph)) th->state = 0;
+    if (th->state == 1 && (th->reqW <= 0 || th->reqH <= 0)) th->state = 0;   /* a request that was never sent */
+    if (th->state == 0) {
+        th->state = 1;
+        th->reqW = pw;
+        th->reqH = ph;
+        thumbs_request(e, pw, ph, 1);
+    }
+    if (th->state != 2 || !th->brush) return FALSE;
+    if (th->frameCount > 1) {
+        ID2D1BitmapBrush_SetBitmap(th->brush, th->frames[th->cur]);
+        if (u->motion == 0 && !u->thumbTimer) {
+            u->thumbTimer = 1;
+            SetTimer(u->hwnd, TM_THUMBS, 33, NULL);
+        }
+    }
+    D2D1_MATRIX_3X2_F m = { rw / th->w, 0, 0, rh / th->h, r.left, r.top };
+    ID2D1BitmapBrush_SetTransform(th->brush, &m);
+    ID2D1BitmapBrush_SetOpacity(th->brush, u->alpha * opacity);
+    ID2D1RenderTarget_FillRectangle(RT, &r, (ID2D1Brush *)th->brush);
+    return TRUE;
+}
+
 void ui_draw_thumb(const WallpaperEntry *e, D2D1_RECT_F r, float radius, int large)
 {
     Ui *u = g_ui;
@@ -1440,7 +1477,7 @@ void ui_draw_thumb(const WallpaperEntry *e, D2D1_RECT_F r, float radius, int lar
         th->used = u->frame;
         int pw = ((int)(rw * u->scale) + 15) & ~15, ph = ((int)(rh * u->scale) + 15) & ~15;
         if (th->state == 2 && (pw > th->reqW * 5 / 4 || ph > th->reqH * 5 / 4)) th->state = 0;   /* grew: reload sharper */
-        if (th->state == 0) {
+        if (th->state == 0 && pw > 0 && ph > 0) {    /* an empty rect asks for nothing (it would never be answered) */
             th->state = 1;
             th->reqW = pw;      /* animations are stored smaller than requested: compare with the request */
             th->reqH = ph;
@@ -2047,8 +2084,9 @@ static LRESULT CALLBACK ui_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_SETCURSOR:
         if (LOWORD(lp) == HTCLIENT) {
             const Hit *hit = u->hot ? hit_find(u, u->hot) : NULL;
-            LPCWSTR c = hit && hit->cursor == 1 ? IDC_HAND : hit && hit->cursor == 2 ? IDC_IBEAM
-                      : hit && hit->cursor == 3 ? IDC_CROSS : IDC_ARROW;
+            static const LPCWSTR k_cursors[] = { IDC_ARROW, IDC_HAND, IDC_IBEAM, IDC_CROSS, IDC_SIZEALL, IDC_SIZENWSE,
+                                                 IDC_SIZENESW, IDC_SIZEWE, IDC_SIZENS };
+            LPCWSTR c = hit && hit->cursor > 0 && hit->cursor < (int)SP_COUNTOF(k_cursors) ? k_cursors[hit->cursor] : IDC_ARROW;
             SetCursor(LoadCursorW(NULL, c));
             return TRUE;
         }

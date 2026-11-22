@@ -11,6 +11,7 @@
  * One VideoSource is shared by all monitors showing the same file (one decoder). */
 #pragma once
 #include "../renderer.h"
+#include "../html/wallpaper_api.h"
 #include <d3d11.h>
 #include <dxgi1_2.h>
 #include <libavformat/avformat.h>
@@ -51,6 +52,14 @@ typedef struct PacketQueue {
 typedef struct VideoSource VideoSource;
 typedef struct NetStream NetStream;
 
+/* The blur fill's two small render targets (1/8 then 1/32 of the output), made only while it shows. */
+typedef struct BlurChain {
+    struct ID3D11Texture2D          *tex[2];
+    struct ID3D11RenderTargetView   *rtv[2];
+    struct ID3D11ShaderResourceView *srv[2];
+    int                              w[2], h[2];
+} BlurChain;
+
 typedef struct VideoOutput {
     Renderer                base;
     VideoSource            *src;
@@ -67,6 +76,8 @@ typedef struct VideoOutput {
     int                     layered;
     WallpaperAdjust         adj;             /* Customise panel colour grading (reloadable) */
     int                     upscale;         /* UPSCALE_* (Customise, reloadable with adj) */
+    WallpaperLayout         layout;          /* Customise layout (reloadable with adj) */
+    BlurChain               blur;
     wchar_t                 wpId[SP_ID_LEN]; /* wallpaper: for reloading adjustments live */
 } VideoOutput;
 
