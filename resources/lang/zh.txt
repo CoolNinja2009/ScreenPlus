@@ -1,0 +1,450 @@
+# Screen+ UI in 简体中文: English<TAB>translation (src/common/i18n.c). Made by scripts/lang-pack.py.
+@name	简体中文
+  (in use)	  （使用中）
+ (SLIDESHOW)	 （幻灯片放映）
+ for this video	 用于此视频
+ · %d wallpaper%ls · slideshow every %d min	 · %d 张壁纸%.0ls · 每 %d 分钟轮换
+ · %d wallpaper%ls	 · %d 张壁纸%.0ls
+ · %d × %d · %.1f MB	 · %d × %d · %.1f MB
+ · Primary	 · 主显示器
+%d display%ls	%d 台显示器%.0ls
+%d selected	已选 %d 项
+%d wallpaper%ls	%d 张壁纸%.0ls
+%d × %d on a %d × %d display · Shift keeps the shape	%d × %d，显示器为 %d × %d · 按住 Shift 保持比例
+%ls downloads %ls the first time.	%ls 首次使用时会下载 %ls。
+%ls needs more memory than this PC has.	%ls 所需内存超出这台电脑的容量。
+%ls needs your own .onnx file.	%ls 需要你自己的 .onnx 文件。
+'%ls' can't be exported: its file is missing.	无法导出“%ls”：文件已丢失。
+'%ls' can't be shown because the file is missing.	无法显示“%ls”，因为文件已丢失。
+(empty)	（空）
+(none)	（无）
+(unnamed)	（未命名）
+ABOUT	关于
+ALL DISPLAYS	所有显示器
+APP RULES	应用规则
+AUDIO & RECOVERY	音频与恢复
+Accent colour	强调色
+Active	运行中
+Add %d selected wallpaper%ls	添加选中的 %d 项%.0ls
+Add %d to library	将 %d 项添加到库
+Add app	添加应用
+Add to library	添加到库
+All displays	所有显示器
+All files	所有文件
+All wallpapers	所有壁纸
+All	全部
+Allow desktop mouse interaction	允许在桌面上用鼠标交互
+Animations	动画
+Another depth job is running · %.1f MB	另一个深度任务正在运行 · %.1f MB
+Another screensaver is in use	正在使用其他屏幕保护程序
+Any app	任意应用
+Appearance	外观
+Apply a wallpaper to customise it.	应用一张壁纸后即可自定义。
+Apply to all displays	应用到所有显示器
+Apply to display %d (%.40ls)	应用到显示器 %d（%.40ls）
+Apps	应用
+Arrangement	排列
+Auto update	自动更新
+Automatic	自动
+Available:	可用：
+Black	黑色
+Block this wallpaper	屏蔽此壁纸
+Blur	模糊
+Border	边框
+Bounce	弹跳
+Breathe	呼吸
+Brightness	亮度
+Busy with another wallpaper.	正在处理另一张壁纸。
+Can't run	无法运行
+Can't run: not enough memory	无法运行：内存不足
+Cancel	取消
+Category	类别
+Change every (minutes)	更换间隔（分钟）
+Change wallpaper automatically	自动更换壁纸
+Changes highlights throughout Screen+	更改整个 Screen+ 的强调色
+Check now	立即检查
+Choose a background	选择背景
+Choose a file…	选择文件…
+Choose a wallpaper from your library	从库中选择壁纸
+Choose the app's .exe file.	请选择应用的 .exe 文件。
+Choose your .onnx	选择你的 .onnx
+Choose…	选择…
+Clear search	清除搜索
+Collection name	收藏集名称
+Collections	收藏集
+Collections…	收藏集…
+Colour	颜色
+Contrast	对比度
+Could not delete this model. Check that its files are writable and not in use.	无法删除此模型。请检查其文件是否可写且未被占用。
+Could not export '%ls'. The log has the reason.	无法导出“%ls”。原因见日志。
+Could not export the selected wallpapers.	无法导出所选壁纸。
+Could not open '%ls'.	无法打开“%ls”。
+Could not start the export.	无法开始导出。
+Could not start the screensaver preview.	无法启动屏幕保护程序预览。
+Could not update the startup entry.	无法更新开机启动项。
+Couldn't reach the wallpaper sites	无法连接壁纸网站
+Covered	被遮挡
+Create	创建
+Custom order	自定义顺序
+Custom	自定义
+Customise	自定义
+DAY AND NIGHT	白天与夜晚
+DESKTOP	桌面
+Damaged item	损坏的项目
+Damaged items will be skipped.	将跳过损坏的项目。
+Dark	深色
+Date added	添加日期
+Day and night wallpapers	白天和夜晚壁纸
+Day wallpaper	白天壁纸
+Delete collection (keeps the wallpapers)	删除收藏集（保留壁纸）
+Delete the recording	删除录制
+Delete	删除
+Displays	显示器
+Done	完成
+Download %ls	下载 %ls
+Download model	下载模型
+Download	下载
+Downloaded · %.1f MB · %ls	已下载 · %.1f MB · %ls
+Downloaded	已下载
+Downloading %d%%	正在下载 %d%%
+Downloading (%d%%) · %.1f MB	正在下载（%d%%）· %.1f MB
+Downloading… · %.1f MB	正在下载… · %.1f MB
+Downloading…	正在下载…
+Draw over the line to change it; right-click for presets	在线上绘制即可修改；右键选择预设
+Duplicate	复制
+Ease in-out	缓入缓出
+Edges	边缘
+Edit the recording	编辑录制
+Enable audio-reactive spectrum	启用音频响应频谱
+End on mouse movement	移动鼠标时结束
+Error	错误
+Every %d min	每 %d 分钟
+Export (.spf)…	导出 (.spf)…
+Export collection (.spp)…	导出收藏集 (.spp)…
+Exported %d wallpapers.	已导出 %d 张壁纸。
+Exported '%ls'.	已导出“%ls”。
+Exporting %d wallpapers…	正在导出 %d 张壁纸…
+Exporting '%ls'…	正在导出“%ls”…
+Exporting collection '%ls'…	正在导出收藏集“%ls”…
+Favourite	收藏
+Favourites	收藏
+File not found	找不到文件
+Fill	填充
+Finishing '%ls'… Esc cancels.	正在完成“%ls”… 按 Esc 取消。
+Finishing the export… Esc cancels.	正在完成导出… 按 Esc 取消。
+Fit	适应
+Frame-rate limit	帧率上限
+From %02d:00	%02d:00 起
+Full	完整
+GENERAL	常规
+Gamma	伽马
+Get WebView2	获取 WebView2
+Good	好
+HTML WALLPAPERS	HTML 壁纸
+Heartbeat	心跳
+Height	高度
+Hue shift	色相偏移
+IMAGE	图片
+Identify	标识
+Images	图片
+Import Lively wallpapers automatically	自动导入 Lively 壁纸
+Import a wallpaper folder	导入壁纸文件夹
+Import files	导入文件
+Import from a link	从链接导入
+Import wallpapers from web links	从网页链接导入壁纸
+Import	导入
+In library	已在库中
+In use by a depth job · %.1f MB	被深度任务占用 · %.1f MB
+Independent	独立
+Interactive depth is on	交互式景深已开启
+Interactive depth	交互式景深
+Keep the window closed at sign-in	登录时不打开窗口
+LAYOUT	布局
+LOOK & COLOUR	外观与颜色
+Library	库
+Light	浅色
+Loading…	正在加载…
+Logs and data	日志和数据
+MAKE WALLPAPER COOLER	让壁纸更酷
+MODEL MANAGER	模型管理
+Make image wallpapers interactive	让图片壁纸可交互
+Make wallpaper cooler	让壁纸更酷
+Managed by your organisation	由你的组织管理
+Mirror	镜像
+Mouse interaction is off in Settings.	鼠标交互已在设置中关闭。
+Mute while these apps use the microphone	这些应用使用麦克风时静音
+Mute while this app uses the microphone	此应用使用麦克风时静音
+Muted	已静音
+NOW SHOWING%ls  ·  %ls	正在显示%ls  ·  %ls
+NOW SHOWING%ls  ·  DISPLAY %d	正在显示%ls  ·  显示器 %d
+NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS	正在显示%ls  ·  跨越 %d 台显示器
+Name	名称
+New collection	新建收藏集
+New collection…	新建收藏集…
+Night wallpaper	夜晚壁纸
+No matching settings	没有匹配的设置
+No matching wallpapers	没有匹配的壁纸
+No results for '%.50ls'	没有“%.50ls”的结果
+No wallpaper applied	未应用壁纸
+No wallpaper	无壁纸
+No wallpapers found	未找到壁纸
+None	无
+Not downloaded · %.1f MB · %ls	未下载 · %.1f MB · %ls
+Not installed. Web wallpapers need it.	未安装。网页壁纸需要它。
+Nothing changed while recording, so there is nothing to play.	录制期间没有任何变化，因此没有可播放的内容。
+Nothing matches these filters	没有符合这些筛选条件的内容
+OK	确定
+Off	关
+On	开
+Open data folder	打开数据文件夹
+Open its page	打开其页面
+Open link in browser	在浏览器中打开链接
+Open logs	打开日志
+Open on %ls	在 %ls 上打开
+Open	打开
+Opens in your browser	在浏览器中打开
+Original	原始
+PERFORMANCE	性能
+PHOTO	照片
+Paste a link	粘贴链接
+Pause during fullscreen apps	全屏应用运行时暂停
+Pause on battery power	使用电池时暂停
+Pause the recording to change this	请先暂停录制再更改
+Pause the recording	暂停录制
+Pause when covered by windows	被窗口遮挡时暂停
+Pause while locked	锁定时暂停
+Pause while these apps are in front	这些应用在前台时暂停
+Pause while this app is in front	此应用在前台时暂停
+Pause	暂停
+Paused	已暂停
+Pictures and videos	图片和视频
+Pictures only	仅图片
+Pictures	图片
+Play sound	播放声音
+Play the recording	播放录制
+Play wallpaper audio	播放壁纸音频
+Play	播放
+Playing %ls, a new wallpaper every %d min.	正在播放 %ls，每 %d 分钟换一张壁纸。
+Playing as a slideshow	正在以幻灯片放映
+Plays at once in high quality, streamed into RAM. Nothing is saved.	立即以高画质播放，流式传输到内存。不保存任何内容。
+PowerPoint is making the video	PowerPoint 正在生成视频
+PowerPoint is still working on '%ls'.	PowerPoint 仍在处理“%ls”。
+PowerPoint · %d s a slide	PowerPoint · 每张幻灯片 %d 秒
+Preparing…	正在准备…
+Preview	预览
+Primary	主显示器
+Pulse	脉冲
+Queued	排队中
+Ramp down	下降斜坡
+Ramp up	上升斜坡
+Random	随机
+Reading…	正在读取…
+Real-ESRGAN needs its model	Real-ESRGAN 需要它的模型
+Recent	最近
+Record your changes; they play on a loop	录制你的更改，它们会循环播放
+Recording  %d:%02d	正在录制  %d:%02d
+Recovering	正在恢复
+Redo	重做
+Reduced	减少
+Remove from library (keeps the file)	从库中移除（保留文件）
+Remove from library and delete the download	从库中移除并删除下载
+Remove from library	从库中移除
+Remove	移除
+Renderer	渲染器
+Reset filters	重置筛选
+Reset look	重置外观
+Reset settings	重置设置
+Reset	重置
+Resolution	分辨率
+Restart failed renderers automatically	自动重启失败的渲染器
+Restart renderer	重启渲染器
+Restart	重启
+Restore defaults	恢复默认
+Resume	继续
+Right-click to change how many times it repeats	右键更改重复次数
+Running in safe mode	正在以安全模式运行
+Running	运行中
+SCREEN+ COLLECTION	SCREEN+ 收藏集
+SCREEN+ WALLPAPER	SCREEN+ 壁纸
+SCREENSAVER	屏幕保护程序
+SLIDES	幻灯片
+SLIDESHOW	幻灯片放映
+SOUND	声音
+Same as the desktop	与桌面相同
+Sample wallpaper updates	示例壁纸更新
+Saturation	饱和度
+Saves the best quality up to your screen's size.	按不超过屏幕尺寸的最佳画质保存。
+Screen+ is busy with another depth job, so this background stays flat for now.	Screen+ 正忙于另一个深度任务，因此此背景暂时保持平面。
+Search settings	搜索设置
+Search wallpapers	搜索壁纸
+Seconds per slide	每张幻灯片秒数
+Select all	全选
+Select	选择
+Settings reset.	设置已重置。
+Settings	设置
+Sharp	锐利
+Show a still while Screen+ starts	Screen+ 启动时显示静态画面
+Show in File Explorer	在文件资源管理器中显示
+Show in File Manager	在文件管理器中显示
+Show the sign-in screen on resume	恢复时显示登录屏幕
+Shows the page itself, live.	实时显示页面本身。
+Shuffle	随机播放
+Sine	正弦
+Site	网站
+Size	大小
+Slow	慢
+Smooth	平滑
+Sort by	排序方式
+Sound is off	声音已关闭
+Sound on	声音已开启
+Span	跨屏
+Speed	速度
+Spike	尖峰
+Square	方波
+Start after (minutes)	等待时间（分钟）
+Start minimised to the tray	启动时最小化到托盘
+Start with Linux	随 Linux 启动
+Start with Windows	随 Windows 启动
+Starting	正在启动
+Steps	阶梯
+Stop recording	停止录制
+Stop	停止
+Stopped after repeated failures	多次失败后已停止
+Stopped	已停止
+Store	Store
+Stream	流媒体
+Strength	强度
+Stretch	拉伸
+System	跟随系统
+TROUBLESHOOTING	故障排除
+The download could not start. Another depth job may be running.	无法开始下载。可能有另一个深度任务正在运行。
+The picture covers the display	图片覆盖整个显示器
+The upscaling model download could not start. Another depth job may be running.	无法开始下载放大模型。可能有另一个深度任务正在运行。
+Third-party notices	第三方声明
+This file can't be opened. It may be damaged, or made by a newer Screen+.	无法打开此文件。它可能已损坏，或由更新版本的 Screen+ 创建。
+This wallpaper can't be read and will be skipped.	无法读取此壁纸，将跳过。
+This wallpaper has no properties.	此壁纸没有属性。
+Tint brightness	色调亮度
+Tint colour	色调颜色
+Tint strength	色调强度
+Tint	色调
+Triangle	三角波
+Try again	重试
+Type how many times it repeats	输入重复次数
+Type	类型
+UPSCALING	放大
+Undo	撤销
+Update	更新
+Upscaling	放大
+Use Screen+ as the screensaver	使用 Screen+ 作为屏幕保护程序
+Use as screensaver	用作屏幕保护程序
+Use default	使用默认
+Use plain image	使用普通图片
+Use plain video	使用普通视频
+VIDEO	视频
+Very good	很好
+Very hard	很硬
+Videos	视频
+Volume	音量
+WALLPAPER PROPERTIES	壁纸属性
+Waiting	等待中
+Wallpaper folder	壁纸文件夹
+Wallpaper	壁纸
+Wallpapers from %d sites	来自 %d 个网站的壁纸
+Wallpapers	壁纸
+Wander	漫游
+Web page	网页
+Width	宽度
+Windows screensaver settings	Windows 屏幕保护程序设置
+Your file	你的文件
+Your library is empty	你的库是空的
+Your library is kept.	你的库会保留。
+all displays	所有显示器
+custom	自定义
+duplicated	复制显示
+file	文件
+folder	文件夹
+part of the span	跨屏的一部分
+selected display	所选显示器
+uses default	使用默认
+web	网页
+your favourites	你的收藏
+'%ls' could not be found at its original location.	在原位置找不到“%ls”。
+'%ls' is already in the library.	“%ls”已在库中。
+'%ls' needs Microsoft PowerPoint, which isn't installed.	“%ls”需要 Microsoft PowerPoint，但未安装。
+'%ls' needs PowerPoint, which Linux doesn't have. Export it as a video instead.	“%ls”需要 PowerPoint，而 Linux 上没有。请将其导出为视频。
+'%ls' now uses %ls.	“%ls”现在使用 %ls。
+Added %d wallpaper%ls to the collection '%ls'.	已将 %d 张壁纸%.0ls 添加到收藏集“%ls”。
+Added '%ls' to the library.	已将“%ls”添加到库。
+Added '%ls'.	已添加“%ls”。
+Could not add '%ls'.	无法添加“%ls”。
+Could not export '%ls'.	无法导出“%ls”。
+Could not export collection '%ls'.	无法导出收藏集“%ls”。
+Could not start PowerPoint for '%ls'.	无法为“%ls”启动 PowerPoint。
+Couldn't find the download for '%ls': %ls.	找不到“%ls”的下载：%ls。
+Exported %d of %d wallpapers. The log names the others.	已导出 %d / %d 张壁纸。其余的见日志。
+Exported collection '%ls' (%d wallpaper%ls).	已导出收藏集“%ls”（%d 张壁纸%.0ls）。
+Its weights are missing. Keep the .onnx.data file beside the .onnx.	缺少权重文件。请将 .onnx.data 文件放在 .onnx 旁边。
+Making the wallpaper cooler failed.	让壁纸更酷失败。
+No Lively Wallpaper library was found.	未找到 Lively Wallpaper 库。
+No Wallpaper Engine library was found. Use Import folder on a workshop item or project folder.	未找到 Wallpaper Engine 库。请对创意工坊项目或项目文件夹使用“导入文件夹”。
+Nothing was imported. These files are not supported.	未导入任何内容。不支持这些文件。
+PowerPoint couldn't make a video of '%ls'.	PowerPoint 无法将“%ls”制作成视频。
+PowerPoint is turning '%ls' into a wallpaper. This can take a few minutes.	PowerPoint 正在将“%ls”转换为壁纸。这可能需要几分钟。
+Removed '%ls' and its downloaded file.	已移除“%ls”及其下载的文件。
+Removed '%ls' and its video. The presentation stays.	已移除“%ls”及其视频。演示文稿保留。
+Removed '%ls' from the library.	已从库中移除“%ls”。
+Saved. Turn on the screensaver in Settings to use it.	已保存。在设置中开启屏幕保护程序即可使用。
+Settings could not be saved. Check that %ls is writable.	无法保存设置。请检查 %ls 是否可写。
+The %ls of '%ls' is gone, so it can't go back.	%.0ls“%ls”的原始文件已不存在，因此无法还原。
+The original file of '%ls' is gone.	“%ls”的原始文件已不存在。
+The presentation behind '%ls' can't be found, so its slides can't be timed again.	找不到“%ls”对应的演示文稿，因此无法重新设置幻灯片时间。
+The renderer kept failing and was restarted in safe mode.	渲染器反复失败，已以安全模式重启。
+The renderer stopped after repeated failures.	渲染器在多次失败后已停止。
+The renderer stopped unexpectedly. Restarting (%d of %d)…	渲染器意外停止。正在重启（%d / %d）…
+The window could not load: %ls	无法加载窗口：%ls
+Too many downloads are waiting; try '%ls' again in a moment.	等待中的下载太多；请稍后再试“%ls”。
+Updated %ls.	已更新 %ls。
+picture	图片
+video	视频
+Idle (desktop covered)	空闲（桌面被遮挡）
+Paused for an app	因应用而暂停
+Paused for fullscreen app	因全屏应用而暂停
+Paused for the screensaver	因屏幕保护程序而暂停
+Paused on battery	使用电池时已暂停
+Renderer error	渲染器错误
+Renderer stopped	渲染器已停止
+Restarting renderer	正在重启渲染器
+Suspended	已挂起
+Exit	退出
+Library is empty	库是空的
+Next wallpaper	下一张壁纸
+Open Screen+	打开 Screen+
+Pause wallpapers	暂停壁纸
+Restart renderer (stopped)	重启渲染器（已停止）
+Resume wallpapers	继续播放壁纸
+Switch wallpaper	切换壁纸
+Wallpaper audio	壁纸音频
+Reset every setting to its factory value and unblock all Store wallpapers?\n\nYour library is kept.	将所有设置恢复为出厂值，并解除屏蔽所有 Store 壁纸？\n\n你的库会保留。
+Language	语言
+Checked when you press Check now	点击“立即检查”时检查
+Checking for updates…	正在检查更新…
+Checking the sample wallpapers…	正在检查示例壁纸…
+No downloaded sample wallpapers to update	没有需要更新的已下载示例壁纸
+Portable copy: updates are not installed automatically	便携版：不会自动安装更新
+Some sample files could not be replaced (in use?); try again	部分示例文件无法替换（被占用？）；请重试
+The sample wallpapers could not be unpacked (a file may be in use; try again)	无法解压示例壁纸（可能有文件被占用；请重试）
+The update could not start	无法开始更新
+Updated automatically	已自动更新
+Updating the sample wallpapers…	正在更新示例壁纸…
+Remove %d wallpapers from the library?\n\nThe files stay where they are.	从库中移除 %d 张壁纸？\n\n文件会保留在原处。
+Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.	从库中移除 %d 张壁纸%.0ls？\n\n将删除 %d 个下载或生成的文件%.0ls。
+Image	图片
+Video	视频
+Presets · %ls	预设 · %ls
+Version %ls · Windows	版本 %ls · Windows
+Version %ls · Linux	版本 %ls · Linux
+Live wallpapers behind your desktop icons.	在桌面图标后面播放的动态壁纸。
+Website	网站
+Report a problem	报告问题
+Free and open source (MIT)	免费开源（MIT）

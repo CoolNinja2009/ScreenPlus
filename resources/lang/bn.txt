@@ -1,0 +1,450 @@
+# Screen+ UI in বাংলা: English<TAB>translation (src/common/i18n.c). Made by scripts/lang-pack.py.
+@name	বাংলা
+  (in use)	  (ব্যবহৃত হচ্ছে)
+ (SLIDESHOW)	 (স্লাইডশো)
+ for this video	 এই ভিডিওর জন্য
+ · %d wallpaper%ls · slideshow every %d min	 · ওয়ালপেপার: %d%.0ls · প্রতি %d মিনিটে স্লাইডশো
+ · %d wallpaper%ls	 · ওয়ালপেপার: %d%.0ls
+ · %d × %d · %.1f MB	 · %d × %d · %.1f MB
+ · Primary	 · প্রধান
+%d display%ls	ডিসপ্লে: %d%.0ls
+%d selected	%dটি বাছাই করা
+%d wallpaper%ls	ওয়ালপেপার: %d%.0ls
+%d × %d on a %d × %d display · Shift keeps the shape	%d × %d, %d × %d ডিসপ্লেতে · Shift আকার ঠিক রাখে
+%ls downloads %ls the first time.	%ls প্রথমবার %ls ডাউনলোড করে।
+%ls needs more memory than this PC has.	%ls-এর এই PC-র চেয়ে বেশি মেমরি দরকার।
+%ls needs your own .onnx file.	%ls-এর আপনার নিজের .onnx ফাইল দরকার।
+'%ls' can't be exported: its file is missing.	'%ls' এক্সপোর্ট করা যাবে না: এর ফাইল নেই।
+'%ls' can't be shown because the file is missing.	ফাইল না থাকায় '%ls' দেখানো যাবে না।
+(empty)	(খালি)
+(none)	(কিছু নেই)
+(unnamed)	(নামহীন)
+ABOUT	সম্পর্কে
+ALL DISPLAYS	সব ডিসপ্লে
+APP RULES	অ্যাপের নিয়ম
+AUDIO & RECOVERY	অডিও ও পুনরুদ্ধার
+Accent colour	অ্যাকসেন্ট রং
+Active	সক্রিয়
+Add %d selected wallpaper%ls	বাছাই করাগুলো যোগ করুন: %d%.0ls
+Add %d to library	লাইব্রেরিতে %dটি যোগ করুন
+Add app	অ্যাপ যোগ করুন
+Add to library	লাইব্রেরিতে যোগ করুন
+All displays	সব ডিসপ্লে
+All files	সব ফাইল
+All wallpapers	সব ওয়ালপেপার
+All	সব
+Allow desktop mouse interaction	ডেস্কটপে মাউস ইন্টারঅ্যাকশন চালু করুন
+Animations	অ্যানিমেশন
+Another depth job is running · %.1f MB	আরেকটি ডেপথ কাজ চলছে · %.1f MB
+Another screensaver is in use	অন্য একটি স্ক্রিনসেভার ব্যবহৃত হচ্ছে
+Any app	যেকোনো অ্যাপ
+Appearance	চেহারা
+Apply a wallpaper to customise it.	কাস্টমাইজ করতে একটি ওয়ালপেপার লাগান।
+Apply to all displays	সব ডিসপ্লেতে লাগান
+Apply to display %d (%.40ls)	ডিসপ্লে %d-এ লাগান (%.40ls)
+Apps	অ্যাপ
+Arrangement	বিন্যাস
+Auto update	অটো আপডেট
+Automatic	স্বয়ংক্রিয়
+Available:	উপলভ্য:
+Black	কালো
+Block this wallpaper	এই ওয়ালপেপার ব্লক করুন
+Blur	ঝাপসা
+Border	বর্ডার
+Bounce	লাফানো
+Breathe	নিঃশ্বাস
+Brightness	উজ্জ্বলতা
+Busy with another wallpaper.	অন্য ওয়ালপেপার নিয়ে ব্যস্ত।
+Can't run	চালানো যাবে না
+Can't run: not enough memory	চালানো যাবে না: মেমরি কম
+Cancel	বাতিল
+Category	বিভাগ
+Change every (minutes)	প্রতি (মিনিট) পর বদলান
+Change wallpaper automatically	ওয়ালপেপার নিজে থেকে বদলান
+Changes highlights throughout Screen+	পুরো Screen+-এ হাইলাইট বদলায়
+Check now	এখনই দেখুন
+Choose a background	ব্যাকগ্রাউন্ড বাছুন
+Choose a file…	ফাইল বাছুন…
+Choose a wallpaper from your library	আপনার লাইব্রেরি থেকে ওয়ালপেপার বাছুন
+Choose the app's .exe file.	অ্যাপের .exe ফাইল বাছুন।
+Choose your .onnx	নিজের .onnx বাছুন
+Choose…	বাছুন…
+Clear search	খোঁজা মুছুন
+Collection name	সংগ্রহের নাম
+Collections	সংগ্রহ
+Collections…	সংগ্রহ…
+Colour	রং
+Contrast	কনট্রাস্ট
+Could not delete this model. Check that its files are writable and not in use.	এই মডেলটি মোছা যায়নি। দেখুন এর ফাইলগুলো লেখা যায় কিনা এবং ব্যবহৃত হচ্ছে না কিনা।
+Could not export '%ls'. The log has the reason.	'%ls' এক্সপোর্ট করা যায়নি। কারণ লগে আছে।
+Could not export the selected wallpapers.	বাছাই করা ওয়ালপেপারগুলো এক্সপোর্ট করা যায়নি।
+Could not open '%ls'.	'%ls' খোলা যায়নি।
+Could not start the export.	এক্সপোর্ট শুরু করা যায়নি।
+Could not start the screensaver preview.	স্ক্রিনসেভারের প্রিভিউ শুরু করা যায়নি।
+Could not update the startup entry.	স্টার্টআপ এন্ট্রি আপডেট করা যায়নি।
+Couldn't reach the wallpaper sites	ওয়ালপেপার সাইটগুলোতে পৌঁছানো যায়নি
+Covered	ঢাকা
+Create	তৈরি করুন
+Custom order	নিজের ক্রম
+Custom	কাস্টম
+Customise	কাস্টমাইজ
+DAY AND NIGHT	দিন ও রাত
+DESKTOP	ডেস্কটপ
+Damaged item	ক্ষতিগ্রস্ত আইটেম
+Damaged items will be skipped.	ক্ষতিগ্রস্ত আইটেমগুলো বাদ দেওয়া হবে।
+Dark	গাঢ়
+Date added	যোগ করার তারিখ
+Day and night wallpapers	দিন ও রাতের ওয়ালপেপার
+Day wallpaper	দিনের ওয়ালপেপার
+Delete collection (keeps the wallpapers)	সংগ্রহ মুছুন (ওয়ালপেপার থাকবে)
+Delete the recording	রেকর্ডিং মুছুন
+Delete	মুছুন
+Displays	ডিসপ্লে
+Done	হয়ে গেছে
+Download %ls	%ls ডাউনলোড করুন
+Download model	মডেল ডাউনলোড করুন
+Download	ডাউনলোড
+Downloaded · %.1f MB · %ls	ডাউনলোড হয়েছে · %.1f MB · %ls
+Downloaded	ডাউনলোড হয়েছে
+Downloading %d%%	ডাউনলোড হচ্ছে %d%%
+Downloading (%d%%) · %.1f MB	ডাউনলোড হচ্ছে (%d%%) · %.1f MB
+Downloading… · %.1f MB	ডাউনলোড হচ্ছে… · %.1f MB
+Downloading…	ডাউনলোড হচ্ছে…
+Draw over the line to change it; right-click for presets	বদলাতে লাইনের উপর আঁকুন; প্রিসেটের জন্য রাইট-ক্লিক করুন
+Duplicate	ডুপ্লিকেট
+Ease in-out	ধীরে শুরু ও শেষ
+Edges	প্রান্ত
+Edit the recording	রেকর্ডিং সম্পাদনা করুন
+Enable audio-reactive spectrum	অডিও-রিঅ্যাকটিভ স্পেকট্রাম চালু করুন
+End on mouse movement	মাউস নড়লে বন্ধ করুন
+Error	ত্রুটি
+Every %d min	প্রতি %d মিনিট
+Export (.spf)…	এক্সপোর্ট (.spf)…
+Export collection (.spp)…	সংগ্রহ এক্সপোর্ট করুন (.spp)…
+Exported %d wallpapers.	%dটি ওয়ালপেপার এক্সপোর্ট হয়েছে।
+Exported '%ls'.	'%ls' এক্সপোর্ট হয়েছে।
+Exporting %d wallpapers…	%dটি ওয়ালপেপার এক্সপোর্ট হচ্ছে…
+Exporting '%ls'…	'%ls' এক্সপোর্ট হচ্ছে…
+Exporting collection '%ls'…	সংগ্রহ '%ls' এক্সপোর্ট হচ্ছে…
+Favourite	প্রিয়
+Favourites	প্রিয়
+File not found	ফাইল পাওয়া যায়নি
+Fill	ভরাট
+Finishing '%ls'… Esc cancels.	'%ls' শেষ হচ্ছে… Esc চাপলে বাতিল।
+Finishing the export… Esc cancels.	এক্সপোর্ট শেষ হচ্ছে… Esc চাপলে বাতিল।
+Fit	ফিট
+Frame-rate limit	ফ্রেম-রেট সীমা
+From %02d:00	%02d:00 থেকে
+Full	পূর্ণ
+GENERAL	সাধারণ
+Gamma	গামা
+Get WebView2	WebView2 নিন
+Good	ভালো
+HTML WALLPAPERS	HTML ওয়ালপেপার
+Heartbeat	হৃদস্পন্দন
+Height	উচ্চতা
+Hue shift	হিউ শিফট
+IMAGE	ছবি
+Identify	শনাক্ত করুন
+Images	ছবি
+Import Lively wallpapers automatically	Lively ওয়ালপেপার নিজে থেকে ইমপোর্ট করুন
+Import a wallpaper folder	ওয়ালপেপার ফোল্ডার ইমপোর্ট করুন
+Import files	ফাইল ইমপোর্ট করুন
+Import from a link	লিংক থেকে ইমপোর্ট করুন
+Import wallpapers from web links	ওয়েব লিংক থেকে ওয়ালপেপার ইমপোর্ট করুন
+Import	ইমপোর্ট
+In library	লাইব্রেরিতে আছে
+In use by a depth job · %.1f MB	ডেপথ কাজে ব্যবহৃত · %.1f MB
+Independent	আলাদা
+Interactive depth is on	ইন্টারঅ্যাকটিভ ডেপথ চালু
+Interactive depth	ইন্টারঅ্যাকটিভ ডেপথ
+Keep the window closed at sign-in	সাইন-ইনের সময় উইন্ডো বন্ধ রাখুন
+LAYOUT	লেআউট
+LOOK & COLOUR	চেহারা ও রং
+Library	লাইব্রেরি
+Light	হালকা
+Loading…	লোড হচ্ছে…
+Logs and data	লগ ও ডেটা
+MAKE WALLPAPER COOLER	ওয়ালপেপার আরও কুল করুন
+MODEL MANAGER	মডেল ম্যানেজার
+Make image wallpapers interactive	ছবির ওয়ালপেপার ইন্টারঅ্যাকটিভ করুন
+Make wallpaper cooler	ওয়ালপেপার আরও কুল করুন
+Managed by your organisation	আপনার প্রতিষ্ঠান দ্বারা পরিচালিত
+Mirror	আয়না
+Mouse interaction is off in Settings.	সেটিংসে মাউস ইন্টারঅ্যাকশন বন্ধ।
+Mute while these apps use the microphone	এই অ্যাপগুলো মাইক্রোফোন ব্যবহার করলে মিউট করুন
+Mute while this app uses the microphone	এই অ্যাপটি মাইক্রোফোন ব্যবহার করলে মিউট করুন
+Muted	মিউট
+NOW SHOWING%ls  ·  %ls	এখন চলছে%ls  ·  %ls
+NOW SHOWING%ls  ·  DISPLAY %d	এখন চলছে%ls  ·  ডিসপ্লে %d
+NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS	এখন চলছে%ls  ·  %dটি ডিসপ্লে জুড়ে
+Name	নাম
+New collection	নতুন সংগ্রহ
+New collection…	নতুন সংগ্রহ…
+Night wallpaper	রাতের ওয়ালপেপার
+No matching settings	মেলে এমন কোনো সেটিং নেই
+No matching wallpapers	মেলে এমন কোনো ওয়ালপেপার নেই
+No results for '%.50ls'	'%.50ls'-এর জন্য কোনো ফল নেই
+No wallpaper applied	কোনো ওয়ালপেপার লাগানো নেই
+No wallpaper	কোনো ওয়ালপেপার নেই
+No wallpapers found	কোনো ওয়ালপেপার পাওয়া যায়নি
+None	কিছু না
+Not downloaded · %.1f MB · %ls	ডাউনলোড হয়নি · %.1f MB · %ls
+Not installed. Web wallpapers need it.	ইনস্টল করা নেই। ওয়েব ওয়ালপেপারের এটি দরকার।
+Nothing changed while recording, so there is nothing to play.	রেকর্ডিংয়ের সময় কিছুই বদলায়নি, তাই চালানোর কিছু নেই।
+Nothing matches these filters	এই ফিল্টারগুলোর সঙ্গে কিছু মেলে না
+OK	ঠিক আছে
+Off	বন্ধ
+On	চালু
+Open data folder	ডেটা ফোল্ডার খুলুন
+Open its page	এর পেজ খুলুন
+Open link in browser	ব্রাউজারে লিংক খুলুন
+Open logs	লগ খুলুন
+Open on %ls	%ls-এ খুলুন
+Open	খুলুন
+Opens in your browser	আপনার ব্রাউজারে খোলে
+Original	আসল
+PERFORMANCE	পারফরম্যান্স
+PHOTO	ফটো
+Paste a link	একটি লিংক পেস্ট করুন
+Pause during fullscreen apps	ফুলস্ক্রিন অ্যাপ চলাকালীন থামান
+Pause on battery power	ব্যাটারিতে থামান
+Pause the recording to change this	এটি বদলাতে রেকর্ডিং থামান
+Pause the recording	রেকর্ডিং থামান
+Pause when covered by windows	উইন্ডোতে ঢাকা পড়লে থামান
+Pause while locked	লক থাকলে থামান
+Pause while these apps are in front	এই অ্যাপগুলো সামনে থাকলে থামান
+Pause while this app is in front	এই অ্যাপটি সামনে থাকলে থামান
+Pause	থামান
+Paused	থামানো
+Pictures and videos	ছবি ও ভিডিও
+Pictures only	শুধু ছবি
+Pictures	ছবি
+Play sound	শব্দ চালান
+Play the recording	রেকর্ডিং চালান
+Play wallpaper audio	ওয়ালপেপারের শব্দ চালান
+Play	চালান
+Playing %ls, a new wallpaper every %d min.	%ls চলছে, প্রতি %d মিনিটে নতুন ওয়ালপেপার।
+Playing as a slideshow	স্লাইডশো হিসেবে চলছে
+Plays at once in high quality, streamed into RAM. Nothing is saved.	সঙ্গে সঙ্গে উচ্চ মানে চলে, RAM-এ স্ট্রিম হয়। কিছুই সেভ হয় না।
+PowerPoint is making the video	PowerPoint ভিডিও বানাচ্ছে
+PowerPoint is still working on '%ls'.	PowerPoint এখনও '%ls' নিয়ে কাজ করছে।
+PowerPoint · %d s a slide	PowerPoint · প্রতি স্লাইডে %d সেকেন্ড
+Preparing…	প্রস্তুত হচ্ছে…
+Preview	প্রিভিউ
+Primary	প্রধান
+Pulse	পালস
+Queued	সারিতে
+Ramp down	নামা র‍্যাম্প
+Ramp up	ওঠা র‍্যাম্প
+Random	এলোমেলো
+Reading…	পড়া হচ্ছে…
+Real-ESRGAN needs its model	Real-ESRGAN-এর নিজের মডেল দরকার
+Recent	সাম্প্রতিক
+Record your changes; they play on a loop	আপনার পরিবর্তন রেকর্ড করুন; সেগুলো লুপে চলবে
+Recording  %d:%02d	রেকর্ডিং  %d:%02d
+Recovering	পুনরুদ্ধার হচ্ছে
+Redo	আবার করুন
+Reduced	কম
+Remove from library (keeps the file)	লাইব্রেরি থেকে সরান (ফাইল থাকবে)
+Remove from library and delete the download	লাইব্রেরি থেকে সরান এবং ডাউনলোড মুছুন
+Remove from library	লাইব্রেরি থেকে সরান
+Remove	সরান
+Renderer	রেন্ডারার
+Reset filters	ফিল্টার রিসেট করুন
+Reset look	চেহারা রিসেট করুন
+Reset settings	সেটিংস রিসেট করুন
+Reset	রিসেট
+Resolution	রেজোলিউশন
+Restart failed renderers automatically	ব্যর্থ রেন্ডারার নিজে থেকে রিস্টার্ট করুন
+Restart renderer	রেন্ডারার রিস্টার্ট করুন
+Restart	রিস্টার্ট
+Restore defaults	ডিফল্ট ফেরান
+Resume	আবার শুরু করুন
+Right-click to change how many times it repeats	কতবার পুনরাবৃত্তি হবে বদলাতে রাইট-ক্লিক করুন
+Running in safe mode	সেফ মোডে চলছে
+Running	চলছে
+SCREEN+ COLLECTION	SCREEN+ সংগ্রহ
+SCREEN+ WALLPAPER	SCREEN+ ওয়ালপেপার
+SCREENSAVER	স্ক্রিনসেভার
+SLIDES	স্লাইড
+SLIDESHOW	স্লাইডশো
+SOUND	শব্দ
+Same as the desktop	ডেস্কটপের মতো
+Sample wallpaper updates	নমুনা ওয়ালপেপার আপডেট
+Saturation	স্যাচুরেশন
+Saves the best quality up to your screen's size.	আপনার স্ক্রিনের আকার পর্যন্ত সেরা মান সেভ করে।
+Screen+ is busy with another depth job, so this background stays flat for now.	Screen+ আরেকটি ডেপথ কাজে ব্যস্ত, তাই এই ব্যাকগ্রাউন্ড আপাতত সমতল থাকবে।
+Search settings	সেটিংস খুঁজুন
+Search wallpapers	ওয়ালপেপার খুঁজুন
+Seconds per slide	প্রতি স্লাইডে সেকেন্ড
+Select all	সব বাছুন
+Select	বাছুন
+Settings reset.	সেটিংস রিসেট হয়েছে।
+Settings	সেটিংস
+Sharp	শার্প
+Show a still while Screen+ starts	Screen+ চালু হওয়ার সময় একটি স্থির ছবি দেখান
+Show in File Explorer	ফাইল এক্সপ্লোরারে দেখান
+Show in File Manager	ফাইল ম্যানেজারে দেখান
+Show the sign-in screen on resume	আবার চালু হলে সাইন-ইন স্ক্রিন দেখান
+Shows the page itself, live.	পেজটি নিজেই লাইভ দেখায়।
+Shuffle	শাফল
+Sine	সাইন
+Site	সাইট
+Size	আকার
+Slow	ধীর
+Smooth	মসৃণ
+Sort by	সাজান
+Sound is off	শব্দ বন্ধ
+Sound on	শব্দ চালু
+Span	ছড়িয়ে দিন
+Speed	গতি
+Spike	স্পাইক
+Square	বর্গ
+Start after (minutes)	(মিনিট) পরে শুরু করুন
+Start minimised to the tray	ট্রেতে ছোট করে শুরু করুন
+Start with Linux	Linux-এর সঙ্গে শুরু করুন
+Start with Windows	Windows-এর সঙ্গে শুরু করুন
+Starting	শুরু হচ্ছে
+Steps	ধাপ
+Stop recording	রেকর্ডিং বন্ধ করুন
+Stop	বন্ধ করুন
+Stopped after repeated failures	বারবার ব্যর্থ হয়ে বন্ধ হয়েছে
+Stopped	বন্ধ
+Store	Store
+Stream	স্ট্রিম
+Strength	শক্তি
+Stretch	টেনে বড় করুন
+System	সিস্টেম
+TROUBLESHOOTING	সমস্যা সমাধান
+The download could not start. Another depth job may be running.	ডাউনলোড শুরু করা যায়নি। হয়তো আরেকটি ডেপথ কাজ চলছে।
+The picture covers the display	ছবিটি ডিসপ্লে ঢেকে দেয়
+The upscaling model download could not start. Another depth job may be running.	আপস্কেলিং মডেলের ডাউনলোড শুরু করা যায়নি। হয়তো আরেকটি ডেপথ কাজ চলছে।
+Third-party notices	তৃতীয় পক্ষের নোটিশ
+This file can't be opened. It may be damaged, or made by a newer Screen+.	এই ফাইলটি খোলা যাবে না। এটি ক্ষতিগ্রস্ত হতে পারে, বা নতুন কোনো Screen+ দিয়ে তৈরি।
+This wallpaper can't be read and will be skipped.	এই ওয়ালপেপারটি পড়া যায় না এবং বাদ দেওয়া হবে।
+This wallpaper has no properties.	এই ওয়ালপেপারের কোনো প্রপার্টি নেই।
+Tint brightness	টিন্টের উজ্জ্বলতা
+Tint colour	টিন্টের রং
+Tint strength	টিন্টের শক্তি
+Tint	টিন্ট
+Triangle	ত্রিভুজ
+Try again	আবার চেষ্টা করুন
+Type how many times it repeats	কতবার পুনরাবৃত্তি হবে লিখুন
+Type	ধরন
+UPSCALING	আপস্কেলিং
+Undo	পূর্বাবস্থায় ফেরান
+Update	আপডেট করুন
+Upscaling	আপস্কেলিং
+Use Screen+ as the screensaver	Screen+-কে স্ক্রিনসেভার হিসেবে ব্যবহার করুন
+Use as screensaver	স্ক্রিনসেভার হিসেবে ব্যবহার করুন
+Use default	ডিফল্ট ব্যবহার করুন
+Use plain image	সাধারণ ছবি ব্যবহার করুন
+Use plain video	সাধারণ ভিডিও ব্যবহার করুন
+VIDEO	ভিডিও
+Very good	খুব ভালো
+Very hard	খুব কড়া
+Videos	ভিডিও
+Volume	ভলিউম
+WALLPAPER PROPERTIES	ওয়ালপেপারের প্রপার্টি
+Waiting	অপেক্ষা করছে
+Wallpaper folder	ওয়ালপেপার ফোল্ডার
+Wallpaper	ওয়ালপেপার
+Wallpapers from %d sites	%dটি সাইট থেকে ওয়ালপেপার
+Wallpapers	ওয়ালপেপার
+Wander	ঘোরাঘুরি
+Web page	ওয়েব পেজ
+Width	প্রস্থ
+Windows screensaver settings	Windows স্ক্রিনসেভার সেটিংস
+Your file	আপনার ফাইল
+Your library is empty	আপনার লাইব্রেরি খালি
+Your library is kept.	আপনার লাইব্রেরি থেকে যাবে।
+all displays	সব ডিসপ্লে
+custom	কাস্টম
+duplicated	ডুপ্লিকেট
+file	ফাইল
+folder	ফোল্ডার
+part of the span	ছড়ানোর অংশ
+selected display	বাছাই করা ডিসপ্লে
+uses default	ডিফল্ট ব্যবহার করে
+web	ওয়েব
+your favourites	আপনার প্রিয়গুলো
+'%ls' could not be found at its original location.	'%ls' তার আসল জায়গায় পাওয়া যায়নি।
+'%ls' is already in the library.	'%ls' আগেই লাইব্রেরিতে আছে।
+'%ls' needs Microsoft PowerPoint, which isn't installed.	'%ls'-এর Microsoft PowerPoint দরকার, যা ইনস্টল করা নেই।
+'%ls' needs PowerPoint, which Linux doesn't have. Export it as a video instead.	'%ls'-এর PowerPoint দরকার, যা Linux-এ নেই। এর বদলে ভিডিও হিসেবে এক্সপোর্ট করুন।
+'%ls' now uses %ls.	'%ls' এখন %ls ব্যবহার করে।
+Added %d wallpaper%ls to the collection '%ls'.	%dটি ওয়ালপেপার%.0ls সংগ্রহ '%ls'-এ যোগ হয়েছে।
+Added '%ls' to the library.	'%ls' লাইব্রেরিতে যোগ হয়েছে।
+Added '%ls'.	'%ls' যোগ হয়েছে।
+Could not add '%ls'.	'%ls' যোগ করা যায়নি।
+Could not export '%ls'.	'%ls' এক্সপোর্ট করা যায়নি।
+Could not export collection '%ls'.	সংগ্রহ '%ls' এক্সপোর্ট করা যায়নি।
+Could not start PowerPoint for '%ls'.	'%ls'-এর জন্য PowerPoint চালু করা যায়নি।
+Couldn't find the download for '%ls': %ls.	'%ls'-এর ডাউনলোড পাওয়া যায়নি: %ls।
+Exported %d of %d wallpapers. The log names the others.	%dটি ওয়ালপেপার এক্সপোর্ট হয়েছে (মোট %d)। বাকিগুলোর নাম লগে আছে।
+Exported collection '%ls' (%d wallpaper%ls).	সংগ্রহ '%ls' এক্সপোর্ট হয়েছে (ওয়ালপেপার: %d%.0ls)।
+Its weights are missing. Keep the .onnx.data file beside the .onnx.	এর ওয়েট নেই। .onnx.data ফাইলটি .onnx-এর পাশে রাখুন।
+Making the wallpaper cooler failed.	ওয়ালপেপার কুল করা ব্যর্থ হয়েছে।
+No Lively Wallpaper library was found.	কোনো Lively Wallpaper লাইব্রেরি পাওয়া যায়নি।
+No Wallpaper Engine library was found. Use Import folder on a workshop item or project folder.	কোনো Wallpaper Engine লাইব্রেরি পাওয়া যায়নি। ওয়ার্কশপ আইটেম বা প্রজেক্ট ফোল্ডারে 'ফোল্ডার ইমপোর্ট' ব্যবহার করুন।
+Nothing was imported. These files are not supported.	কিছুই ইমপোর্ট হয়নি। এই ফাইলগুলো সমর্থিত নয়।
+PowerPoint couldn't make a video of '%ls'.	PowerPoint '%ls' থেকে ভিডিও বানাতে পারেনি।
+PowerPoint is turning '%ls' into a wallpaper. This can take a few minutes.	PowerPoint '%ls'-কে ওয়ালপেপারে বদলাচ্ছে। এতে কয়েক মিনিট লাগতে পারে।
+Removed '%ls' and its downloaded file.	'%ls' এবং এর ডাউনলোড করা ফাইল সরানো হয়েছে।
+Removed '%ls' and its video. The presentation stays.	'%ls' এবং এর ভিডিও সরানো হয়েছে। প্রেজেন্টেশন থেকে যাবে।
+Removed '%ls' from the library.	'%ls' লাইব্রেরি থেকে সরানো হয়েছে।
+Saved. Turn on the screensaver in Settings to use it.	সেভ হয়েছে। ব্যবহার করতে সেটিংসে স্ক্রিনসেভার চালু করুন।
+Settings could not be saved. Check that %ls is writable.	সেটিংস সেভ করা যায়নি। দেখুন %ls-এ লেখা যায় কিনা।
+The %ls of '%ls' is gone, so it can't go back.	%.0ls'%ls'-এর আসল ফাইল নেই, তাই আগের অবস্থায় ফেরানো যাবে না।
+The original file of '%ls' is gone.	'%ls'-এর আসল ফাইল নেই।
+The presentation behind '%ls' can't be found, so its slides can't be timed again.	'%ls'-এর প্রেজেন্টেশন পাওয়া যাচ্ছে না, তাই স্লাইডের সময় আবার ঠিক করা যাবে না।
+The renderer kept failing and was restarted in safe mode.	রেন্ডারার বারবার ব্যর্থ হচ্ছিল, তাই সেফ মোডে রিস্টার্ট করা হয়েছে।
+The renderer stopped after repeated failures.	বারবার ব্যর্থ হয়ে রেন্ডারার বন্ধ হয়েছে।
+The renderer stopped unexpectedly. Restarting (%d of %d)…	রেন্ডারার হঠাৎ বন্ধ হয়েছে। রিস্টার্ট হচ্ছে (%d/%d)…
+The window could not load: %ls	উইন্ডো লোড করা যায়নি: %ls
+Too many downloads are waiting; try '%ls' again in a moment.	অনেক ডাউনলোড অপেক্ষায় আছে; একটু পরে '%ls' আবার চেষ্টা করুন।
+Updated %ls.	%ls আপডেট হয়েছে।
+picture	ছবি
+video	ভিডিও
+Idle (desktop covered)	নিষ্ক্রিয় (ডেস্কটপ ঢাকা)
+Paused for an app	একটি অ্যাপের জন্য থামানো
+Paused for fullscreen app	ফুলস্ক্রিন অ্যাপের জন্য থামানো
+Paused for the screensaver	স্ক্রিনসেভারের জন্য থামানো
+Paused on battery	ব্যাটারিতে থামানো
+Renderer error	রেন্ডারার ত্রুটি
+Renderer stopped	রেন্ডারার বন্ধ
+Restarting renderer	রেন্ডারার রিস্টার্ট হচ্ছে
+Suspended	স্থগিত
+Exit	প্রস্থান
+Library is empty	লাইব্রেরি খালি
+Next wallpaper	পরের ওয়ালপেপার
+Open Screen+	Screen+ খুলুন
+Pause wallpapers	ওয়ালপেপার থামান
+Restart renderer (stopped)	রেন্ডারার রিস্টার্ট করুন (বন্ধ)
+Resume wallpapers	ওয়ালপেপার আবার চালান
+Switch wallpaper	ওয়ালপেপার বদলান
+Wallpaper audio	ওয়ালপেপারের শব্দ
+Reset every setting to its factory value and unblock all Store wallpapers?\n\nYour library is kept.	সব সেটিং ফ্যাক্টরি মানে ফেরাবেন এবং Store-এর সব ব্লক করা ওয়ালপেপার আনব্লক করবেন?\n\nআপনার লাইব্রেরি থেকে যাবে।
+Language	ভাষা
+Checked when you press Check now	'এখনই দেখুন' চাপলে দেখা হয়
+Checking for updates…	আপডেট খোঁজা হচ্ছে…
+Checking the sample wallpapers…	নমুনা ওয়ালপেপার দেখা হচ্ছে…
+No downloaded sample wallpapers to update	আপডেট করার মতো কোনো ডাউনলোড করা নমুনা ওয়ালপেপার নেই
+Portable copy: updates are not installed automatically	পোর্টেবল কপি: আপডেট নিজে থেকে ইনস্টল হয় না
+Some sample files could not be replaced (in use?); try again	কিছু নমুনা ফাইল বদলানো যায়নি (ব্যবহৃত হচ্ছে?); আবার চেষ্টা করুন
+The sample wallpapers could not be unpacked (a file may be in use; try again)	নমুনা ওয়ালপেপার আনপ্যাক করা যায়নি (কোনো ফাইল ব্যবহৃত হতে পারে; আবার চেষ্টা করুন)
+The update could not start	আপডেট শুরু করা যায়নি
+Updated automatically	নিজে থেকে আপডেট হয়েছে
+Updating the sample wallpapers…	নমুনা ওয়ালপেপার আপডেট হচ্ছে…
+Remove %d wallpapers from the library?\n\nThe files stay where they are.	লাইব্রেরি থেকে %dটি ওয়ালপেপার সরাবেন?\n\nফাইলগুলো যেখানে আছে সেখানেই থাকবে।
+Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.	লাইব্রেরি থেকে %dটি ওয়ালপেপার%.0ls সরাবেন?\n\nডাউনলোড করা বা তৈরি করা %dটি ফাইল%.0ls মুছে যাবে।
+Image	ছবি
+Video	ভিডিও
+Presets · %ls	প্রিসেট · %ls
+Version %ls · Windows	সংস্করণ %ls · Windows
+Version %ls · Linux	সংস্করণ %ls · Linux
+Live wallpapers behind your desktop icons.	ডেস্কটপ আইকনের পেছনে লাইভ ওয়ালপেপার।
+Website	ওয়েবসাইট
+Report a problem	সমস্যা জানান
+Free and open source (MIT)	বিনামূল্যে ও ওপেন সোর্স (MIT)

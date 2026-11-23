@@ -1,0 +1,450 @@
+# Screen+ UI in తెలుగు: English<TAB>translation (src/common/i18n.c). Made by scripts/lang-pack.py.
+@name	తెలుగు
+  (in use)	  (వాడుకలో ఉంది)
+ (SLIDESHOW)	 (స్లైడ్‌షో)
+ for this video	 ఈ వీడియో కోసం
+ · %d wallpaper%ls · slideshow every %d min	 · వాల్‌పేపర్లు: %d%.0ls · ప్రతి %d నిమిషాలకు స్లైడ్‌షో
+ · %d wallpaper%ls	 · వాల్‌పేపర్లు: %d%.0ls
+ · %d × %d · %.1f MB	 · %d × %d · %.1f MB
+ · Primary	 · ప్రధాన
+%d display%ls	డిస్‌ప్లేలు: %d%.0ls
+%d selected	%d ఎంచుకున్నవి
+%d wallpaper%ls	వాల్‌పేపర్లు: %d%.0ls
+%d × %d on a %d × %d display · Shift keeps the shape	%d × %d, %d × %d డిస్‌ప్లేపై · Shift ఆకారాన్ని ఉంచుతుంది
+%ls downloads %ls the first time.	%ls మొదటిసారి %ls ను డౌన్‌లోడ్ చేస్తుంది.
+%ls needs more memory than this PC has.	%ls కి ఈ PC లో ఉన్నదానికంటే ఎక్కువ మెమరీ కావాలి.
+%ls needs your own .onnx file.	%ls కి మీ సొంత .onnx ఫైల్ కావాలి.
+'%ls' can't be exported: its file is missing.	'%ls' ను ఎగుమతి చేయలేము: దాని ఫైల్ లేదు.
+'%ls' can't be shown because the file is missing.	ఫైల్ లేనందున '%ls' ను చూపించలేము.
+(empty)	(ఖాళీ)
+(none)	(ఏదీ లేదు)
+(unnamed)	(పేరు లేదు)
+ABOUT	గురించి
+ALL DISPLAYS	అన్ని డిస్‌ప్లేలు
+APP RULES	యాప్ నియమాలు
+AUDIO & RECOVERY	ఆడియో & రికవరీ
+Accent colour	యాక్సెంట్ రంగు
+Active	సక్రియం
+Add %d selected wallpaper%ls	ఎంచుకున్నవి జోడించు: %d%.0ls
+Add %d to library	లైబ్రరీకి %d జోడించు
+Add app	యాప్ జోడించు
+Add to library	లైబ్రరీకి జోడించు
+All displays	అన్ని డిస్‌ప్లేలు
+All files	అన్ని ఫైళ్లు
+All wallpapers	అన్ని వాల్‌పేపర్లు
+All	అన్నీ
+Allow desktop mouse interaction	డెస్క్‌టాప్‌పై మౌస్ ఇంటరాక్షన్ అనుమతించు
+Animations	యానిమేషన్లు
+Another depth job is running · %.1f MB	మరో డెప్త్ పని నడుస్తోంది · %.1f MB
+Another screensaver is in use	మరో స్క్రీన్‌సేవర్ వాడుకలో ఉంది
+Any app	ఏ యాప్ అయినా
+Appearance	రూపం
+Apply a wallpaper to customise it.	అనుకూలీకరించడానికి ఒక వాల్‌పేపర్‌ను వర్తింపజేయండి.
+Apply to all displays	అన్ని డిస్‌ప్లేలకు వర్తింపజేయి
+Apply to display %d (%.40ls)	డిస్‌ప్లే %d కి వర్తింపజేయి (%.40ls)
+Apps	యాప్‌లు
+Arrangement	అమరిక
+Auto update	ఆటో అప్‌డేట్
+Automatic	ఆటోమేటిక్
+Available:	అందుబాటులో:
+Black	నలుపు
+Block this wallpaper	ఈ వాల్‌పేపర్‌ను బ్లాక్ చేయి
+Blur	బ్లర్
+Border	అంచు
+Bounce	ఎగరడం
+Breathe	శ్వాస
+Brightness	ప్రకాశం
+Busy with another wallpaper.	మరో వాల్‌పేపర్‌తో బిజీగా ఉంది.
+Can't run	నడపలేము
+Can't run: not enough memory	నడపలేము: మెమరీ సరిపోదు
+Cancel	రద్దు చేయి
+Category	వర్గం
+Change every (minutes)	ప్రతి (నిమిషాలు) మార్చు
+Change wallpaper automatically	వాల్‌పేపర్‌ను ఆటోమేటిక్‌గా మార్చు
+Changes highlights throughout Screen+	Screen+ అంతటా హైలైట్‌లను మారుస్తుంది
+Check now	ఇప్పుడే తనిఖీ చేయి
+Choose a background	నేపథ్యాన్ని ఎంచుకోండి
+Choose a file…	ఫైల్ ఎంచుకోండి…
+Choose a wallpaper from your library	మీ లైబ్రరీ నుండి వాల్‌పేపర్‌ను ఎంచుకోండి
+Choose the app's .exe file.	యాప్ యొక్క .exe ఫైల్‌ను ఎంచుకోండి.
+Choose your .onnx	మీ .onnx ఎంచుకోండి
+Choose…	ఎంచుకోండి…
+Clear search	శోధన క్లియర్ చేయి
+Collection name	సేకరణ పేరు
+Collections	సేకరణలు
+Collections…	సేకరణలు…
+Colour	రంగు
+Contrast	కాంట్రాస్ట్
+Could not delete this model. Check that its files are writable and not in use.	ఈ మోడల్‌ను తొలగించలేకపోయాం. దాని ఫైళ్లు రాయగలిగేవి, వాడుకలో లేనివి అని తనిఖీ చేయండి.
+Could not export '%ls'. The log has the reason.	'%ls' ను ఎగుమతి చేయలేకపోయాం. కారణం లాగ్‌లో ఉంది.
+Could not export the selected wallpapers.	ఎంచుకున్న వాల్‌పేపర్లను ఎగుమతి చేయలేకపోయాం.
+Could not open '%ls'.	'%ls' ను తెరవలేకపోయాం.
+Could not start the export.	ఎగుమతిని ప్రారంభించలేకపోయాం.
+Could not start the screensaver preview.	స్క్రీన్‌సేవర్ ప్రివ్యూను ప్రారంభించలేకపోయాం.
+Could not update the startup entry.	స్టార్టప్ ఎంట్రీని అప్‌డేట్ చేయలేకపోయాం.
+Couldn't reach the wallpaper sites	వాల్‌పేపర్ సైట్‌లను చేరుకోలేకపోయాం
+Covered	కప్పబడింది
+Create	సృష్టించు
+Custom order	అనుకూల క్రమం
+Custom	అనుకూలం
+Customise	అనుకూలీకరించు
+DAY AND NIGHT	పగలు మరియు రాత్రి
+DESKTOP	డెస్క్‌టాప్
+Damaged item	పాడైన అంశం
+Damaged items will be skipped.	పాడైన అంశాలు దాటవేయబడతాయి.
+Dark	ముదురు
+Date added	జోడించిన తేదీ
+Day and night wallpapers	పగలు మరియు రాత్రి వాల్‌పేపర్లు
+Day wallpaper	పగటి వాల్‌పేపర్
+Delete collection (keeps the wallpapers)	సేకరణను తొలగించు (వాల్‌పేపర్లు ఉంటాయి)
+Delete the recording	రికార్డింగ్‌ను తొలగించు
+Delete	తొలగించు
+Displays	డిస్‌ప్లేలు
+Done	పూర్తయింది
+Download %ls	%ls డౌన్‌లోడ్ చేయి
+Download model	మోడల్ డౌన్‌లోడ్ చేయి
+Download	డౌన్‌లోడ్
+Downloaded · %.1f MB · %ls	డౌన్‌లోడ్ అయింది · %.1f MB · %ls
+Downloaded	డౌన్‌లోడ్ అయింది
+Downloading %d%%	డౌన్‌లోడ్ అవుతోంది %d%%
+Downloading (%d%%) · %.1f MB	డౌన్‌లోడ్ అవుతోంది (%d%%) · %.1f MB
+Downloading… · %.1f MB	డౌన్‌లోడ్ అవుతోంది… · %.1f MB
+Downloading…	డౌన్‌లోడ్ అవుతోంది…
+Draw over the line to change it; right-click for presets	మార్చడానికి గీతపై గీయండి; ప్రీసెట్‌ల కోసం రైట్-క్లిక్ చేయండి
+Duplicate	నకిలీ
+Ease in-out	మెల్లగా మొదలు-ముగింపు
+Edges	అంచులు
+Edit the recording	రికార్డింగ్‌ను సవరించు
+Enable audio-reactive spectrum	ఆడియోకు స్పందించే స్పెక్ట్రమ్‌ను ప్రారంభించు
+End on mouse movement	మౌస్ కదిలితే ముగించు
+Error	లోపం
+Every %d min	ప్రతి %d నిమిషాలు
+Export (.spf)…	ఎగుమతి (.spf)…
+Export collection (.spp)…	సేకరణను ఎగుమతి చేయి (.spp)…
+Exported %d wallpapers.	%d వాల్‌పేపర్లు ఎగుమతి అయ్యాయి.
+Exported '%ls'.	'%ls' ఎగుమతి అయింది.
+Exporting %d wallpapers…	%d వాల్‌పేపర్లను ఎగుమతి చేస్తోంది…
+Exporting '%ls'…	'%ls' ను ఎగుమతి చేస్తోంది…
+Exporting collection '%ls'…	సేకరణ '%ls' ను ఎగుమతి చేస్తోంది…
+Favourite	ఇష్టమైనది
+Favourites	ఇష్టమైనవి
+File not found	ఫైల్ కనబడలేదు
+Fill	నింపు
+Finishing '%ls'… Esc cancels.	'%ls' ను ముగిస్తోంది… Esc రద్దు చేస్తుంది.
+Finishing the export… Esc cancels.	ఎగుమతిని ముగిస్తోంది… Esc రద్దు చేస్తుంది.
+Fit	సరిపెట్టు
+Frame-rate limit	ఫ్రేమ్-రేట్ పరిమితి
+From %02d:00	%02d:00 నుండి
+Full	పూర్తి
+GENERAL	సాధారణం
+Gamma	గామా
+Get WebView2	WebView2 పొందండి
+Good	బాగుంది
+HTML WALLPAPERS	HTML వాల్‌పేపర్లు
+Heartbeat	గుండె చప్పుడు
+Height	ఎత్తు
+Hue shift	హ్యూ మార్పు
+IMAGE	చిత్రం
+Identify	గుర్తించు
+Images	చిత్రాలు
+Import Lively wallpapers automatically	Lively వాల్‌పేపర్లను ఆటోమేటిక్‌గా దిగుమతి చేయి
+Import a wallpaper folder	వాల్‌పేపర్ ఫోల్డర్‌ను దిగుమతి చేయి
+Import files	ఫైళ్లను దిగుమతి చేయి
+Import from a link	లింక్ నుండి దిగుమతి చేయి
+Import wallpapers from web links	వెబ్ లింక్‌ల నుండి వాల్‌పేపర్లను దిగుమతి చేయి
+Import	దిగుమతి
+In library	లైబ్రరీలో ఉంది
+In use by a depth job · %.1f MB	డెప్త్ పని వాడుతోంది · %.1f MB
+Independent	స్వతంత్రం
+Interactive depth is on	ఇంటరాక్టివ్ డెప్త్ ఆన్‌లో ఉంది
+Interactive depth	ఇంటరాక్టివ్ డెప్త్
+Keep the window closed at sign-in	సైన్-ఇన్ సమయంలో విండోను మూసి ఉంచు
+LAYOUT	లేఅవుట్
+LOOK & COLOUR	రూపం & రంగు
+Library	లైబ్రరీ
+Light	లేత
+Loading…	లోడ్ అవుతోంది…
+Logs and data	లాగ్‌లు మరియు డేటా
+MAKE WALLPAPER COOLER	వాల్‌పేపర్‌ను మరింత కూల్‌గా చేయి
+MODEL MANAGER	మోడల్ మేనేజర్
+Make image wallpapers interactive	చిత్ర వాల్‌పేపర్లను ఇంటరాక్టివ్‌గా చేయి
+Make wallpaper cooler	వాల్‌పేపర్‌ను మరింత కూల్‌గా చేయి
+Managed by your organisation	మీ సంస్థ నిర్వహిస్తోంది
+Mirror	అద్దం
+Mouse interaction is off in Settings.	సెట్టింగ్‌లలో మౌస్ ఇంటరాక్షన్ ఆఫ్‌లో ఉంది.
+Mute while these apps use the microphone	ఈ యాప్‌లు మైక్రోఫోన్ వాడుతున్నప్పుడు మ్యూట్ చేయి
+Mute while this app uses the microphone	ఈ యాప్ మైక్రోఫోన్ వాడుతున్నప్పుడు మ్యూట్ చేయి
+Muted	మ్యూట్
+NOW SHOWING%ls  ·  %ls	ఇప్పుడు చూపుతోంది%ls  ·  %ls
+NOW SHOWING%ls  ·  DISPLAY %d	ఇప్పుడు చూపుతోంది%ls  ·  డిస్‌ప్లే %d
+NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS	ఇప్పుడు చూపుతోంది%ls  ·  %d డిస్‌ప్లేలపై విస్తరించింది
+Name	పేరు
+New collection	కొత్త సేకరణ
+New collection…	కొత్త సేకరణ…
+Night wallpaper	రాత్రి వాల్‌పేపర్
+No matching settings	సరిపోలే సెట్టింగ్‌లు లేవు
+No matching wallpapers	సరిపోలే వాల్‌పేపర్లు లేవు
+No results for '%.50ls'	'%.50ls' కి ఫలితాలు లేవు
+No wallpaper applied	వాల్‌పేపర్ ఏదీ వర్తింపజేయలేదు
+No wallpaper	వాల్‌పేపర్ లేదు
+No wallpapers found	వాల్‌పేపర్లు కనబడలేదు
+None	ఏదీ లేదు
+Not downloaded · %.1f MB · %ls	డౌన్‌లోడ్ కాలేదు · %.1f MB · %ls
+Not installed. Web wallpapers need it.	ఇన్‌స్టాల్ కాలేదు. వెబ్ వాల్‌పేపర్లకు ఇది కావాలి.
+Nothing changed while recording, so there is nothing to play.	రికార్డింగ్ సమయంలో ఏదీ మారలేదు, కాబట్టి ప్లే చేయడానికి ఏమీ లేదు.
+Nothing matches these filters	ఈ ఫిల్టర్‌లకు ఏదీ సరిపోలలేదు
+OK	సరే
+Off	ఆఫ్
+On	ఆన్
+Open data folder	డేటా ఫోల్డర్ తెరువు
+Open its page	దాని పేజీ తెరువు
+Open link in browser	బ్రౌజర్‌లో లింక్ తెరువు
+Open logs	లాగ్‌లు తెరువు
+Open on %ls	%ls లో తెరువు
+Open	తెరువు
+Opens in your browser	మీ బ్రౌజర్‌లో తెరుచుకుంటుంది
+Original	అసలు
+PERFORMANCE	పనితీరు
+PHOTO	ఫోటో
+Paste a link	లింక్ అతికించండి
+Pause during fullscreen apps	పూర్తి స్క్రీన్ యాప్‌ల సమయంలో పాజ్ చేయి
+Pause on battery power	బ్యాటరీపై పాజ్ చేయి
+Pause the recording to change this	దీన్ని మార్చడానికి రికార్డింగ్‌ను పాజ్ చేయండి
+Pause the recording	రికార్డింగ్‌ను పాజ్ చేయి
+Pause when covered by windows	విండోలు కప్పినప్పుడు పాజ్ చేయి
+Pause while locked	లాక్ అయినప్పుడు పాజ్ చేయి
+Pause while these apps are in front	ఈ యాప్‌లు ముందు ఉన్నప్పుడు పాజ్ చేయి
+Pause while this app is in front	ఈ యాప్ ముందు ఉన్నప్పుడు పాజ్ చేయి
+Pause	పాజ్
+Paused	పాజ్ అయింది
+Pictures and videos	చిత్రాలు మరియు వీడియోలు
+Pictures only	చిత్రాలు మాత్రమే
+Pictures	చిత్రాలు
+Play sound	ధ్వని ప్లే చేయి
+Play the recording	రికార్డింగ్ ప్లే చేయి
+Play wallpaper audio	వాల్‌పేపర్ ఆడియో ప్లే చేయి
+Play	ప్లే
+Playing %ls, a new wallpaper every %d min.	%ls ప్లే అవుతోంది, ప్రతి %d నిమిషాలకు కొత్త వాల్‌పేపర్.
+Playing as a slideshow	స్లైడ్‌షోగా ప్లే అవుతోంది
+Plays at once in high quality, streamed into RAM. Nothing is saved.	వెంటనే అధిక నాణ్యతలో ప్లే అవుతుంది, RAM లోకి స్ట్రీమ్ అవుతుంది. ఏదీ సేవ్ కాదు.
+PowerPoint is making the video	PowerPoint వీడియోను తయారు చేస్తోంది
+PowerPoint is still working on '%ls'.	PowerPoint ఇంకా '%ls' పై పని చేస్తోంది.
+PowerPoint · %d s a slide	PowerPoint · ఒక్కో స్లైడ్‌కు %d సె
+Preparing…	సిద్ధమవుతోంది…
+Preview	ప్రివ్యూ
+Primary	ప్రధాన
+Pulse	పల్స్
+Queued	వరుసలో ఉంది
+Ramp down	దిగుడు ర్యాంప్
+Ramp up	ఎక్కుడు ర్యాంప్
+Random	యాదృచ్ఛికం
+Reading…	చదువుతోంది…
+Real-ESRGAN needs its model	Real-ESRGAN కి దాని మోడల్ కావాలి
+Recent	ఇటీవలివి
+Record your changes; they play on a loop	మీ మార్పులను రికార్డ్ చేయండి; అవి లూప్‌లో ప్లే అవుతాయి
+Recording  %d:%02d	రికార్డ్ చేస్తోంది  %d:%02d
+Recovering	రికవర్ అవుతోంది
+Redo	మళ్లీ చేయి
+Reduced	తగ్గించినవి
+Remove from library (keeps the file)	లైబ్రరీ నుండి తీసివేయి (ఫైల్ ఉంటుంది)
+Remove from library and delete the download	లైబ్రరీ నుండి తీసివేసి డౌన్‌లోడ్‌ను తొలగించు
+Remove from library	లైబ్రరీ నుండి తీసివేయి
+Remove	తీసివేయి
+Renderer	రెండరర్
+Reset filters	ఫిల్టర్‌లను రీసెట్ చేయి
+Reset look	రూపాన్ని రీసెట్ చేయి
+Reset settings	సెట్టింగ్‌లను రీసెట్ చేయి
+Reset	రీసెట్
+Resolution	రిజల్యూషన్
+Restart failed renderers automatically	విఫలమైన రెండరర్‌లను ఆటోమేటిక్‌గా రీస్టార్ట్ చేయి
+Restart renderer	రెండరర్‌ను రీస్టార్ట్ చేయి
+Restart	రీస్టార్ట్
+Restore defaults	డిఫాల్ట్‌లను పునరుద్ధరించు
+Resume	కొనసాగించు
+Right-click to change how many times it repeats	ఎన్నిసార్లు పునరావృతమవుతుందో మార్చడానికి రైట్-క్లిక్ చేయండి
+Running in safe mode	సేఫ్ మోడ్‌లో నడుస్తోంది
+Running	నడుస్తోంది
+SCREEN+ COLLECTION	SCREEN+ సేకరణ
+SCREEN+ WALLPAPER	SCREEN+ వాల్‌పేపర్
+SCREENSAVER	స్క్రీన్‌సేవర్
+SLIDES	స్లైడ్‌లు
+SLIDESHOW	స్లైడ్‌షో
+SOUND	ధ్వని
+Same as the desktop	డెస్క్‌టాప్ లాగానే
+Sample wallpaper updates	నమూనా వాల్‌పేపర్ అప్‌డేట్‌లు
+Saturation	సాచురేషన్
+Saves the best quality up to your screen's size.	మీ స్క్రీన్ పరిమాణం వరకు ఉత్తమ నాణ్యతను సేవ్ చేస్తుంది.
+Screen+ is busy with another depth job, so this background stays flat for now.	Screen+ మరో డెప్త్ పనితో బిజీగా ఉంది, కాబట్టి ఈ నేపథ్యం ప్రస్తుతానికి చదునుగా ఉంటుంది.
+Search settings	సెట్టింగ్‌లను వెతుకు
+Search wallpapers	వాల్‌పేపర్లను వెతుకు
+Seconds per slide	ఒక్కో స్లైడ్‌కు సెకన్లు
+Select all	అన్నీ ఎంచుకో
+Select	ఎంచుకో
+Settings reset.	సెట్టింగ్‌లు రీసెట్ అయ్యాయి.
+Settings	సెట్టింగ్‌లు
+Sharp	షార్ప్
+Show a still while Screen+ starts	Screen+ ప్రారంభమవుతున్నప్పుడు స్థిర చిత్రాన్ని చూపు
+Show in File Explorer	File Explorer లో చూపు
+Show in File Manager	ఫైల్ మేనేజర్‌లో చూపు
+Show the sign-in screen on resume	కొనసాగించినప్పుడు సైన్-ఇన్ స్క్రీన్ చూపు
+Shows the page itself, live.	పేజీనే లైవ్‌గా చూపుతుంది.
+Shuffle	షఫుల్
+Sine	సైన్
+Site	సైట్
+Size	పరిమాణం
+Slow	నెమ్మది
+Smooth	మృదువు
+Sort by	ఇలా క్రమపరచు
+Sound is off	ధ్వని ఆఫ్‌లో ఉంది
+Sound on	ధ్వని ఆన్
+Span	విస్తరించు
+Speed	వేగం
+Spike	స్పైక్
+Square	చతురస్రం
+Start after (minutes)	(నిమిషాల) తర్వాత ప్రారంభించు
+Start minimised to the tray	ట్రేలో కనిష్ఠీకరించి ప్రారంభించు
+Start with Linux	Linux తో ప్రారంభించు
+Start with Windows	Windows తో ప్రారంభించు
+Starting	ప్రారంభమవుతోంది
+Steps	దశలు
+Stop recording	రికార్డింగ్ ఆపు
+Stop	ఆపు
+Stopped after repeated failures	పదే పదే విఫలమై ఆగింది
+Stopped	ఆగింది
+Store	Store
+Stream	స్ట్రీమ్
+Strength	తీవ్రత
+Stretch	సాగదీయి
+System	సిస్టమ్
+TROUBLESHOOTING	సమస్య పరిష్కారం
+The download could not start. Another depth job may be running.	డౌన్‌లోడ్ ప్రారంభం కాలేదు. మరో డెప్త్ పని నడుస్తూ ఉండవచ్చు.
+The picture covers the display	చిత్రం డిస్‌ప్లేను పూర్తిగా కప్పుతుంది
+The upscaling model download could not start. Another depth job may be running.	అప్‌స్కేలింగ్ మోడల్ డౌన్‌లోడ్ ప్రారంభం కాలేదు. మరో డెప్త్ పని నడుస్తూ ఉండవచ్చు.
+Third-party notices	మూడవ పక్ష నోటీసులు
+This file can't be opened. It may be damaged, or made by a newer Screen+.	ఈ ఫైల్‌ను తెరవలేము. ఇది పాడై ఉండవచ్చు, లేదా కొత్త Screen+ తో తయారై ఉండవచ్చు.
+This wallpaper can't be read and will be skipped.	ఈ వాల్‌పేపర్‌ను చదవలేము, దాటవేయబడుతుంది.
+This wallpaper has no properties.	ఈ వాల్‌పేపర్‌కు లక్షణాలు లేవు.
+Tint brightness	టింట్ ప్రకాశం
+Tint colour	టింట్ రంగు
+Tint strength	టింట్ తీవ్రత
+Tint	టింట్
+Triangle	త్రిభుజం
+Try again	మళ్లీ ప్రయత్నించు
+Type how many times it repeats	ఎన్నిసార్లు పునరావృతమవుతుందో టైప్ చేయండి
+Type	రకం
+UPSCALING	అప్‌స్కేలింగ్
+Undo	రద్దుచేయి
+Update	అప్‌డేట్ చేయి
+Upscaling	అప్‌స్కేలింగ్
+Use Screen+ as the screensaver	Screen+ ను స్క్రీన్‌సేవర్‌గా వాడు
+Use as screensaver	స్క్రీన్‌సేవర్‌గా వాడు
+Use default	డిఫాల్ట్ వాడు
+Use plain image	సాధారణ చిత్రం వాడు
+Use plain video	సాధారణ వీడియో వాడు
+VIDEO	వీడియో
+Very good	చాలా బాగుంది
+Very hard	చాలా కఠినం
+Videos	వీడియోలు
+Volume	వాల్యూమ్
+WALLPAPER PROPERTIES	వాల్‌పేపర్ లక్షణాలు
+Waiting	వేచి ఉంది
+Wallpaper folder	వాల్‌పేపర్ ఫోల్డర్
+Wallpaper	వాల్‌పేపర్
+Wallpapers from %d sites	%d సైట్‌ల నుండి వాల్‌పేపర్లు
+Wallpapers	వాల్‌పేపర్లు
+Wander	సంచారం
+Web page	వెబ్ పేజీ
+Width	వెడల్పు
+Windows screensaver settings	Windows స్క్రీన్‌సేవర్ సెట్టింగ్‌లు
+Your file	మీ ఫైల్
+Your library is empty	మీ లైబ్రరీ ఖాళీగా ఉంది
+Your library is kept.	మీ లైబ్రరీ అలాగే ఉంటుంది.
+all displays	అన్ని డిస్‌ప్లేలు
+custom	అనుకూలం
+duplicated	నకిలీ చేయబడింది
+file	ఫైల్
+folder	ఫోల్డర్
+part of the span	విస్తరణలో భాగం
+selected display	ఎంచుకున్న డిస్‌ప్లే
+uses default	డిఫాల్ట్ వాడుతుంది
+web	వెబ్
+your favourites	మీ ఇష్టమైనవి
+'%ls' could not be found at its original location.	'%ls' దాని అసలు స్థానంలో కనబడలేదు.
+'%ls' is already in the library.	'%ls' ఇప్పటికే లైబ్రరీలో ఉంది.
+'%ls' needs Microsoft PowerPoint, which isn't installed.	'%ls' కి Microsoft PowerPoint కావాలి, అది ఇన్‌స్టాల్ కాలేదు.
+'%ls' needs PowerPoint, which Linux doesn't have. Export it as a video instead.	'%ls' కి PowerPoint కావాలి, అది Linux లో లేదు. బదులుగా వీడియోగా ఎగుమతి చేయండి.
+'%ls' now uses %ls.	'%ls' ఇప్పుడు %ls ను వాడుతుంది.
+Added %d wallpaper%ls to the collection '%ls'.	%d వాల్‌పేపర్లు%.0ls సేకరణ '%ls' కి జోడించబడ్డాయి.
+Added '%ls' to the library.	'%ls' లైబ్రరీకి జోడించబడింది.
+Added '%ls'.	'%ls' జోడించబడింది.
+Could not add '%ls'.	'%ls' ను జోడించలేకపోయాం.
+Could not export '%ls'.	'%ls' ను ఎగుమతి చేయలేకపోయాం.
+Could not export collection '%ls'.	సేకరణ '%ls' ను ఎగుమతి చేయలేకపోయాం.
+Could not start PowerPoint for '%ls'.	'%ls' కోసం PowerPoint ను ప్రారంభించలేకపోయాం.
+Couldn't find the download for '%ls': %ls.	'%ls' కోసం డౌన్‌లోడ్ కనబడలేదు: %ls.
+Exported %d of %d wallpapers. The log names the others.	%d వాల్‌పేపర్లు ఎగుమతి అయ్యాయి (మొత్తం %d). మిగతావి లాగ్‌లో ఉన్నాయి.
+Exported collection '%ls' (%d wallpaper%ls).	సేకరణ '%ls' ఎగుమతి అయింది (వాల్‌పేపర్లు: %d%.0ls).
+Its weights are missing. Keep the .onnx.data file beside the .onnx.	దాని వెయిట్‌లు లేవు. .onnx.data ఫైల్‌ను .onnx పక్కనే ఉంచండి.
+Making the wallpaper cooler failed.	వాల్‌పేపర్‌ను కూల్‌గా చేయడం విఫలమైంది.
+No Lively Wallpaper library was found.	Lively Wallpaper లైబ్రరీ ఏదీ కనబడలేదు.
+No Wallpaper Engine library was found. Use Import folder on a workshop item or project folder.	Wallpaper Engine లైబ్రరీ ఏదీ కనబడలేదు. Workshop అంశం లేదా ప్రాజెక్ట్ ఫోల్డర్‌పై 'ఫోల్డర్ దిగుమతి' వాడండి.
+Nothing was imported. These files are not supported.	ఏదీ దిగుమతి కాలేదు. ఈ ఫైళ్లకు మద్దతు లేదు.
+PowerPoint couldn't make a video of '%ls'.	PowerPoint '%ls' నుండి వీడియో తయారు చేయలేకపోయింది.
+PowerPoint is turning '%ls' into a wallpaper. This can take a few minutes.	PowerPoint '%ls' ను వాల్‌పేపర్‌గా మారుస్తోంది. దీనికి కొన్ని నిమిషాలు పట్టవచ్చు.
+Removed '%ls' and its downloaded file.	'%ls' మరియు దాని డౌన్‌లోడ్ ఫైల్ తీసివేయబడ్డాయి.
+Removed '%ls' and its video. The presentation stays.	'%ls' మరియు దాని వీడియో తీసివేయబడ్డాయి. ప్రెజెంటేషన్ ఉంటుంది.
+Removed '%ls' from the library.	'%ls' లైబ్రరీ నుండి తీసివేయబడింది.
+Saved. Turn on the screensaver in Settings to use it.	సేవ్ అయింది. వాడటానికి సెట్టింగ్‌లలో స్క్రీన్‌సేవర్‌ను ఆన్ చేయండి.
+Settings could not be saved. Check that %ls is writable.	సెట్టింగ్‌లను సేవ్ చేయలేకపోయాం. %ls రాయగలిగేదో తనిఖీ చేయండి.
+The %ls of '%ls' is gone, so it can't go back.	%.0ls'%ls' అసలు ఫైల్ లేదు, కాబట్టి వెనక్కి వెళ్లలేము.
+The original file of '%ls' is gone.	'%ls' అసలు ఫైల్ లేదు.
+The presentation behind '%ls' can't be found, so its slides can't be timed again.	'%ls' వెనుక ఉన్న ప్రెజెంటేషన్ కనబడలేదు, కాబట్టి స్లైడ్‌ల సమయాన్ని మళ్లీ సెట్ చేయలేము.
+The renderer kept failing and was restarted in safe mode.	రెండరర్ పదే పదే విఫలమై సేఫ్ మోడ్‌లో రీస్టార్ట్ చేయబడింది.
+The renderer stopped after repeated failures.	పదే పదే విఫలమైన తర్వాత రెండరర్ ఆగింది.
+The renderer stopped unexpectedly. Restarting (%d of %d)…	రెండరర్ అనుకోకుండా ఆగింది. రీస్టార్ట్ చేస్తోంది (%d/%d)…
+The window could not load: %ls	విండోను లోడ్ చేయలేకపోయాం: %ls
+Too many downloads are waiting; try '%ls' again in a moment.	చాలా డౌన్‌లోడ్‌లు వేచి ఉన్నాయి; కాసేపటి తర్వాత '%ls' ను మళ్లీ ప్రయత్నించండి.
+Updated %ls.	%ls అప్‌డేట్ అయింది.
+picture	చిత్రం
+video	వీడియో
+Idle (desktop covered)	నిష్క్రియం (డెస్క్‌టాప్ కప్పబడింది)
+Paused for an app	ఒక యాప్ కోసం పాజ్ అయింది
+Paused for fullscreen app	పూర్తి స్క్రీన్ యాప్ కోసం పాజ్ అయింది
+Paused for the screensaver	స్క్రీన్‌సేవర్ కోసం పాజ్ అయింది
+Paused on battery	బ్యాటరీపై పాజ్ అయింది
+Renderer error	రెండరర్ లోపం
+Renderer stopped	రెండరర్ ఆగింది
+Restarting renderer	రెండరర్‌ను రీస్టార్ట్ చేస్తోంది
+Suspended	నిలిపివేయబడింది
+Exit	నిష్క్రమించు
+Library is empty	లైబ్రరీ ఖాళీగా ఉంది
+Next wallpaper	తదుపరి వాల్‌పేపర్
+Open Screen+	Screen+ తెరువు
+Pause wallpapers	వాల్‌పేపర్లను పాజ్ చేయి
+Restart renderer (stopped)	రెండరర్‌ను రీస్టార్ట్ చేయి (ఆగింది)
+Resume wallpapers	వాల్‌పేపర్లను కొనసాగించు
+Switch wallpaper	వాల్‌పేపర్ మార్చు
+Wallpaper audio	వాల్‌పేపర్ ఆడియో
+Reset every setting to its factory value and unblock all Store wallpapers?\n\nYour library is kept.	అన్ని సెట్టింగ్‌లను ఫ్యాక్టరీ విలువలకు రీసెట్ చేసి, Store లో బ్లాక్ చేసిన అన్ని వాల్‌పేపర్లను అన్‌బ్లాక్ చేయాలా?\n\nమీ లైబ్రరీ అలాగే ఉంటుంది.
+Language	భాష
+Checked when you press Check now	'ఇప్పుడే తనిఖీ చేయి' నొక్కినప్పుడు తనిఖీ అవుతుంది
+Checking for updates…	అప్‌డేట్‌ల కోసం చూస్తోంది…
+Checking the sample wallpapers…	నమూనా వాల్‌పేపర్లను తనిఖీ చేస్తోంది…
+No downloaded sample wallpapers to update	అప్‌డేట్ చేయడానికి డౌన్‌లోడ్ చేసిన నమూనా వాల్‌పేపర్లు లేవు
+Portable copy: updates are not installed automatically	పోర్టబుల్ కాపీ: అప్‌డేట్‌లు ఆటోమేటిక్‌గా ఇన్‌స్టాల్ కావు
+Some sample files could not be replaced (in use?); try again	కొన్ని నమూనా ఫైళ్లను మార్చలేకపోయాం (వాడుకలో ఉన్నాయా?); మళ్లీ ప్రయత్నించండి
+The sample wallpapers could not be unpacked (a file may be in use; try again)	నమూనా వాల్‌పేపర్లను అన్‌ప్యాక్ చేయలేకపోయాం (ఒక ఫైల్ వాడుకలో ఉండవచ్చు; మళ్లీ ప్రయత్నించండి)
+The update could not start	అప్‌డేట్ ప్రారంభం కాలేదు
+Updated automatically	ఆటోమేటిక్‌గా అప్‌డేట్ అయింది
+Updating the sample wallpapers…	నమూనా వాల్‌పేపర్లను అప్‌డేట్ చేస్తోంది…
+Remove %d wallpapers from the library?\n\nThe files stay where they are.	లైబ్రరీ నుండి %d వాల్‌పేపర్లను తీసివేయాలా?\n\nఫైళ్లు ఉన్న చోటే ఉంటాయి.
+Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.	లైబ్రరీ నుండి %d వాల్‌పేపర్లను%.0ls తీసివేయాలా?\n\nడౌన్‌లోడ్ చేసిన లేదా తయారైన %d ఫైళ్లు%.0ls తొలగించబడతాయి.
+Image	చిత్రం
+Video	వీడియో
+Presets · %ls	ప్రీసెట్‌లు · %ls
+Version %ls · Windows	వెర్షన్ %ls · Windows
+Version %ls · Linux	వెర్షన్ %ls · Linux
+Live wallpapers behind your desktop icons.	డెస్క్‌టాప్ ఐకాన్‌ల వెనుక లైవ్ వాల్‌పేపర్లు.
+Website	వెబ్‌సైట్
+Report a problem	సమస్యను నివేదించు
+Free and open source (MIT)	ఉచిత ఓపెన్ సోర్స్ (MIT)

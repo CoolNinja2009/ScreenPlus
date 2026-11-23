@@ -853,6 +853,7 @@ void ui_circle(float cx, float cy, float r, D2D1_COLOR_F c)
 
 void ui_text(const wchar_t *s, IDWriteTextFormat *f, D2D1_RECT_F r, D2D1_COLOR_F c)
 {
+    s = tr(s);
     if (!s || !s[0] || !f) return;
     set_color(c);
     ID2D1RenderTarget_DrawText(RT, s, (UINT32)wcslen(s), f, &r, (ID2D1Brush *)g_ui->brush, D2D1_DRAW_TEXT_OPTIONS_CLIP,
@@ -861,6 +862,7 @@ void ui_text(const wchar_t *s, IDWriteTextFormat *f, D2D1_RECT_F r, D2D1_COLOR_F
 
 float ui_text_width(const wchar_t *s, IDWriteTextFormat *f)
 {
+    s = tr(s);
     if (!s || !s[0] || !f) return 0.0f;
     IDWriteTextLayout *l = NULL;
     float w = 0.0f;
@@ -874,6 +876,7 @@ float ui_text_width(const wchar_t *s, IDWriteTextFormat *f)
 
 float ui_text_height(const wchar_t *s, IDWriteTextFormat *f, float w)
 {
+    s = tr(s);
     if (!s || !s[0] || !f) return 0.0f;
     IDWriteTextLayout *l = NULL;
     float h = 0.0f;
@@ -1913,7 +1916,7 @@ static void tip_update(Ui *u)
 #ifndef _WIN32
     (void)u;                               /* no tooltips on Linux yet */
 #else
-    const wchar_t *text = u->hot && !u->pressed ? pages_tooltip(u->hot) : NULL;
+    const wchar_t *text = u->hot && !u->pressed ? tr(pages_tooltip(u->hot)) : NULL;
     const Hit *h = text ? hit_find(u, u->hot) : NULL;
     int id = h ? u->hot : 0;
     if (id == u->tipId) return;

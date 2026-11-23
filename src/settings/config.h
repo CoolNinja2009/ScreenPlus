@@ -108,6 +108,7 @@ typedef struct Settings {
     int       depthAll;       /* make every image wallpaper interactive (depth.c) when it is applied */
     wchar_t   depthModel[32]; /* the depth model's key (depth.c's table; unknown: the default) */
     ThemeMode theme;
+    wchar_t   language[16];   /* UI language code (resources/lang), "" = the system's */
     int       uiMotion;       /* 0 full, 1 reduced, 2 off; animations.md */
     uint32_t  accentColor;    /* 0xRRGGBB: UI accent */
     DisplayMode displayMode;

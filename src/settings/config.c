@@ -545,6 +545,7 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"lively_auto_import")) s->livelyImport = parse_bool(val, s->livelyImport);
             else if (str_ieq(key, L"url_import")) s->urlImport = parse_bool(val, s->urlImport);
             else if (str_ieq(key, L"interactive_images")) s->depthAll = parse_bool(val, s->depthAll);
+            else if (str_ieq(key, L"language")) str_copy(s->language, SP_COUNTOF(s->language), val);
             else if (str_ieq(key, L"depth_model")) str_copy(s->depthModel, SP_COUNTOF(s->depthModel), val);
             else if (str_ieq(key, L"pause_apps")) str_copy(s->pauseApps, SP_COUNTOF(s->pauseApps), val);
             else if (str_ieq(key, L"mute_apps")) str_copy(s->muteApps, SP_COUNTOF(s->muteApps), val);
@@ -712,7 +713,9 @@ BOOL config_save(const Config *c, const wchar_t *path)
               s->scrExitOnMouse, s->autoUpdate, s->autoUpdateSamples,
               s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system",
               s->uiMotion == 1 ? "reduced" : s->uiMotion == 2 ? "off" : "full", s->accentColor & 0xFFFFFF);
-    sb_puts(&b, "depth_model=");     /* its own line: sb_printf formats into 512 bytes */
+    sb_puts(&b, "language=");
+    sb_put_wide(&b, s->language);
+    sb_puts(&b, "\r\ndepth_model=");     /* its own line: sb_printf formats into 512 bytes */
     sb_put_wide(&b, s->depthModel);
     sb_puts(&b, "\r\npause_apps=");
     sb_put_wide(&b, s->pauseApps);

@@ -3,6 +3,7 @@
 #include "../common/common.h"
 #include "../common/ipc.h"
 #include "../common/util.h"
+#include "../common/i18n.h"
 #include "../settings/config.h"
 #include "../monitor/monitor.h"
 #include "../diagnostics/diag.h"

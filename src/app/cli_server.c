@@ -1406,9 +1406,9 @@ static const wchar_t *const k_modeNames[] = { L"independent", L"duplicate", L"sp
 static const wchar_t *const k_scrDisplayNames[] = { L"all", L"span", L"primary", NULL };
 static const wchar_t *const k_fpsNames[] = { L"off", L"30", L"60", NULL };   /* stored as 0, 30, 60 */
 static const wchar_t *const k_sortKeyNames[] = { L"custom", L"name", L"added", L"type", L"size", NULL };   /* LIBSORT_* */
-enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM, SK_SORT, SK_HEX, SK_MOTION };
+enum { SK_BOOL, SK_THEME, SK_MODE, SK_SCRDISP, SK_FPS, SK_NUM, SK_SORT, SK_HEX, SK_MOTION, SK_LANG };
 static const wchar_t *const *const k_enumNames[] = { NULL, k_themeNames, k_modeNames, k_scrDisplayNames, k_fpsNames, NULL,
-                                                     k_sortKeyNames, NULL, k_motionNames };
+                                                     k_sortKeyNames, NULL, k_motionNames, NULL };
 #ifdef _WIN32
 #define SP_LAUNCH_DESC L"Keep the window closed when it starts with Windows"
 #else
@@ -1442,6 +1442,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"lively_auto_import",  offsetof(Settings, livelyImport),      SK_BOOL,  L"Add new Lively Wallpaper packages at launch" },
     { L"url_import",          offsetof(Settings, urlImport),         SK_BOOL,  L"Import wallpapers from web links (link button)" },
     { L"interactive_images",  offsetof(Settings, depthAll),          SK_BOOL,  L"Make image wallpapers follow the mouse (depth)" },
+    { L"language",            offsetof(Settings, language),          SK_LANG,  L"Window language: system, en or a code from the list in Settings" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
     { L"ui_motion",           offsetof(Settings, uiMotion),          SK_MOTION, L"Window animations: full, reduced or off" },
     { L"accent_color",        offsetof(Settings, accentColor),       SK_HEX,   L"UI accent colour as #RRGGBB" },
@@ -1456,6 +1457,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
 
 static const wchar_t *setting_text(int kind, int v)
 {
+    if (kind == SK_LANG) return g_app.cfg.s.language[0] ? g_app.cfg.s.language : L"system";
     if (kind == SK_HEX) {
         static wchar_t hex[16];
         str_printf(hex, SP_COUNTOF(hex), L"#%06X", (unsigned)v & 0xFFFFFF);
@@ -1627,6 +1629,22 @@ static void cmd_settings(Reply *r, const Req *q)
             app_save_config();
             ui_on_config_changed();
             setting_reply(r, i, *field);
+            return;
+        }
+        if (k_settings[i].kind == SK_LANG) {
+            int ok = str_ieq(v, L"system") || str_ieq(v, L"en");
+            for (int k = 0; !ok && k < i18n_count(); k++) ok = str_ieq(v, i18n_code(k));
+            if (!ok) {
+                wchar_t all[200] = L"system, en";
+                for (int k = 0; k < i18n_count(); k++) { str_cat(all, SP_COUNTOF(all), L", "); str_cat(all, SP_COUNTOF(all), i18n_code(k)); }
+                fail(r, L"%ls is one of: %ls.", k_settings[i].key, all);
+                return;
+            }
+            str_copy(s->language, SP_COUNTOF(s->language), str_ieq(v, L"system") ? L"" : v);
+            i18n_set(s->language);
+            app_save_config();
+            ui_on_config_changed();
+            setting_reply(r, i, 0);
             return;
         }
         if (k_settings[i].kind == SK_NUM) {

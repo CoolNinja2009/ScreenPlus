@@ -12,7 +12,8 @@ set(SHARED
     monitor.c ${ROOT}/common/util.c ${ROOT}/common/paths.c ${ROOT}/common/log.c ${ROOT}/common/json.c ${ROOT}/common/edid.c
     ${ROOT}/settings/config.c ${ROOT}/renderer/html/wallpaper_api.c)
 
-add_executable(screenplus cli.c service.c desktop_kde.c url_import.c http_linux.c preview.c feed.c webhost.c ${SHARED}
+include(${PROJECT_SOURCE_DIR}/cmake/lang.cmake)
+add_executable(screenplus ${ROOT}/common/i18n.c ${SP_LANG_C} cli.c service.c desktop_kde.c url_import.c http_linux.c preview.c feed.c webhost.c ${SHARED}
     ${ROOT}/app/cli_server.c ${ROOT}/app/library.c ${ROOT}/app/file_format.c ${ROOT}/app/store.c ${ROOT}/app/store_sources.c
     ${ROOT}/app/update.c ${ROOT}/app/samples_update.c ${ROOT}/app/depth.c ${ROOT}/app/rotate.c ${ROOT}/app/pptx.c)
 target_link_libraries(screenplus PRIVATE m pthread ${CMAKE_DL_LIBS})

@@ -320,7 +320,7 @@ void app_notice(int kind, const wchar_t *fmt, ...)
     wchar_t buf[512];
     va_list ap;
     va_start(ap, fmt);
-    _vsnwprintf_s(buf, SP_COUNTOF(buf), _TRUNCATE, fmt, ap);
+    _vsnwprintf_s(buf, SP_COUNTOF(buf), _TRUNCATE, tr(fmt), ap);
     va_end(ap);
     str_copy(g_app.notice, SP_COUNTOF(g_app.notice), buf);
     g_app.noticeKind = kind;
@@ -599,6 +599,7 @@ int service_main(void)
     feed_start();
 
     config_load(&g_app.cfg, paths_config());
+    i18n_set(g_app.cfg.s.language);
     g_app.cfg.s.startWithWindows = sp_autostart_get();      /* the entry is the truth */
     webhost_sync(&g_app.cfg);
     library_check_missing();

@@ -1,0 +1,450 @@
+# Screen+ UI in Português (Brasil): English<TAB>translation (src/common/i18n.c). Made by scripts/lang-pack.py.
+@name	Português (Brasil)
+  (in use)	  (em uso)
+ (SLIDESHOW)	 (APRESENTAÇÃO)
+ for this video	 para este vídeo
+ · %d wallpaper%ls · slideshow every %d min	 · Papéis de parede: %d%.0ls · apresentação a cada %d min
+ · %d wallpaper%ls	 · Papéis de parede: %d%.0ls
+ · %d × %d · %.1f MB	 · %d × %d · %.1f MB
+ · Primary	 · Principal
+%d display%ls	Telas: %d%.0ls
+%d selected	%d selecionados
+%d wallpaper%ls	Papéis de parede: %d%.0ls
+%d × %d on a %d × %d display · Shift keeps the shape	%d × %d em uma tela de %d × %d · Shift mantém a forma
+%ls downloads %ls the first time.	%ls baixa %ls na primeira vez.
+%ls needs more memory than this PC has.	%ls precisa de mais memória do que este PC tem.
+%ls needs your own .onnx file.	%ls precisa do seu próprio arquivo .onnx.
+'%ls' can't be exported: its file is missing.	'%ls' não pode ser exportado: o arquivo está faltando.
+'%ls' can't be shown because the file is missing.	'%ls' não pode ser exibido porque o arquivo está faltando.
+(empty)	(vazio)
+(none)	(nenhum)
+(unnamed)	(sem nome)
+ABOUT	SOBRE
+ALL DISPLAYS	TODAS AS TELAS
+APP RULES	REGRAS DE APPS
+AUDIO & RECOVERY	ÁUDIO E RECUPERAÇÃO
+Accent colour	Cor de destaque
+Active	Ativo
+Add %d selected wallpaper%ls	Adicionar selecionados: %d%.0ls
+Add %d to library	Adicionar %d à biblioteca
+Add app	Adicionar app
+Add to library	Adicionar à biblioteca
+All displays	Todas as telas
+All files	Todos os arquivos
+All wallpapers	Todos os papéis de parede
+All	Todos
+Allow desktop mouse interaction	Permitir interação do mouse na área de trabalho
+Animations	Animações
+Another depth job is running · %.1f MB	Outra tarefa de profundidade está em andamento · %.1f MB
+Another screensaver is in use	Outro protetor de tela está em uso
+Any app	Qualquer app
+Appearance	Aparência
+Apply a wallpaper to customise it.	Aplique um papel de parede para personalizá-lo.
+Apply to all displays	Aplicar a todas as telas
+Apply to display %d (%.40ls)	Aplicar à tela %d (%.40ls)
+Apps	Apps
+Arrangement	Disposição
+Auto update	Atualização automática
+Automatic	Automático
+Available:	Disponível:
+Black	Preto
+Block this wallpaper	Bloquear este papel de parede
+Blur	Desfoque
+Border	Borda
+Bounce	Quicar
+Breathe	Respirar
+Brightness	Brilho
+Busy with another wallpaper.	Ocupado com outro papel de parede.
+Can't run	Não é possível executar
+Can't run: not enough memory	Não é possível executar: memória insuficiente
+Cancel	Cancelar
+Category	Categoria
+Change every (minutes)	Trocar a cada (minutos)
+Change wallpaper automatically	Trocar o papel de parede automaticamente
+Changes highlights throughout Screen+	Muda os destaques em todo o Screen+
+Check now	Verificar agora
+Choose a background	Escolher um fundo
+Choose a file…	Escolher um arquivo…
+Choose a wallpaper from your library	Escolha um papel de parede da sua biblioteca
+Choose the app's .exe file.	Escolha o arquivo .exe do app.
+Choose your .onnx	Escolher seu .onnx
+Choose…	Escolher…
+Clear search	Limpar pesquisa
+Collection name	Nome da coleção
+Collections	Coleções
+Collections…	Coleções…
+Colour	Cor
+Contrast	Contraste
+Could not delete this model. Check that its files are writable and not in use.	Não foi possível excluir este modelo. Verifique se os arquivos são graváveis e não estão em uso.
+Could not export '%ls'. The log has the reason.	Não foi possível exportar '%ls'. O log mostra o motivo.
+Could not export the selected wallpapers.	Não foi possível exportar os papéis de parede selecionados.
+Could not open '%ls'.	Não foi possível abrir '%ls'.
+Could not start the export.	Não foi possível iniciar a exportação.
+Could not start the screensaver preview.	Não foi possível iniciar a prévia do protetor de tela.
+Could not update the startup entry.	Não foi possível atualizar a entrada de inicialização.
+Couldn't reach the wallpaper sites	Não foi possível acessar os sites de papéis de parede
+Covered	Coberto
+Create	Criar
+Custom order	Ordem personalizada
+Custom	Personalizado
+Customise	Personalizar
+DAY AND NIGHT	DIA E NOITE
+DESKTOP	ÁREA DE TRABALHO
+Damaged item	Item danificado
+Damaged items will be skipped.	Itens danificados serão ignorados.
+Dark	Escuro
+Date added	Data de adição
+Day and night wallpapers	Papéis de parede de dia e de noite
+Day wallpaper	Papel de parede do dia
+Delete collection (keeps the wallpapers)	Excluir coleção (mantém os papéis de parede)
+Delete the recording	Excluir a gravação
+Delete	Excluir
+Displays	Telas
+Done	Concluído
+Download %ls	Baixar %ls
+Download model	Baixar modelo
+Download	Baixar
+Downloaded · %.1f MB · %ls	Baixado · %.1f MB · %ls
+Downloaded	Baixado
+Downloading %d%%	Baixando %d%%
+Downloading (%d%%) · %.1f MB	Baixando (%d%%) · %.1f MB
+Downloading… · %.1f MB	Baixando… · %.1f MB
+Downloading…	Baixando…
+Draw over the line to change it; right-click for presets	Desenhe sobre a linha para mudá-la; clique com o botão direito para predefinições
+Duplicate	Duplicar
+Ease in-out	Suavizar entrada e saída
+Edges	Bordas
+Edit the recording	Editar a gravação
+Enable audio-reactive spectrum	Ativar espectro reativo ao áudio
+End on mouse movement	Encerrar ao mover o mouse
+Error	Erro
+Every %d min	A cada %d min
+Export (.spf)…	Exportar (.spf)…
+Export collection (.spp)…	Exportar coleção (.spp)…
+Exported %d wallpapers.	%d papéis de parede exportados.
+Exported '%ls'.	'%ls' exportado.
+Exporting %d wallpapers…	Exportando %d papéis de parede…
+Exporting '%ls'…	Exportando '%ls'…
+Exporting collection '%ls'…	Exportando a coleção '%ls'…
+Favourite	Favorito
+Favourites	Favoritos
+File not found	Arquivo não encontrado
+Fill	Preencher
+Finishing '%ls'… Esc cancels.	Finalizando '%ls'… Esc cancela.
+Finishing the export… Esc cancels.	Finalizando a exportação… Esc cancela.
+Fit	Ajustar
+Frame-rate limit	Limite de quadros
+From %02d:00	A partir das %02d:00
+Full	Completas
+GENERAL	GERAL
+Gamma	Gama
+Get WebView2	Obter o WebView2
+Good	Boa
+HTML WALLPAPERS	PAPÉIS DE PAREDE HTML
+Heartbeat	Batimento
+Height	Altura
+Hue shift	Mudança de matiz
+IMAGE	IMAGEM
+Identify	Identificar
+Images	Imagens
+Import Lively wallpapers automatically	Importar papéis de parede do Lively automaticamente
+Import a wallpaper folder	Importar uma pasta de papel de parede
+Import files	Importar arquivos
+Import from a link	Importar de um link
+Import wallpapers from web links	Importar papéis de parede de links da web
+Import	Importar
+In library	Na biblioteca
+In use by a depth job · %.1f MB	Em uso por uma tarefa de profundidade · %.1f MB
+Independent	Independente
+Interactive depth is on	Profundidade interativa ativada
+Interactive depth	Profundidade interativa
+Keep the window closed at sign-in	Manter a janela fechada ao entrar
+LAYOUT	LAYOUT
+LOOK & COLOUR	VISUAL E COR
+Library	Biblioteca
+Light	Claro
+Loading…	Carregando…
+Logs and data	Logs e dados
+MAKE WALLPAPER COOLER	DEIXAR O PAPEL DE PAREDE MAIS LEGAL
+MODEL MANAGER	GERENCIADOR DE MODELOS
+Make image wallpapers interactive	Tornar interativos os papéis de parede de imagem
+Make wallpaper cooler	Deixar o papel de parede mais legal
+Managed by your organisation	Gerenciado pela sua organização
+Mirror	Espelhar
+Mouse interaction is off in Settings.	A interação do mouse está desativada nas Configurações.
+Mute while these apps use the microphone	Silenciar enquanto estes apps usam o microfone
+Mute while this app uses the microphone	Silenciar enquanto este app usa o microfone
+Muted	Sem som
+NOW SHOWING%ls  ·  %ls	EM EXIBIÇÃO%ls  ·  %ls
+NOW SHOWING%ls  ·  DISPLAY %d	EM EXIBIÇÃO%ls  ·  TELA %d
+NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS	EM EXIBIÇÃO%ls  ·  ESTENDIDO EM %d TELAS
+Name	Nome
+New collection	Nova coleção
+New collection…	Nova coleção…
+Night wallpaper	Papel de parede da noite
+No matching settings	Nenhuma configuração encontrada
+No matching wallpapers	Nenhum papel de parede encontrado
+No results for '%.50ls'	Nenhum resultado para '%.50ls'
+No wallpaper applied	Nenhum papel de parede aplicado
+No wallpaper	Sem papel de parede
+No wallpapers found	Nenhum papel de parede encontrado
+None	Nenhum
+Not downloaded · %.1f MB · %ls	Não baixado · %.1f MB · %ls
+Not installed. Web wallpapers need it.	Não instalado. Papéis de parede da web precisam dele.
+Nothing changed while recording, so there is nothing to play.	Nada mudou durante a gravação, então não há nada para reproduzir.
+Nothing matches these filters	Nada corresponde a esses filtros
+OK	OK
+Off	Desativado
+On	Ativado
+Open data folder	Abrir pasta de dados
+Open its page	Abrir a página
+Open link in browser	Abrir link no navegador
+Open logs	Abrir logs
+Open on %ls	Abrir em %ls
+Open	Abrir
+Opens in your browser	Abre no seu navegador
+Original	Original
+PERFORMANCE	DESEMPENHO
+PHOTO	FOTO
+Paste a link	Cole um link
+Pause during fullscreen apps	Pausar durante apps em tela cheia
+Pause on battery power	Pausar na bateria
+Pause the recording to change this	Pause a gravação para mudar isto
+Pause the recording	Pausar a gravação
+Pause when covered by windows	Pausar quando coberto por janelas
+Pause while locked	Pausar quando bloqueado
+Pause while these apps are in front	Pausar enquanto estes apps estiverem em primeiro plano
+Pause while this app is in front	Pausar enquanto este app estiver em primeiro plano
+Pause	Pausar
+Paused	Pausado
+Pictures and videos	Imagens e vídeos
+Pictures only	Somente imagens
+Pictures	Imagens
+Play sound	Tocar som
+Play the recording	Reproduzir a gravação
+Play wallpaper audio	Tocar o áudio do papel de parede
+Play	Reproduzir
+Playing %ls, a new wallpaper every %d min.	Reproduzindo %ls, um novo papel de parede a cada %d min.
+Playing as a slideshow	Reproduzindo como apresentação
+Plays at once in high quality, streamed into RAM. Nothing is saved.	Reproduz na hora em alta qualidade, transmitido para a RAM. Nada é salvo.
+PowerPoint is making the video	O PowerPoint está criando o vídeo
+PowerPoint is still working on '%ls'.	O PowerPoint ainda está trabalhando em '%ls'.
+PowerPoint · %d s a slide	PowerPoint · %d s por slide
+Preparing…	Preparando…
+Preview	Prévia
+Primary	Principal
+Pulse	Pulso
+Queued	Na fila
+Ramp down	Rampa descendente
+Ramp up	Rampa ascendente
+Random	Aleatório
+Reading…	Lendo…
+Real-ESRGAN needs its model	O Real-ESRGAN precisa do seu modelo
+Recent	Recentes
+Record your changes; they play on a loop	Grave suas alterações; elas tocam em loop
+Recording  %d:%02d	Gravando  %d:%02d
+Recovering	Recuperando
+Redo	Refazer
+Reduced	Reduzidas
+Remove from library (keeps the file)	Remover da biblioteca (mantém o arquivo)
+Remove from library and delete the download	Remover da biblioteca e excluir o download
+Remove from library	Remover da biblioteca
+Remove	Remover
+Renderer	Renderizador
+Reset filters	Redefinir filtros
+Reset look	Redefinir visual
+Reset settings	Redefinir configurações
+Reset	Redefinir
+Resolution	Resolução
+Restart failed renderers automatically	Reiniciar automaticamente renderizadores com falha
+Restart renderer	Reiniciar renderizador
+Restart	Reiniciar
+Restore defaults	Restaurar padrões
+Resume	Retomar
+Right-click to change how many times it repeats	Clique com o botão direito para mudar quantas vezes repete
+Running in safe mode	Executando em modo seguro
+Running	Em execução
+SCREEN+ COLLECTION	COLEÇÃO DO SCREEN+
+SCREEN+ WALLPAPER	PAPEL DE PAREDE DO SCREEN+
+SCREENSAVER	PROTETOR DE TELA
+SLIDES	SLIDES
+SLIDESHOW	APRESENTAÇÃO
+SOUND	SOM
+Same as the desktop	Igual à área de trabalho
+Sample wallpaper updates	Atualizações dos papéis de parede de exemplo
+Saturation	Saturação
+Saves the best quality up to your screen's size.	Salva a melhor qualidade até o tamanho da sua tela.
+Screen+ is busy with another depth job, so this background stays flat for now.	O Screen+ está ocupado com outra tarefa de profundidade, então este fundo fica plano por enquanto.
+Search settings	Pesquisar configurações
+Search wallpapers	Pesquisar papéis de parede
+Seconds per slide	Segundos por slide
+Select all	Selecionar tudo
+Select	Selecionar
+Settings reset.	Configurações redefinidas.
+Settings	Configurações
+Sharp	Nítido
+Show a still while Screen+ starts	Mostrar uma imagem estática enquanto o Screen+ inicia
+Show in File Explorer	Mostrar no Explorador de Arquivos
+Show in File Manager	Mostrar no gerenciador de arquivos
+Show the sign-in screen on resume	Mostrar a tela de entrada ao retomar
+Shows the page itself, live.	Mostra a própria página, ao vivo.
+Shuffle	Aleatório
+Sine	Seno
+Site	Site
+Size	Tamanho
+Slow	Lento
+Smooth	Suave
+Sort by	Ordenar por
+Sound is off	O som está desativado
+Sound on	Som ativado
+Span	Estender
+Speed	Velocidade
+Spike	Pico
+Square	Quadrada
+Start after (minutes)	Iniciar após (minutos)
+Start minimised to the tray	Iniciar minimizado na bandeja
+Start with Linux	Iniciar com o Linux
+Start with Windows	Iniciar com o Windows
+Starting	Iniciando
+Steps	Degraus
+Stop recording	Parar gravação
+Stop	Parar
+Stopped after repeated failures	Parado após falhas repetidas
+Stopped	Parado
+Store	Store
+Stream	Stream
+Strength	Intensidade
+Stretch	Esticar
+System	Sistema
+TROUBLESHOOTING	SOLUÇÃO DE PROBLEMAS
+The download could not start. Another depth job may be running.	Não foi possível iniciar o download. Outra tarefa de profundidade pode estar em andamento.
+The picture covers the display	A imagem cobre a tela
+The upscaling model download could not start. Another depth job may be running.	Não foi possível iniciar o download do modelo de ampliação. Outra tarefa de profundidade pode estar em andamento.
+Third-party notices	Avisos de terceiros
+This file can't be opened. It may be damaged, or made by a newer Screen+.	Este arquivo não pode ser aberto. Ele pode estar danificado ou ter sido feito por um Screen+ mais novo.
+This wallpaper can't be read and will be skipped.	Este papel de parede não pode ser lido e será ignorado.
+This wallpaper has no properties.	Este papel de parede não tem propriedades.
+Tint brightness	Brilho da tonalidade
+Tint colour	Cor da tonalidade
+Tint strength	Intensidade da tonalidade
+Tint	Tonalidade
+Triangle	Triângulo
+Try again	Tentar novamente
+Type how many times it repeats	Digite quantas vezes repete
+Type	Tipo
+UPSCALING	AMPLIAÇÃO
+Undo	Desfazer
+Update	Atualizar
+Upscaling	Ampliação
+Use Screen+ as the screensaver	Usar o Screen+ como protetor de tela
+Use as screensaver	Usar como protetor de tela
+Use default	Usar padrão
+Use plain image	Usar imagem simples
+Use plain video	Usar vídeo simples
+VIDEO	VÍDEO
+Very good	Muito boa
+Very hard	Muito dura
+Videos	Vídeos
+Volume	Volume
+WALLPAPER PROPERTIES	PROPRIEDADES DO PAPEL DE PAREDE
+Waiting	Aguardando
+Wallpaper folder	Pasta de papel de parede
+Wallpaper	Papel de parede
+Wallpapers from %d sites	Papéis de parede de %d sites
+Wallpapers	Papéis de parede
+Wander	Vagar
+Web page	Página da web
+Width	Largura
+Windows screensaver settings	Configurações do protetor de tela do Windows
+Your file	Seu arquivo
+Your library is empty	Sua biblioteca está vazia
+Your library is kept.	Sua biblioteca é mantida.
+all displays	todas as telas
+custom	personalizado
+duplicated	duplicado
+file	arquivo
+folder	pasta
+part of the span	parte da extensão
+selected display	tela selecionada
+uses default	usa o padrão
+web	web
+your favourites	seus favoritos
+'%ls' could not be found at its original location.	'%ls' não foi encontrado no local original.
+'%ls' is already in the library.	'%ls' já está na biblioteca.
+'%ls' needs Microsoft PowerPoint, which isn't installed.	'%ls' precisa do Microsoft PowerPoint, que não está instalado.
+'%ls' needs PowerPoint, which Linux doesn't have. Export it as a video instead.	'%ls' precisa do PowerPoint, que o Linux não tem. Exporte-o como vídeo.
+'%ls' now uses %ls.	'%ls' agora usa %ls.
+Added %d wallpaper%ls to the collection '%ls'.	Adicionados: %d%.0ls à coleção '%ls'.
+Added '%ls' to the library.	'%ls' adicionado à biblioteca.
+Added '%ls'.	'%ls' adicionado.
+Could not add '%ls'.	Não foi possível adicionar '%ls'.
+Could not export '%ls'.	Não foi possível exportar '%ls'.
+Could not export collection '%ls'.	Não foi possível exportar a coleção '%ls'.
+Could not start PowerPoint for '%ls'.	Não foi possível iniciar o PowerPoint para '%ls'.
+Couldn't find the download for '%ls': %ls.	Não foi possível encontrar o download de '%ls': %ls.
+Exported %d of %d wallpapers. The log names the others.	%d de %d papéis de parede exportados. O log cita os outros.
+Exported collection '%ls' (%d wallpaper%ls).	Coleção '%ls' exportada (papéis de parede: %d%.0ls).
+Its weights are missing. Keep the .onnx.data file beside the .onnx.	Faltam os pesos. Mantenha o arquivo .onnx.data ao lado do .onnx.
+Making the wallpaper cooler failed.	Não foi possível deixar o papel de parede mais legal.
+No Lively Wallpaper library was found.	Nenhuma biblioteca do Lively Wallpaper foi encontrada.
+No Wallpaper Engine library was found. Use Import folder on a workshop item or project folder.	Nenhuma biblioteca do Wallpaper Engine foi encontrada. Use Importar pasta em um item do Workshop ou pasta de projeto.
+Nothing was imported. These files are not supported.	Nada foi importado. Estes arquivos não são compatíveis.
+PowerPoint couldn't make a video of '%ls'.	O PowerPoint não conseguiu criar um vídeo de '%ls'.
+PowerPoint is turning '%ls' into a wallpaper. This can take a few minutes.	O PowerPoint está transformando '%ls' em papel de parede. Isso pode levar alguns minutos.
+Removed '%ls' and its downloaded file.	'%ls' e o arquivo baixado foram removidos.
+Removed '%ls' and its video. The presentation stays.	'%ls' e o vídeo foram removidos. A apresentação continua.
+Removed '%ls' from the library.	'%ls' foi removido da biblioteca.
+Saved. Turn on the screensaver in Settings to use it.	Salvo. Ative o protetor de tela nas Configurações para usá-lo.
+Settings could not be saved. Check that %ls is writable.	Não foi possível salvar as configurações. Verifique se %ls é gravável.
+The %ls of '%ls' is gone, so it can't go back.	%.0lsO arquivo original de '%ls' sumiu, então não é possível voltar.
+The original file of '%ls' is gone.	O arquivo original de '%ls' sumiu.
+The presentation behind '%ls' can't be found, so its slides can't be timed again.	A apresentação de '%ls' não foi encontrada, então os slides não podem ser cronometrados de novo.
+The renderer kept failing and was restarted in safe mode.	O renderizador continuou falhando e foi reiniciado em modo seguro.
+The renderer stopped after repeated failures.	O renderizador parou após falhas repetidas.
+The renderer stopped unexpectedly. Restarting (%d of %d)…	O renderizador parou inesperadamente. Reiniciando (%d de %d)…
+The window could not load: %ls	Não foi possível carregar a janela: %ls
+Too many downloads are waiting; try '%ls' again in a moment.	Há downloads demais na fila; tente '%ls' de novo em instantes.
+Updated %ls.	%ls atualizado.
+picture	imagem
+video	vídeo
+Idle (desktop covered)	Ocioso (área de trabalho coberta)
+Paused for an app	Pausado por um app
+Paused for fullscreen app	Pausado por app em tela cheia
+Paused for the screensaver	Pausado pelo protetor de tela
+Paused on battery	Pausado na bateria
+Renderer error	Erro do renderizador
+Renderer stopped	Renderizador parado
+Restarting renderer	Reiniciando o renderizador
+Suspended	Suspenso
+Exit	Sair
+Library is empty	A biblioteca está vazia
+Next wallpaper	Próximo papel de parede
+Open Screen+	Abrir o Screen+
+Pause wallpapers	Pausar papéis de parede
+Restart renderer (stopped)	Reiniciar renderizador (parado)
+Resume wallpapers	Retomar papéis de parede
+Switch wallpaper	Trocar papel de parede
+Wallpaper audio	Áudio do papel de parede
+Reset every setting to its factory value and unblock all Store wallpapers?\n\nYour library is kept.	Redefinir todas as configurações para os valores de fábrica e desbloquear todos os papéis de parede da Store?\n\nSua biblioteca é mantida.
+Language	Idioma
+Checked when you press Check now	Verificado quando você clica em Verificar agora
+Checking for updates…	Procurando atualizações…
+Checking the sample wallpapers…	Verificando os papéis de parede de exemplo…
+No downloaded sample wallpapers to update	Nenhum papel de parede de exemplo baixado para atualizar
+Portable copy: updates are not installed automatically	Cópia portátil: as atualizações não são instaladas automaticamente
+Some sample files could not be replaced (in use?); try again	Alguns arquivos de exemplo não puderam ser substituídos (em uso?); tente de novo
+The sample wallpapers could not be unpacked (a file may be in use; try again)	Os papéis de parede de exemplo não puderam ser descompactados (um arquivo pode estar em uso; tente de novo)
+The update could not start	Não foi possível iniciar a atualização
+Updated automatically	Atualizado automaticamente
+Updating the sample wallpapers…	Atualizando os papéis de parede de exemplo…
+Remove %d wallpapers from the library?\n\nThe files stay where they are.	Remover %d papéis de parede da biblioteca?\n\nOs arquivos ficam onde estão.
+Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.	Remover papéis de parede da biblioteca: %d%.0ls?\n\nArquivos baixados ou gerados que serão excluídos: %d%.0ls.
+Image	Imagem
+Video	Vídeo
+Presets · %ls	Predefinições · %ls
+Version %ls · Windows	Versão %ls · Windows
+Version %ls · Linux	Versão %ls · Linux
+Live wallpapers behind your desktop icons.	Papéis de parede animados atrás dos ícones da área de trabalho.
+Website	Site
+Report a problem	Relatar um problema
+Free and open source (MIT)	Livre e de código aberto (MIT)

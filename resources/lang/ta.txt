@@ -1,0 +1,450 @@
+# Screen+ UI in தமிழ்: English<TAB>translation (src/common/i18n.c). Made by scripts/lang-pack.py.
+@name	தமிழ்
+  (in use)	  (பயன்பாட்டில்)
+ (SLIDESHOW)	 (ஸ்லைடுஷோ)
+ for this video	 இந்த வீடியோவுக்கு
+ · %d wallpaper%ls · slideshow every %d min	 · வால்பேப்பர்கள்: %d%.0ls · %d நிமிடத்துக்கு ஒருமுறை ஸ்லைடுஷோ
+ · %d wallpaper%ls	 · வால்பேப்பர்கள்: %d%.0ls
+ · %d × %d · %.1f MB	 · %d × %d · %.1f MB
+ · Primary	 · முதன்மை
+%d display%ls	திரைகள்: %d%.0ls
+%d selected	%d தேர்ந்தெடுக்கப்பட்டன
+%d wallpaper%ls	வால்பேப்பர்கள்: %d%.0ls
+%d × %d on a %d × %d display · Shift keeps the shape	%d × %d, %d × %d திரையில் · Shift வடிவத்தைக் காக்கும்
+%ls downloads %ls the first time.	%ls முதல் முறை %ls-ஐப் பதிவிறக்கும்.
+%ls needs more memory than this PC has.	%ls-க்கு இந்த PC-யில் உள்ளதை விட அதிக நினைவகம் தேவை.
+%ls needs your own .onnx file.	%ls-க்கு உங்கள் சொந்த .onnx கோப்பு தேவை.
+'%ls' can't be exported: its file is missing.	'%ls'-ஐ ஏற்றுமதி செய்ய முடியாது: அதன் கோப்பு இல்லை.
+'%ls' can't be shown because the file is missing.	கோப்பு இல்லாததால் '%ls'-ஐக் காட்ட முடியாது.
+(empty)	(காலி)
+(none)	(எதுவும் இல்லை)
+(unnamed)	(பெயரில்லை)
+ABOUT	தகவல்
+ALL DISPLAYS	எல்லாத் திரைகளும்
+APP RULES	ஆப் விதிகள்
+AUDIO & RECOVERY	ஒலி & மீட்பு
+Accent colour	அழுத்த நிறம்
+Active	செயலில்
+Add %d selected wallpaper%ls	தேர்ந்தெடுத்தவற்றைச் சேர்: %d%.0ls
+Add %d to library	%d-ஐ நூலகத்தில் சேர்
+Add app	ஆப்பைச் சேர்
+Add to library	நூலகத்தில் சேர்
+All displays	எல்லாத் திரைகளும்
+All files	எல்லாக் கோப்புகளும்
+All wallpapers	எல்லா வால்பேப்பர்களும்
+All	எல்லாம்
+Allow desktop mouse interaction	டெஸ்க்டாப்பில் மவுஸ் இடைவினையை அனுமதி
+Animations	அனிமேஷன்கள்
+Another depth job is running · %.1f MB	மற்றொரு ஆழப் பணி நடக்கிறது · %.1f MB
+Another screensaver is in use	வேறொரு ஸ்கிரீன்சேவர் பயன்பாட்டில் உள்ளது
+Any app	எந்த ஆப்பும்
+Appearance	தோற்றம்
+Apply a wallpaper to customise it.	தனிப்பயனாக்க ஒரு வால்பேப்பரைப் பயன்படுத்துங்கள்.
+Apply to all displays	எல்லாத் திரைகளிலும் பயன்படுத்து
+Apply to display %d (%.40ls)	திரை %d-இல் பயன்படுத்து (%.40ls)
+Apps	ஆப்கள்
+Arrangement	அமைப்பு
+Auto update	தானியங்கு புதுப்பிப்பு
+Automatic	தானியங்கு
+Available:	கிடைப்பவை:
+Black	கருப்பு
+Block this wallpaper	இந்த வால்பேப்பரைத் தடு
+Blur	மங்கல்
+Border	ஓரம்
+Bounce	துள்ளல்
+Breathe	மூச்சு
+Brightness	ஒளிர்வு
+Busy with another wallpaper.	வேறொரு வால்பேப்பரில் பணியாக உள்ளது.
+Can't run	இயக்க முடியாது
+Can't run: not enough memory	இயக்க முடியாது: நினைவகம் போதவில்லை
+Cancel	ரத்துசெய்
+Category	வகை
+Change every (minutes)	மாற்றும் இடைவெளி (நிமிடங்கள்)
+Change wallpaper automatically	வால்பேப்பரைத் தானாக மாற்று
+Changes highlights throughout Screen+	Screen+ முழுவதும் சிறப்பு நிறத்தை மாற்றும்
+Check now	இப்போது சரிபார்
+Choose a background	பின்னணியைத் தேர்ந்தெடு
+Choose a file…	கோப்பைத் தேர்ந்தெடு…
+Choose a wallpaper from your library	உங்கள் நூலகத்திலிருந்து வால்பேப்பரைத் தேர்ந்தெடுங்கள்
+Choose the app's .exe file.	ஆப்பின் .exe கோப்பைத் தேர்ந்தெடுங்கள்.
+Choose your .onnx	உங்கள் .onnx-ஐத் தேர்ந்தெடு
+Choose…	தேர்ந்தெடு…
+Clear search	தேடலை அழி
+Collection name	தொகுப்பின் பெயர்
+Collections	தொகுப்புகள்
+Collections…	தொகுப்புகள்…
+Colour	நிறம்
+Contrast	மாறுபாடு
+Could not delete this model. Check that its files are writable and not in use.	இந்த மாதிரியை நீக்க முடியவில்லை. அதன் கோப்புகள் எழுதக்கூடியவையா, பயன்பாட்டில் இல்லையா எனச் சரிபாருங்கள்.
+Could not export '%ls'. The log has the reason.	'%ls'-ஐ ஏற்றுமதி செய்ய முடியவில்லை. காரணம் பதிவில் உள்ளது.
+Could not export the selected wallpapers.	தேர்ந்தெடுத்த வால்பேப்பர்களை ஏற்றுமதி செய்ய முடியவில்லை.
+Could not open '%ls'.	'%ls'-ஐத் திறக்க முடியவில்லை.
+Could not start the export.	ஏற்றுமதியைத் தொடங்க முடியவில்லை.
+Could not start the screensaver preview.	ஸ்கிரீன்சேவர் முன்னோட்டத்தைத் தொடங்க முடியவில்லை.
+Could not update the startup entry.	தொடக்க உள்ளீட்டைப் புதுப்பிக்க முடியவில்லை.
+Couldn't reach the wallpaper sites	வால்பேப்பர் தளங்களை அணுக முடியவில்லை
+Covered	மறைக்கப்பட்டது
+Create	உருவாக்கு
+Custom order	தனிப்பயன் வரிசை
+Custom	தனிப்பயன்
+Customise	தனிப்பயனாக்கு
+DAY AND NIGHT	பகலும் இரவும்
+DESKTOP	டெஸ்க்டாப்
+Damaged item	சேதமடைந்த உருப்படி
+Damaged items will be skipped.	சேதமடைந்த உருப்படிகள் தவிர்க்கப்படும்.
+Dark	இருண்ட
+Date added	சேர்த்த தேதி
+Day and night wallpapers	பகல் மற்றும் இரவு வால்பேப்பர்கள்
+Day wallpaper	பகல் வால்பேப்பர்
+Delete collection (keeps the wallpapers)	தொகுப்பை நீக்கு (வால்பேப்பர்கள் இருக்கும்)
+Delete the recording	பதிவை நீக்கு
+Delete	நீக்கு
+Displays	திரைகள்
+Done	முடிந்தது
+Download %ls	%ls-ஐப் பதிவிறக்கு
+Download model	மாதிரியைப் பதிவிறக்கு
+Download	பதிவிறக்கு
+Downloaded · %.1f MB · %ls	பதிவிறக்கப்பட்டது · %.1f MB · %ls
+Downloaded	பதிவிறக்கப்பட்டது
+Downloading %d%%	பதிவிறக்குகிறது %d%%
+Downloading (%d%%) · %.1f MB	பதிவிறக்குகிறது (%d%%) · %.1f MB
+Downloading… · %.1f MB	பதிவிறக்குகிறது… · %.1f MB
+Downloading…	பதிவிறக்குகிறது…
+Draw over the line to change it; right-click for presets	மாற்ற கோட்டின் மேல் வரையுங்கள்; முன்னமைவுகளுக்கு வலது-கிளிக் செய்யுங்கள்
+Duplicate	நகல்
+Ease in-out	மென்மையான தொடக்கம்-முடிவு
+Edges	விளிம்புகள்
+Edit the recording	பதிவைத் திருத்து
+Enable audio-reactive spectrum	ஒலிக்கு ஏற்ப மாறும் ஸ்பெக்ட்ரத்தை இயக்கு
+End on mouse movement	மவுஸ் நகர்ந்தால் முடி
+Error	பிழை
+Every %d min	%d நிமிடத்துக்கு ஒருமுறை
+Export (.spf)…	ஏற்றுமதி (.spf)…
+Export collection (.spp)…	தொகுப்பை ஏற்றுமதி செய் (.spp)…
+Exported %d wallpapers.	%d வால்பேப்பர்கள் ஏற்றுமதி செய்யப்பட்டன.
+Exported '%ls'.	'%ls' ஏற்றுமதி செய்யப்பட்டது.
+Exporting %d wallpapers…	%d வால்பேப்பர்களை ஏற்றுமதி செய்கிறது…
+Exporting '%ls'…	'%ls'-ஐ ஏற்றுமதி செய்கிறது…
+Exporting collection '%ls'…	தொகுப்பு '%ls'-ஐ ஏற்றுமதி செய்கிறது…
+Favourite	பிடித்தது
+Favourites	பிடித்தவை
+File not found	கோப்பு கிடைக்கவில்லை
+Fill	நிரப்பு
+Finishing '%ls'… Esc cancels.	'%ls'-ஐ முடிக்கிறது… Esc ரத்துசெய்யும்.
+Finishing the export… Esc cancels.	ஏற்றுமதியை முடிக்கிறது… Esc ரத்துசெய்யும்.
+Fit	பொருத்து
+Frame-rate limit	பிரேம் வீத வரம்பு
+From %02d:00	%02d:00 முதல்
+Full	முழு
+GENERAL	பொது
+Gamma	காமா
+Get WebView2	WebView2 பெறு
+Good	நல்லது
+HTML WALLPAPERS	HTML வால்பேப்பர்கள்
+Heartbeat	இதயத்துடிப்பு
+Height	உயரம்
+Hue shift	சாயல் மாற்றம்
+IMAGE	படம்
+Identify	அடையாளம் காட்டு
+Images	படங்கள்
+Import Lively wallpapers automatically	Lively வால்பேப்பர்களைத் தானாக இறக்குமதி செய்
+Import a wallpaper folder	வால்பேப்பர் கோப்புறையை இறக்குமதி செய்
+Import files	கோப்புகளை இறக்குமதி செய்
+Import from a link	இணைப்பிலிருந்து இறக்குமதி செய்
+Import wallpapers from web links	இணைய இணைப்புகளிலிருந்து வால்பேப்பர்களை இறக்குமதி செய்
+Import	இறக்குமதி
+In library	நூலகத்தில் உள்ளது
+In use by a depth job · %.1f MB	ஆழப் பணியால் பயன்பாட்டில் · %.1f MB
+Independent	தனித்தனி
+Interactive depth is on	ஊடாடும் ஆழம் இயக்கத்தில் உள்ளது
+Interactive depth	ஊடாடும் ஆழம்
+Keep the window closed at sign-in	உள்நுழையும்போது சாளரத்தை மூடியே வை
+LAYOUT	தளவமைப்பு
+LOOK & COLOUR	தோற்றம் & நிறம்
+Library	நூலகம்
+Light	வெளிர்
+Loading…	ஏற்றுகிறது…
+Logs and data	பதிவுகள் மற்றும் தரவு
+MAKE WALLPAPER COOLER	வால்பேப்பரை இன்னும் கூலாக்கு
+MODEL MANAGER	மாதிரி மேலாளர்
+Make image wallpapers interactive	பட வால்பேப்பர்களை ஊடாடுபவையாக்கு
+Make wallpaper cooler	வால்பேப்பரை இன்னும் கூலாக்கு
+Managed by your organisation	உங்கள் நிறுவனத்தால் நிர்வகிக்கப்படுகிறது
+Mirror	கண்ணாடி
+Mouse interaction is off in Settings.	அமைப்புகளில் மவுஸ் இடைவினை அணைக்கப்பட்டுள்ளது.
+Mute while these apps use the microphone	இந்த ஆப்கள் மைக்ரோஃபோனைப் பயன்படுத்தும்போது ஒலியடக்கு
+Mute while this app uses the microphone	இந்த ஆப் மைக்ரோஃபோனைப் பயன்படுத்தும்போது ஒலியடக்கு
+Muted	ஒலியடக்கப்பட்டது
+NOW SHOWING%ls  ·  %ls	இப்போது காட்டுவது%ls  ·  %ls
+NOW SHOWING%ls  ·  DISPLAY %d	இப்போது காட்டுவது%ls  ·  திரை %d
+NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS	இப்போது காட்டுவது%ls  ·  %d திரைகளில் பரவியது
+Name	பெயர்
+New collection	புதிய தொகுப்பு
+New collection…	புதிய தொகுப்பு…
+Night wallpaper	இரவு வால்பேப்பர்
+No matching settings	பொருந்தும் அமைப்புகள் இல்லை
+No matching wallpapers	பொருந்தும் வால்பேப்பர்கள் இல்லை
+No results for '%.50ls'	'%.50ls'-க்கு முடிவுகள் இல்லை
+No wallpaper applied	வால்பேப்பர் எதுவும் பயன்படுத்தப்படவில்லை
+No wallpaper	வால்பேப்பர் இல்லை
+No wallpapers found	வால்பேப்பர்கள் கிடைக்கவில்லை
+None	எதுவுமில்லை
+Not downloaded · %.1f MB · %ls	பதிவிறக்கப்படவில்லை · %.1f MB · %ls
+Not installed. Web wallpapers need it.	நிறுவப்படவில்லை. இணைய வால்பேப்பர்களுக்கு இது தேவை.
+Nothing changed while recording, so there is nothing to play.	பதிவின்போது எதுவும் மாறவில்லை, எனவே இயக்க எதுவும் இல்லை.
+Nothing matches these filters	இந்த வடிகட்டிகளுக்குப் பொருந்துவது எதுவுமில்லை
+OK	சரி
+Off	அணை
+On	இயக்கு
+Open data folder	தரவுக் கோப்புறையைத் திற
+Open its page	அதன் பக்கத்தைத் திற
+Open link in browser	உலாவியில் இணைப்பைத் திற
+Open logs	பதிவுகளைத் திற
+Open on %ls	%ls-இல் திற
+Open	திற
+Opens in your browser	உங்கள் உலாவியில் திறக்கும்
+Original	அசல்
+PERFORMANCE	செயல்திறன்
+PHOTO	புகைப்படம்
+Paste a link	இணைப்பை ஒட்டுங்கள்
+Pause during fullscreen apps	முழுத்திரை ஆப்களின்போது இடைநிறுத்து
+Pause on battery power	பேட்டரியில் இடைநிறுத்து
+Pause the recording to change this	இதை மாற்ற பதிவை இடைநிறுத்துங்கள்
+Pause the recording	பதிவை இடைநிறுத்து
+Pause when covered by windows	சாளரங்கள் மறைக்கும்போது இடைநிறுத்து
+Pause while locked	பூட்டியிருக்கும்போது இடைநிறுத்து
+Pause while these apps are in front	இந்த ஆப்கள் முன்னால் இருக்கும்போது இடைநிறுத்து
+Pause while this app is in front	இந்த ஆப் முன்னால் இருக்கும்போது இடைநிறுத்து
+Pause	இடைநிறுத்து
+Paused	இடைநிறுத்தப்பட்டது
+Pictures and videos	படங்களும் வீடியோக்களும்
+Pictures only	படங்கள் மட்டும்
+Pictures	படங்கள்
+Play sound	ஒலியை இயக்கு
+Play the recording	பதிவை இயக்கு
+Play wallpaper audio	வால்பேப்பர் ஒலியை இயக்கு
+Play	இயக்கு
+Playing %ls, a new wallpaper every %d min.	%ls இயங்குகிறது, %d நிமிடத்துக்கு ஒருமுறை புதிய வால்பேப்பர்.
+Playing as a slideshow	ஸ்லைடுஷோவாக இயங்குகிறது
+Plays at once in high quality, streamed into RAM. Nothing is saved.	உடனே உயர் தரத்தில் இயங்கும், RAM-க்கு ஸ்ட்ரீம் ஆகும். எதுவும் சேமிக்கப்படாது.
+PowerPoint is making the video	PowerPoint வீடியோவை உருவாக்குகிறது
+PowerPoint is still working on '%ls'.	PowerPoint இன்னும் '%ls'-இல் வேலை செய்கிறது.
+PowerPoint · %d s a slide	PowerPoint · ஒரு ஸ்லைடுக்கு %d வி
+Preparing…	தயாராகிறது…
+Preview	முன்னோட்டம்
+Primary	முதன்மை
+Pulse	துடிப்பு
+Queued	வரிசையில்
+Ramp down	இறங்கு சரிவு
+Ramp up	ஏறு சரிவு
+Random	சீரற்ற
+Reading…	படிக்கிறது…
+Real-ESRGAN needs its model	Real-ESRGAN-க்கு அதன் மாதிரி தேவை
+Recent	சமீபத்தியவை
+Record your changes; they play on a loop	உங்கள் மாற்றங்களைப் பதிவுசெய்யுங்கள்; அவை சுழற்சியில் இயங்கும்
+Recording  %d:%02d	பதிவுசெய்கிறது  %d:%02d
+Recovering	மீட்கிறது
+Redo	மீண்டும் செய்
+Reduced	குறைவு
+Remove from library (keeps the file)	நூலகத்திலிருந்து அகற்று (கோப்பு இருக்கும்)
+Remove from library and delete the download	நூலகத்திலிருந்து அகற்றி பதிவிறக்கத்தை நீக்கு
+Remove from library	நூலகத்திலிருந்து அகற்று
+Remove	அகற்று
+Renderer	ரெண்டரர்
+Reset filters	வடிகட்டிகளை மீட்டமை
+Reset look	தோற்றத்தை மீட்டமை
+Reset settings	அமைப்புகளை மீட்டமை
+Reset	மீட்டமை
+Resolution	தெளிவுத்திறன்
+Restart failed renderers automatically	தோல்வியடைந்த ரெண்டரர்களைத் தானாக மறுதொடக்கு
+Restart renderer	ரெண்டரரை மறுதொடக்கு
+Restart	மறுதொடக்கு
+Restore defaults	இயல்புநிலைகளை மீட்டமை
+Resume	தொடர்
+Right-click to change how many times it repeats	எத்தனை முறை மீண்டும் வரும் என மாற்ற வலது-கிளிக் செய்யுங்கள்
+Running in safe mode	பாதுகாப்புப் பயன்முறையில் இயங்குகிறது
+Running	இயங்குகிறது
+SCREEN+ COLLECTION	SCREEN+ தொகுப்பு
+SCREEN+ WALLPAPER	SCREEN+ வால்பேப்பர்
+SCREENSAVER	ஸ்கிரீன்சேவர்
+SLIDES	ஸ்லைடுகள்
+SLIDESHOW	ஸ்லைடுஷோ
+SOUND	ஒலி
+Same as the desktop	டெஸ்க்டாப்பைப் போலவே
+Sample wallpaper updates	மாதிரி வால்பேப்பர் புதுப்பிப்புகள்
+Saturation	செறிவு
+Saves the best quality up to your screen's size.	உங்கள் திரை அளவு வரை சிறந்த தரத்தில் சேமிக்கும்.
+Screen+ is busy with another depth job, so this background stays flat for now.	Screen+ மற்றொரு ஆழப் பணியில் உள்ளது, எனவே இந்தப் பின்னணி இப்போதைக்குத் தட்டையாக இருக்கும்.
+Search settings	அமைப்புகளைத் தேடு
+Search wallpapers	வால்பேப்பர்களைத் தேடு
+Seconds per slide	ஒரு ஸ்லைடுக்கு வினாடிகள்
+Select all	எல்லாம் தேர்ந்தெடு
+Select	தேர்ந்தெடு
+Settings reset.	அமைப்புகள் மீட்டமைக்கப்பட்டன.
+Settings	அமைப்புகள்
+Sharp	கூர்மை
+Show a still while Screen+ starts	Screen+ தொடங்கும்போது நிலைப்படத்தைக் காட்டு
+Show in File Explorer	File Explorer-இல் காட்டு
+Show in File Manager	கோப்பு மேலாளரில் காட்டு
+Show the sign-in screen on resume	மீண்டும் தொடங்கும்போது உள்நுழைவுத் திரையைக் காட்டு
+Shows the page itself, live.	பக்கத்தையே நேரலையாகக் காட்டும்.
+Shuffle	கலக்கு
+Sine	சைன்
+Site	தளம்
+Size	அளவு
+Slow	மெதுவாக
+Smooth	மென்மை
+Sort by	வரிசைப்படுத்து
+Sound is off	ஒலி அணைக்கப்பட்டுள்ளது
+Sound on	ஒலி இயக்கத்தில்
+Span	பரப்பு
+Speed	வேகம்
+Spike	கூர்முனை
+Square	சதுரம்
+Start after (minutes)	(நிமிடங்கள்) பிறகு தொடங்கு
+Start minimised to the tray	தட்டில் சிறிதாக்கித் தொடங்கு
+Start with Linux	Linux உடன் தொடங்கு
+Start with Windows	Windows உடன் தொடங்கு
+Starting	தொடங்குகிறது
+Steps	படிகள்
+Stop recording	பதிவை நிறுத்து
+Stop	நிறுத்து
+Stopped after repeated failures	தொடர் தோல்விகளுக்குப் பின் நிறுத்தப்பட்டது
+Stopped	நிறுத்தப்பட்டது
+Store	Store
+Stream	ஸ்ட்ரீம்
+Strength	வலிமை
+Stretch	நீட்டு
+System	அமைப்பு
+TROUBLESHOOTING	சிக்கல் தீர்வு
+The download could not start. Another depth job may be running.	பதிவிறக்கத்தைத் தொடங்க முடியவில்லை. மற்றொரு ஆழப் பணி நடக்கலாம்.
+The picture covers the display	படம் திரையை முழுதாக மூடும்
+The upscaling model download could not start. Another depth job may be running.	மேம்படுத்தல் மாதிரியின் பதிவிறக்கத்தைத் தொடங்க முடியவில்லை. மற்றொரு ஆழப் பணி நடக்கலாம்.
+Third-party notices	மூன்றாம் தரப்பு அறிவிப்புகள்
+This file can't be opened. It may be damaged, or made by a newer Screen+.	இந்தக் கோப்பைத் திறக்க முடியாது. அது சேதமடைந்திருக்கலாம், அல்லது புதிய Screen+ ஆல் உருவாக்கப்பட்டிருக்கலாம்.
+This wallpaper can't be read and will be skipped.	இந்த வால்பேப்பரைப் படிக்க முடியாது, அது தவிர்க்கப்படும்.
+This wallpaper has no properties.	இந்த வால்பேப்பருக்குப் பண்புகள் இல்லை.
+Tint brightness	சாயல் ஒளிர்வு
+Tint colour	சாயல் நிறம்
+Tint strength	சாயல் வலிமை
+Tint	சாயல்
+Triangle	முக்கோணம்
+Try again	மீண்டும் முயல்
+Type how many times it repeats	எத்தனை முறை மீண்டும் வரும் என உள்ளிடுங்கள்
+Type	வகை
+UPSCALING	மேம்படுத்தல்
+Undo	செயல்தவிர்
+Update	புதுப்பி
+Upscaling	மேம்படுத்தல்
+Use Screen+ as the screensaver	Screen+-ஐ ஸ்கிரீன்சேவராகப் பயன்படுத்து
+Use as screensaver	ஸ்கிரீன்சேவராகப் பயன்படுத்து
+Use default	இயல்புநிலையைப் பயன்படுத்து
+Use plain image	சாதாரணப் படத்தைப் பயன்படுத்து
+Use plain video	சாதாரண வீடியோவைப் பயன்படுத்து
+VIDEO	வீடியோ
+Very good	மிக நல்லது
+Very hard	மிகக் கடினம்
+Videos	வீடியோக்கள்
+Volume	ஒலியளவு
+WALLPAPER PROPERTIES	வால்பேப்பர் பண்புகள்
+Waiting	காத்திருக்கிறது
+Wallpaper folder	வால்பேப்பர் கோப்புறை
+Wallpaper	வால்பேப்பர்
+Wallpapers from %d sites	%d தளங்களிலிருந்து வால்பேப்பர்கள்
+Wallpapers	வால்பேப்பர்கள்
+Wander	அலைதல்
+Web page	இணையப் பக்கம்
+Width	அகலம்
+Windows screensaver settings	Windows ஸ்கிரீன்சேவர் அமைப்புகள்
+Your file	உங்கள் கோப்பு
+Your library is empty	உங்கள் நூலகம் காலியாக உள்ளது
+Your library is kept.	உங்கள் நூலகம் அப்படியே இருக்கும்.
+all displays	எல்லாத் திரைகளும்
+custom	தனிப்பயன்
+duplicated	நகலெடுக்கப்பட்டது
+file	கோப்பு
+folder	கோப்புறை
+part of the span	பரப்பின் பகுதி
+selected display	தேர்ந்தெடுத்த திரை
+uses default	இயல்புநிலையைப் பயன்படுத்துகிறது
+web	இணையம்
+your favourites	உங்கள் பிடித்தவை
+'%ls' could not be found at its original location.	'%ls' அதன் அசல் இடத்தில் கிடைக்கவில்லை.
+'%ls' is already in the library.	'%ls' ஏற்கனவே நூலகத்தில் உள்ளது.
+'%ls' needs Microsoft PowerPoint, which isn't installed.	'%ls'-க்கு Microsoft PowerPoint தேவை, அது நிறுவப்படவில்லை.
+'%ls' needs PowerPoint, which Linux doesn't have. Export it as a video instead.	'%ls'-க்கு PowerPoint தேவை, அது Linux-இல் இல்லை. அதற்குப் பதிலாக வீடியோவாக ஏற்றுமதி செய்யுங்கள்.
+'%ls' now uses %ls.	'%ls' இப்போது %ls-ஐப் பயன்படுத்துகிறது.
+Added %d wallpaper%ls to the collection '%ls'.	%d வால்பேப்பர்கள்%.0ls தொகுப்பு '%ls'-இல் சேர்க்கப்பட்டன.
+Added '%ls' to the library.	'%ls' நூலகத்தில் சேர்க்கப்பட்டது.
+Added '%ls'.	'%ls' சேர்க்கப்பட்டது.
+Could not add '%ls'.	'%ls'-ஐச் சேர்க்க முடியவில்லை.
+Could not export '%ls'.	'%ls'-ஐ ஏற்றுமதி செய்ய முடியவில்லை.
+Could not export collection '%ls'.	தொகுப்பு '%ls'-ஐ ஏற்றுமதி செய்ய முடியவில்லை.
+Could not start PowerPoint for '%ls'.	'%ls'-க்காக PowerPoint-ஐத் தொடங்க முடியவில்லை.
+Couldn't find the download for '%ls': %ls.	'%ls'-க்கான பதிவிறக்கம் கிடைக்கவில்லை: %ls.
+Exported %d of %d wallpapers. The log names the others.	%d வால்பேப்பர்கள் ஏற்றுமதி செய்யப்பட்டன (மொத்தம் %d). மற்றவை பதிவில் உள்ளன.
+Exported collection '%ls' (%d wallpaper%ls).	தொகுப்பு '%ls' ஏற்றுமதி செய்யப்பட்டது (வால்பேப்பர்கள்: %d%.0ls).
+Its weights are missing. Keep the .onnx.data file beside the .onnx.	அதன் எடைகள் இல்லை. .onnx.data கோப்பை .onnx அருகில் வையுங்கள்.
+Making the wallpaper cooler failed.	வால்பேப்பரைக் கூலாக்குவது தோல்வியடைந்தது.
+No Lively Wallpaper library was found.	Lively Wallpaper நூலகம் எதுவும் கிடைக்கவில்லை.
+No Wallpaper Engine library was found. Use Import folder on a workshop item or project folder.	Wallpaper Engine நூலகம் எதுவும் கிடைக்கவில்லை. Workshop உருப்படி அல்லது திட்டக் கோப்புறையில் 'கோப்புறையை இறக்குமதி செய்' பயன்படுத்துங்கள்.
+Nothing was imported. These files are not supported.	எதுவும் இறக்குமதி செய்யப்படவில்லை. இந்தக் கோப்புகள் ஆதரிக்கப்படவில்லை.
+PowerPoint couldn't make a video of '%ls'.	PowerPoint-ஆல் '%ls'-இலிருந்து வீடியோ உருவாக்க முடியவில்லை.
+PowerPoint is turning '%ls' into a wallpaper. This can take a few minutes.	PowerPoint '%ls'-ஐ வால்பேப்பராக மாற்றுகிறது. இதற்குச் சில நிமிடங்கள் ஆகலாம்.
+Removed '%ls' and its downloaded file.	'%ls'-உம் அதன் பதிவிறக்கக் கோப்பும் அகற்றப்பட்டன.
+Removed '%ls' and its video. The presentation stays.	'%ls'-உம் அதன் வீடியோவும் அகற்றப்பட்டன. விளக்கக்காட்சி இருக்கும்.
+Removed '%ls' from the library.	'%ls' நூலகத்திலிருந்து அகற்றப்பட்டது.
+Saved. Turn on the screensaver in Settings to use it.	சேமிக்கப்பட்டது. பயன்படுத்த அமைப்புகளில் ஸ்கிரீன்சேவரை இயக்குங்கள்.
+Settings could not be saved. Check that %ls is writable.	அமைப்புகளைச் சேமிக்க முடியவில்லை. %ls எழுதக்கூடியதா எனச் சரிபாருங்கள்.
+The %ls of '%ls' is gone, so it can't go back.	%.0ls'%ls'-இன் அசல் கோப்பு இல்லை, எனவே பழைய நிலைக்குத் திரும்ப முடியாது.
+The original file of '%ls' is gone.	'%ls'-இன் அசல் கோப்பு இல்லை.
+The presentation behind '%ls' can't be found, so its slides can't be timed again.	'%ls'-இன் விளக்கக்காட்சி கிடைக்கவில்லை, எனவே அதன் ஸ்லைடுகளின் நேரத்தை மீண்டும் அமைக்க முடியாது.
+The renderer kept failing and was restarted in safe mode.	ரெண்டரர் தொடர்ந்து தோல்வியடைந்ததால் பாதுகாப்புப் பயன்முறையில் மறுதொடக்கப்பட்டது.
+The renderer stopped after repeated failures.	தொடர் தோல்விகளுக்குப் பின் ரெண்டரர் நிறுத்தப்பட்டது.
+The renderer stopped unexpectedly. Restarting (%d of %d)…	ரெண்டரர் எதிர்பாராமல் நின்றது. மறுதொடக்குகிறது (%d/%d)…
+The window could not load: %ls	சாளரத்தை ஏற்ற முடியவில்லை: %ls
+Too many downloads are waiting; try '%ls' again in a moment.	பல பதிவிறக்கங்கள் காத்திருக்கின்றன; சிறிது நேரத்தில் '%ls'-ஐ மீண்டும் முயலுங்கள்.
+Updated %ls.	%ls புதுப்பிக்கப்பட்டது.
+picture	படம்
+video	வீடியோ
+Idle (desktop covered)	செயலற்றது (டெஸ்க்டாப் மறைக்கப்பட்டது)
+Paused for an app	ஒரு ஆப்புக்காக இடைநிறுத்தப்பட்டது
+Paused for fullscreen app	முழுத்திரை ஆப்புக்காக இடைநிறுத்தப்பட்டது
+Paused for the screensaver	ஸ்கிரீன்சேவருக்காக இடைநிறுத்தப்பட்டது
+Paused on battery	பேட்டரியில் இடைநிறுத்தப்பட்டது
+Renderer error	ரெண்டரர் பிழை
+Renderer stopped	ரெண்டரர் நிறுத்தப்பட்டது
+Restarting renderer	ரெண்டரரை மறுதொடக்குகிறது
+Suspended	நிறுத்திவைக்கப்பட்டது
+Exit	வெளியேறு
+Library is empty	நூலகம் காலியாக உள்ளது
+Next wallpaper	அடுத்த வால்பேப்பர்
+Open Screen+	Screen+-ஐத் திற
+Pause wallpapers	வால்பேப்பர்களை இடைநிறுத்து
+Restart renderer (stopped)	ரெண்டரரை மறுதொடக்கு (நிறுத்தப்பட்டது)
+Resume wallpapers	வால்பேப்பர்களைத் தொடர்
+Switch wallpaper	வால்பேப்பரை மாற்று
+Wallpaper audio	வால்பேப்பர் ஒலி
+Reset every setting to its factory value and unblock all Store wallpapers?\n\nYour library is kept.	எல்லா அமைப்புகளையும் தொழிற்சாலை மதிப்புகளுக்கு மீட்டமைத்து, Store-இல் தடுத்த எல்லா வால்பேப்பர்களையும் விடுவிக்கவா?\n\nஉங்கள் நூலகம் அப்படியே இருக்கும்.
+Language	மொழி
+Checked when you press Check now	'இப்போது சரிபார்' அழுத்தும்போது சரிபார்க்கப்படும்
+Checking for updates…	புதுப்பிப்புகளைத் தேடுகிறது…
+Checking the sample wallpapers…	மாதிரி வால்பேப்பர்களைச் சரிபார்க்கிறது…
+No downloaded sample wallpapers to update	புதுப்பிக்க பதிவிறக்கிய மாதிரி வால்பேப்பர்கள் இல்லை
+Portable copy: updates are not installed automatically	கையடக்கப் பதிப்பு: புதுப்பிப்புகள் தானாக நிறுவப்படாது
+Some sample files could not be replaced (in use?); try again	சில மாதிரிக் கோப்புகளை மாற்ற முடியவில்லை (பயன்பாட்டில் உள்ளதா?); மீண்டும் முயலுங்கள்
+The sample wallpapers could not be unpacked (a file may be in use; try again)	மாதிரி வால்பேப்பர்களைப் பிரித்தெடுக்க முடியவில்லை (ஒரு கோப்பு பயன்பாட்டில் இருக்கலாம்; மீண்டும் முயலுங்கள்)
+The update could not start	புதுப்பிப்பைத் தொடங்க முடியவில்லை
+Updated automatically	தானாகப் புதுப்பிக்கப்பட்டது
+Updating the sample wallpapers…	மாதிரி வால்பேப்பர்களைப் புதுப்பிக்கிறது…
+Remove %d wallpapers from the library?\n\nThe files stay where they are.	நூலகத்திலிருந்து %d வால்பேப்பர்களை அகற்றவா?\n\nகோப்புகள் இருக்கும் இடத்திலேயே இருக்கும்.
+Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.	நூலகத்திலிருந்து %d வால்பேப்பர்களை%.0ls அகற்றவா?\n\nபதிவிறக்கிய அல்லது உருவாக்கிய %d கோப்புகள்%.0ls நீக்கப்படும்.
+Image	படம்
+Video	வீடியோ
+Presets · %ls	முன்னமைவுகள் · %ls
+Version %ls · Windows	பதிப்பு %ls · Windows
+Version %ls · Linux	பதிப்பு %ls · Linux
+Live wallpapers behind your desktop icons.	டெஸ்க்டாப் ஐகான்களுக்குப் பின்னால் நேரலை வால்பேப்பர்கள்.
+Website	இணையதளம்
+Report a problem	சிக்கலைத் தெரிவி
+Free and open source (MIT)	இலவச திறந்த மூலம் (MIT)

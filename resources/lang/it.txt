@@ -1,0 +1,450 @@
+# Screen+ UI in Italiano: English<TAB>translation (src/common/i18n.c). Made by scripts/lang-pack.py.
+@name	Italiano
+  (in use)	  (in uso)
+ (SLIDESHOW)	 (PRESENTAZIONE)
+ for this video	 per questo video
+ · %d wallpaper%ls · slideshow every %d min	 · Sfondi: %d%.0ls · presentazione ogni %d min
+ · %d wallpaper%ls	 · Sfondi: %d%.0ls
+ · %d × %d · %.1f MB	 · %d × %d · %.1f MB
+ · Primary	 · Principale
+%d display%ls	Schermi: %d%.0ls
+%d selected	%d selezionati
+%d wallpaper%ls	Sfondi: %d%.0ls
+%d × %d on a %d × %d display · Shift keeps the shape	%d × %d su uno schermo %d × %d · Maiusc mantiene la forma
+%ls downloads %ls the first time.	%ls scarica %ls la prima volta.
+%ls needs more memory than this PC has.	%ls richiede più memoria di quella del PC.
+%ls needs your own .onnx file.	%ls richiede un tuo file .onnx.
+'%ls' can't be exported: its file is missing.	Impossibile esportare '%ls': manca il file.
+'%ls' can't be shown because the file is missing.	Impossibile mostrare '%ls' perché manca il file.
+(empty)	(vuoto)
+(none)	(nessuno)
+(unnamed)	(senza nome)
+ABOUT	INFORMAZIONI
+ALL DISPLAYS	TUTTI GLI SCHERMI
+APP RULES	REGOLE PER APP
+AUDIO & RECOVERY	AUDIO E RIPRISTINO
+Accent colour	Colore principale
+Active	Attivo
+Add %d selected wallpaper%ls	Aggiungi selezionati: %d%.0ls
+Add %d to library	Aggiungi %d alla libreria
+Add app	Aggiungi app
+Add to library	Aggiungi alla libreria
+All displays	Tutti gli schermi
+All files	Tutti i file
+All wallpapers	Tutti gli sfondi
+All	Tutti
+Allow desktop mouse interaction	Consenti l'interazione del mouse sul desktop
+Animations	Animazioni
+Another depth job is running · %.1f MB	È in corso un'altra elaborazione di profondità · %.1f MB
+Another screensaver is in use	È in uso un altro salvaschermo
+Any app	Qualsiasi app
+Appearance	Aspetto
+Apply a wallpaper to customise it.	Applica uno sfondo per personalizzarlo.
+Apply to all displays	Applica a tutti gli schermi
+Apply to display %d (%.40ls)	Applica allo schermo %d (%.40ls)
+Apps	App
+Arrangement	Disposizione
+Auto update	Aggiornamento automatico
+Automatic	Automatico
+Available:	Disponibile:
+Black	Nero
+Block this wallpaper	Blocca questo sfondo
+Blur	Sfocatura
+Border	Bordo
+Bounce	Rimbalzo
+Breathe	Respiro
+Brightness	Luminosità
+Busy with another wallpaper.	Occupato con un altro sfondo.
+Can't run	Impossibile eseguire
+Can't run: not enough memory	Impossibile eseguire: memoria insufficiente
+Cancel	Annulla
+Category	Categoria
+Change every (minutes)	Cambia ogni (minuti)
+Change wallpaper automatically	Cambia sfondo automaticamente
+Changes highlights throughout Screen+	Cambia i colori di evidenziazione in tutto Screen+
+Check now	Controlla ora
+Choose a background	Scegli uno sfondo
+Choose a file…	Scegli un file…
+Choose a wallpaper from your library	Scegli uno sfondo dalla libreria
+Choose the app's .exe file.	Scegli il file .exe dell'app.
+Choose your .onnx	Scegli il tuo .onnx
+Choose…	Scegli…
+Clear search	Cancella ricerca
+Collection name	Nome della raccolta
+Collections	Raccolte
+Collections…	Raccolte…
+Colour	Colore
+Contrast	Contrasto
+Could not delete this model. Check that its files are writable and not in use.	Impossibile eliminare questo modello. Verifica che i file siano scrivibili e non in uso.
+Could not export '%ls'. The log has the reason.	Impossibile esportare '%ls'. Il registro indica il motivo.
+Could not export the selected wallpapers.	Impossibile esportare gli sfondi selezionati.
+Could not open '%ls'.	Impossibile aprire '%ls'.
+Could not start the export.	Impossibile avviare l'esportazione.
+Could not start the screensaver preview.	Impossibile avviare l'anteprima del salvaschermo.
+Could not update the startup entry.	Impossibile aggiornare la voce di avvio.
+Couldn't reach the wallpaper sites	Impossibile raggiungere i siti di sfondi
+Covered	Coperto
+Create	Crea
+Custom order	Ordine personalizzato
+Custom	Personalizzato
+Customise	Personalizza
+DAY AND NIGHT	GIORNO E NOTTE
+DESKTOP	DESKTOP
+Damaged item	Elemento danneggiato
+Damaged items will be skipped.	Gli elementi danneggiati verranno saltati.
+Dark	Scuro
+Date added	Data di aggiunta
+Day and night wallpapers	Sfondi per giorno e notte
+Day wallpaper	Sfondo del giorno
+Delete collection (keeps the wallpapers)	Elimina raccolta (mantiene gli sfondi)
+Delete the recording	Elimina la registrazione
+Delete	Elimina
+Displays	Schermi
+Done	Fatto
+Download %ls	Scarica %ls
+Download model	Scarica modello
+Download	Scarica
+Downloaded · %.1f MB · %ls	Scaricato · %.1f MB · %ls
+Downloaded	Scaricato
+Downloading %d%%	Download %d%%
+Downloading (%d%%) · %.1f MB	Download (%d%%) · %.1f MB
+Downloading… · %.1f MB	Download… · %.1f MB
+Downloading…	Download…
+Draw over the line to change it; right-click for presets	Disegna sulla linea per cambiarla; clic destro per i preset
+Duplicate	Duplica
+Ease in-out	Ingresso e uscita morbidi
+Edges	Bordi
+Edit the recording	Modifica la registrazione
+Enable audio-reactive spectrum	Attiva lo spettro reattivo all'audio
+End on mouse movement	Termina al movimento del mouse
+Error	Errore
+Every %d min	Ogni %d min
+Export (.spf)…	Esporta (.spf)…
+Export collection (.spp)…	Esporta raccolta (.spp)…
+Exported %d wallpapers.	%d sfondi esportati.
+Exported '%ls'.	'%ls' esportato.
+Exporting %d wallpapers…	Esportazione di %d sfondi…
+Exporting '%ls'…	Esportazione di '%ls'…
+Exporting collection '%ls'…	Esportazione della raccolta '%ls'…
+Favourite	Preferito
+Favourites	Preferiti
+File not found	File non trovato
+Fill	Riempi
+Finishing '%ls'… Esc cancels.	Completamento di '%ls'… Esc annulla.
+Finishing the export… Esc cancels.	Completamento dell'esportazione… Esc annulla.
+Fit	Adatta
+Frame-rate limit	Limite di fotogrammi
+From %02d:00	Dalle %02d:00
+Full	Complete
+GENERAL	GENERALE
+Gamma	Gamma
+Get WebView2	Ottieni WebView2
+Good	Buona
+HTML WALLPAPERS	SFONDI HTML
+Heartbeat	Battito
+Height	Altezza
+Hue shift	Variazione tonalità
+IMAGE	IMMAGINE
+Identify	Identifica
+Images	Immagini
+Import Lively wallpapers automatically	Importa automaticamente gli sfondi di Lively
+Import a wallpaper folder	Importa una cartella di sfondi
+Import files	Importa file
+Import from a link	Importa da un link
+Import wallpapers from web links	Importa sfondi da link web
+Import	Importa
+In library	Nella libreria
+In use by a depth job · %.1f MB	In uso da un'elaborazione di profondità · %.1f MB
+Independent	Indipendente
+Interactive depth is on	La profondità interattiva è attiva
+Interactive depth	Profondità interattiva
+Keep the window closed at sign-in	Tieni la finestra chiusa all'accesso
+LAYOUT	LAYOUT
+LOOK & COLOUR	ASPETTO E COLORE
+Library	Libreria
+Light	Chiaro
+Loading…	Caricamento…
+Logs and data	Registri e dati
+MAKE WALLPAPER COOLER	RENDI LO SFONDO PIÙ FIGO
+MODEL MANAGER	GESTIONE MODELLI
+Make image wallpapers interactive	Rendi interattivi gli sfondi immagine
+Make wallpaper cooler	Rendi lo sfondo più figo
+Managed by your organisation	Gestito dalla tua organizzazione
+Mirror	Specchio
+Mouse interaction is off in Settings.	L'interazione del mouse è disattivata nelle Impostazioni.
+Mute while these apps use the microphone	Disattiva l'audio quando queste app usano il microfono
+Mute while this app uses the microphone	Disattiva l'audio quando questa app usa il microfono
+Muted	Audio disattivato
+NOW SHOWING%ls  ·  %ls	IN RIPRODUZIONE%ls  ·  %ls
+NOW SHOWING%ls  ·  DISPLAY %d	IN RIPRODUZIONE%ls  ·  SCHERMO %d
+NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS	IN RIPRODUZIONE%ls  ·  ESTESO SU %d SCHERMI
+Name	Nome
+New collection	Nuova raccolta
+New collection…	Nuova raccolta…
+Night wallpaper	Sfondo della notte
+No matching settings	Nessuna impostazione corrispondente
+No matching wallpapers	Nessuno sfondo corrispondente
+No results for '%.50ls'	Nessun risultato per '%.50ls'
+No wallpaper applied	Nessuno sfondo applicato
+No wallpaper	Nessuno sfondo
+No wallpapers found	Nessuno sfondo trovato
+None	Nessuno
+Not downloaded · %.1f MB · %ls	Non scaricato · %.1f MB · %ls
+Not installed. Web wallpapers need it.	Non installato. Serve agli sfondi web.
+Nothing changed while recording, so there is nothing to play.	Nulla è cambiato durante la registrazione, quindi non c'è niente da riprodurre.
+Nothing matches these filters	Nulla corrisponde a questi filtri
+OK	OK
+Off	Disattivato
+On	Attivato
+Open data folder	Apri cartella dati
+Open its page	Apri la pagina
+Open link in browser	Apri link nel browser
+Open logs	Apri registri
+Open on %ls	Apri su %ls
+Open	Apri
+Opens in your browser	Si apre nel browser
+Original	Originale
+PERFORMANCE	PRESTAZIONI
+PHOTO	FOTO
+Paste a link	Incolla un link
+Pause during fullscreen apps	Pausa con app a schermo intero
+Pause on battery power	Pausa a batteria
+Pause the recording to change this	Metti in pausa la registrazione per cambiarlo
+Pause the recording	Metti in pausa la registrazione
+Pause when covered by windows	Pausa quando coperto da finestre
+Pause while locked	Pausa quando bloccato
+Pause while these apps are in front	Pausa quando queste app sono in primo piano
+Pause while this app is in front	Pausa quando questa app è in primo piano
+Pause	Pausa
+Paused	In pausa
+Pictures and videos	Immagini e video
+Pictures only	Solo immagini
+Pictures	Immagini
+Play sound	Riproduci audio
+Play the recording	Riproduci la registrazione
+Play wallpaper audio	Riproduci l'audio dello sfondo
+Play	Riproduci
+Playing %ls, a new wallpaper every %d min.	In riproduzione %ls, un nuovo sfondo ogni %d min.
+Playing as a slideshow	In riproduzione come presentazione
+Plays at once in high quality, streamed into RAM. Nothing is saved.	Parte subito in alta qualità, in streaming nella RAM. Non viene salvato nulla.
+PowerPoint is making the video	PowerPoint sta creando il video
+PowerPoint is still working on '%ls'.	PowerPoint sta ancora lavorando su '%ls'.
+PowerPoint · %d s a slide	PowerPoint · %d s per diapositiva
+Preparing…	Preparazione…
+Preview	Anteprima
+Primary	Principale
+Pulse	Pulsazione
+Queued	In coda
+Ramp down	Rampa in discesa
+Ramp up	Rampa in salita
+Random	Casuale
+Reading…	Lettura…
+Real-ESRGAN needs its model	Real-ESRGAN richiede il suo modello
+Recent	Recenti
+Record your changes; they play on a loop	Registra le modifiche; vengono riprodotte in loop
+Recording  %d:%02d	Registrazione  %d:%02d
+Recovering	Ripristino
+Redo	Ripeti
+Reduced	Ridotte
+Remove from library (keeps the file)	Rimuovi dalla libreria (mantiene il file)
+Remove from library and delete the download	Rimuovi dalla libreria ed elimina il download
+Remove from library	Rimuovi dalla libreria
+Remove	Rimuovi
+Renderer	Renderer
+Reset filters	Reimposta filtri
+Reset look	Reimposta aspetto
+Reset settings	Reimposta impostazioni
+Reset	Reimposta
+Resolution	Risoluzione
+Restart failed renderers automatically	Riavvia automaticamente i renderer in errore
+Restart renderer	Riavvia renderer
+Restart	Riavvia
+Restore defaults	Ripristina predefiniti
+Resume	Riprendi
+Right-click to change how many times it repeats	Clic destro per cambiare quante volte si ripete
+Running in safe mode	In esecuzione in modalità provvisoria
+Running	In esecuzione
+SCREEN+ COLLECTION	RACCOLTA SCREEN+
+SCREEN+ WALLPAPER	SFONDO SCREEN+
+SCREENSAVER	SALVASCHERMO
+SLIDES	DIAPOSITIVE
+SLIDESHOW	PRESENTAZIONE
+SOUND	AUDIO
+Same as the desktop	Come il desktop
+Sample wallpaper updates	Aggiornamenti degli sfondi di esempio
+Saturation	Saturazione
+Saves the best quality up to your screen's size.	Salva la qualità migliore fino alle dimensioni del tuo schermo.
+Screen+ is busy with another depth job, so this background stays flat for now.	Screen+ è occupato con un'altra elaborazione di profondità, quindi per ora questo sfondo resta piatto.
+Search settings	Cerca nelle impostazioni
+Search wallpapers	Cerca sfondi
+Seconds per slide	Secondi per diapositiva
+Select all	Seleziona tutto
+Select	Seleziona
+Settings reset.	Impostazioni reimpostate.
+Settings	Impostazioni
+Sharp	Nitido
+Show a still while Screen+ starts	Mostra un'immagine fissa all'avvio di Screen+
+Show in File Explorer	Mostra in Esplora file
+Show in File Manager	Mostra nel file manager
+Show the sign-in screen on resume	Mostra la schermata di accesso alla ripresa
+Shows the page itself, live.	Mostra la pagina stessa, dal vivo.
+Shuffle	Casuale
+Sine	Seno
+Site	Sito
+Size	Dimensione
+Slow	Lento
+Smooth	Morbido
+Sort by	Ordina per
+Sound is off	L'audio è disattivato
+Sound on	Audio attivato
+Span	Estendi
+Speed	Velocità
+Spike	Picco
+Square	Quadra
+Start after (minutes)	Avvia dopo (minuti)
+Start minimised to the tray	Avvia ridotto a icona nell'area di notifica
+Start with Linux	Avvia con Linux
+Start with Windows	Avvia con Windows
+Starting	Avvio
+Steps	Gradini
+Stop recording	Interrompi registrazione
+Stop	Interrompi
+Stopped after repeated failures	Interrotto dopo errori ripetuti
+Stopped	Interrotto
+Store	Store
+Stream	Stream
+Strength	Intensità
+Stretch	Allunga
+System	Sistema
+TROUBLESHOOTING	RISOLUZIONE DEI PROBLEMI
+The download could not start. Another depth job may be running.	Impossibile avviare il download. Potrebbe essere in corso un'altra elaborazione di profondità.
+The picture covers the display	L'immagine copre lo schermo
+The upscaling model download could not start. Another depth job may be running.	Impossibile avviare il download del modello di upscaling. Potrebbe essere in corso un'altra elaborazione di profondità.
+Third-party notices	Note di terze parti
+This file can't be opened. It may be damaged, or made by a newer Screen+.	Impossibile aprire questo file. Potrebbe essere danneggiato o creato da un Screen+ più recente.
+This wallpaper can't be read and will be skipped.	Questo sfondo non è leggibile e verrà saltato.
+This wallpaper has no properties.	Questo sfondo non ha proprietà.
+Tint brightness	Luminosità della tinta
+Tint colour	Colore della tinta
+Tint strength	Intensità della tinta
+Tint	Tinta
+Triangle	Triangolo
+Try again	Riprova
+Type how many times it repeats	Scrivi quante volte si ripete
+Type	Tipo
+UPSCALING	UPSCALING
+Undo	Annulla
+Update	Aggiorna
+Upscaling	Upscaling
+Use Screen+ as the screensaver	Usa Screen+ come salvaschermo
+Use as screensaver	Usa come salvaschermo
+Use default	Usa predefinito
+Use plain image	Usa immagine semplice
+Use plain video	Usa video semplice
+VIDEO	VIDEO
+Very good	Ottima
+Very hard	Molto dura
+Videos	Video
+Volume	Volume
+WALLPAPER PROPERTIES	PROPRIETÀ DELLO SFONDO
+Waiting	In attesa
+Wallpaper folder	Cartella dello sfondo
+Wallpaper	Sfondo
+Wallpapers from %d sites	Sfondi da %d siti
+Wallpapers	Sfondi
+Wander	Vagare
+Web page	Pagina web
+Width	Larghezza
+Windows screensaver settings	Impostazioni salvaschermo di Windows
+Your file	Il tuo file
+Your library is empty	La libreria è vuota
+Your library is kept.	La libreria resta.
+all displays	tutti gli schermi
+custom	personalizzato
+duplicated	duplicato
+file	file
+folder	cartella
+part of the span	parte dell'estensione
+selected display	schermo selezionato
+uses default	usa il predefinito
+web	web
+your favourites	i tuoi preferiti
+'%ls' could not be found at its original location.	'%ls' non è stato trovato nella posizione originale.
+'%ls' is already in the library.	'%ls' è già nella libreria.
+'%ls' needs Microsoft PowerPoint, which isn't installed.	'%ls' richiede Microsoft PowerPoint, che non è installato.
+'%ls' needs PowerPoint, which Linux doesn't have. Export it as a video instead.	'%ls' richiede PowerPoint, che Linux non ha. Esportalo come video.
+'%ls' now uses %ls.	'%ls' ora usa %ls.
+Added %d wallpaper%ls to the collection '%ls'.	Aggiunti: %d%.0ls alla raccolta '%ls'.
+Added '%ls' to the library.	'%ls' aggiunto alla libreria.
+Added '%ls'.	'%ls' aggiunto.
+Could not add '%ls'.	Impossibile aggiungere '%ls'.
+Could not export '%ls'.	Impossibile esportare '%ls'.
+Could not export collection '%ls'.	Impossibile esportare la raccolta '%ls'.
+Could not start PowerPoint for '%ls'.	Impossibile avviare PowerPoint per '%ls'.
+Couldn't find the download for '%ls': %ls.	Impossibile trovare il download di '%ls': %ls.
+Exported %d of %d wallpapers. The log names the others.	Esportati %d sfondi su %d. Il registro elenca gli altri.
+Exported collection '%ls' (%d wallpaper%ls).	Raccolta '%ls' esportata (sfondi: %d%.0ls).
+Its weights are missing. Keep the .onnx.data file beside the .onnx.	Mancano i pesi. Tieni il file .onnx.data accanto al .onnx.
+Making the wallpaper cooler failed.	Impossibile rendere lo sfondo più figo.
+No Lively Wallpaper library was found.	Nessuna libreria di Lively Wallpaper trovata.
+No Wallpaper Engine library was found. Use Import folder on a workshop item or project folder.	Nessuna libreria di Wallpaper Engine trovata. Usa Importa cartella su un elemento del Workshop o una cartella di progetto.
+Nothing was imported. These files are not supported.	Non è stato importato nulla. Questi file non sono supportati.
+PowerPoint couldn't make a video of '%ls'.	PowerPoint non è riuscito a creare un video da '%ls'.
+PowerPoint is turning '%ls' into a wallpaper. This can take a few minutes.	PowerPoint sta trasformando '%ls' in uno sfondo. Può volerci qualche minuto.
+Removed '%ls' and its downloaded file.	'%ls' e il file scaricato sono stati rimossi.
+Removed '%ls' and its video. The presentation stays.	'%ls' e il suo video sono stati rimossi. La presentazione resta.
+Removed '%ls' from the library.	'%ls' è stato rimosso dalla libreria.
+Saved. Turn on the screensaver in Settings to use it.	Salvato. Attiva il salvaschermo nelle Impostazioni per usarlo.
+Settings could not be saved. Check that %ls is writable.	Impossibile salvare le impostazioni. Verifica che %ls sia scrivibile.
+The %ls of '%ls' is gone, so it can't go back.	%.0lsIl file originale di '%ls' non c'è più, quindi non si può tornare indietro.
+The original file of '%ls' is gone.	Il file originale di '%ls' non c'è più.
+The presentation behind '%ls' can't be found, so its slides can't be timed again.	La presentazione di '%ls' non si trova, quindi le diapositive non possono essere ritemporizzate.
+The renderer kept failing and was restarted in safe mode.	Il renderer continuava a non funzionare ed è stato riavviato in modalità provvisoria.
+The renderer stopped after repeated failures.	Il renderer si è fermato dopo errori ripetuti.
+The renderer stopped unexpectedly. Restarting (%d of %d)…	Il renderer si è fermato inaspettatamente. Riavvio (%d di %d)…
+The window could not load: %ls	Impossibile caricare la finestra: %ls
+Too many downloads are waiting; try '%ls' again in a moment.	Troppi download in attesa; riprova '%ls' tra un attimo.
+Updated %ls.	%ls aggiornato.
+picture	immagine
+video	video
+Idle (desktop covered)	Inattivo (desktop coperto)
+Paused for an app	In pausa per un'app
+Paused for fullscreen app	In pausa per app a schermo intero
+Paused for the screensaver	In pausa per il salvaschermo
+Paused on battery	In pausa a batteria
+Renderer error	Errore del renderer
+Renderer stopped	Renderer interrotto
+Restarting renderer	Riavvio del renderer
+Suspended	Sospeso
+Exit	Esci
+Library is empty	La libreria è vuota
+Next wallpaper	Sfondo successivo
+Open Screen+	Apri Screen+
+Pause wallpapers	Metti in pausa gli sfondi
+Restart renderer (stopped)	Riavvia renderer (interrotto)
+Resume wallpapers	Riprendi gli sfondi
+Switch wallpaper	Cambia sfondo
+Wallpaper audio	Audio dello sfondo
+Reset every setting to its factory value and unblock all Store wallpapers?\n\nYour library is kept.	Riportare tutte le impostazioni ai valori di fabbrica e sbloccare tutti gli sfondi dello Store?\n\nLa libreria resta.
+Language	Lingua
+Checked when you press Check now	Controllato quando premi Controlla ora
+Checking for updates…	Ricerca aggiornamenti…
+Checking the sample wallpapers…	Controllo degli sfondi di esempio…
+No downloaded sample wallpapers to update	Nessuno sfondo di esempio scaricato da aggiornare
+Portable copy: updates are not installed automatically	Copia portatile: gli aggiornamenti non si installano automaticamente
+Some sample files could not be replaced (in use?); try again	Alcuni file di esempio non sono stati sostituiti (in uso?); riprova
+The sample wallpapers could not be unpacked (a file may be in use; try again)	Impossibile estrarre gli sfondi di esempio (un file potrebbe essere in uso; riprova)
+The update could not start	Impossibile avviare l'aggiornamento
+Updated automatically	Aggiornato automaticamente
+Updating the sample wallpapers…	Aggiornamento degli sfondi di esempio…
+Remove %d wallpapers from the library?\n\nThe files stay where they are.	Rimuovere %d sfondi dalla libreria?\n\nI file restano dove sono.
+Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.	Rimuovere sfondi dalla libreria: %d%.0ls?\n\nFile scaricati o generati da eliminare: %d%.0ls.
+Image	Immagine
+Video	Video
+Presets · %ls	Preset · %ls
+Version %ls · Windows	Versione %ls · Windows
+Version %ls · Linux	Versione %ls · Linux
+Live wallpapers behind your desktop icons.	Sfondi animati dietro le icone del desktop.
+Website	Sito web
+Report a problem	Segnala un problema
+Free and open source (MIT)	Libero e open source (MIT)

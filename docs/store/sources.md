@@ -19,6 +19,8 @@ are explained in [sites-without-one-click-download.md](sites-without-one-click-d
 - **Common categories** (Anime, Games, Nature, Cars, Space, Animals, Fantasy, City, Abstract, Movies & TV, Sport,
   Technology, Minimal) map to each site's own category where it has one. Otherwise the site searches the
   category's word, unless something was typed: few sites can combine both, so the typed words win.
+- **4K Wallpapers** gets the agent `Screen+` (`webfetch.c` `honest_host`): its Cloudflare answers WinHTTP posing as Chrome
+  with 403 on every address (2026-11-23), yet serves an honest agent. curl on Linux passes as Chrome.
 - **Resolution** goes to the sites that filter by it (Wallhaven, MotionBGS's 4K listing; 4K Wallpapers' cards carry 8K/5K from their keywords); the Store
   hides known smaller cards from the rest. Sites whose best is below the filter (5K and 8K are Wallhaven
   and 4K Wallpapers only) aren't asked.

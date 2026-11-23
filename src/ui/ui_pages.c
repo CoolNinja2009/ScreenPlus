@@ -13,6 +13,7 @@
 #include <shellapi.h>
 #include <shobjidl.h>
 #endif
+#include <stdarg.h>
 #include <stdlib.h>
 #include <math.h>
 #include <stdio.h>
@@ -23,6 +24,19 @@
 #else
 int sp_pick_colour(uint32_t *rgb);
 #endif
+
+/* The window's language (i18n.c): ui_text translates what it draws; formats, menus and message boxes go through
+ * these, since what they produce no longer matches an English key. */
+static void ui_trprintf(wchar_t *dst, size_t cap, const wchar_t *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    _vsnwprintf_s(dst, cap, _TRUNCATE, tr(fmt), ap);
+    va_end(ap);
+}
+#define str_printf(dst, cap, ...) ui_trprintf(dst, cap, __VA_ARGS__)
+#define AppendMenuW(m, f, id, s)  AppendMenuW(m, f, id, tr(s))
+#define MessageBoxW(h, t, c, f)   MessageBoxW(h, tr(t), c, f)
 
 #define SIDEBAR_W 232.0f
 #define PAD       32.0f
@@ -155,6 +169,18 @@ void pages_rebuild_view(void)
 }
 
 /* ================================================================ sidebar */
+
+/* The Screen+ mark (an accent tile with a monitor) at any size: s = 1 is the sidebar's 30 DIPs. */
+static void draw_mark(Ui *u, float x, float y, float s)
+{
+    Theme *t = &u->t;
+    ui_rrect(rectf(x, y, 30 * s, 30 * s), 9 * s, t->accent);
+    ui_rrect_stroke(rectf(x + 7 * s, y + 8 * s, 16 * s, 12 * s), 3 * s, 1.6f * s, t->onAccent);
+    ui_line(x + 15 * s, y + 10 * s, x + 15 * s, y + 18 * s, 1.4f * s, t->onAccent);
+    ui_line(x + 11 * s, y + 14 * s, x + 19 * s, y + 14 * s, 1.4f * s, t->onAccent);
+    ui_line(x + 15 * s, y + 20 * s, x + 15 * s, y + 23.5f * s, 1.6f * s, t->onAccent);
+    ui_line(x + 11 * s, y + 24 * s, x + 19 * s, y + 24 * s, 1.6f * s, t->onAccent);
+}
 
 static void draw_sidebar(Ui *u)
 {
@@ -1707,7 +1733,7 @@ static void sf_section(Ui *u, const wchar_t *title, const wchar_t *keys)
 
 static int sf_want(Ui *u, const wchar_t *label, const wchar_t *keys)
 {
-    return !u->setSearch[0] || sf.titleHit || sf_has(u, label) || sf_has(u, keys);
+    return !u->setSearch[0] || sf.titleHit || sf_has(u, tr(label)) || sf_has(u, label) || sf_has(u, keys);
 }
 
 /* before a shown row: its section's title, with the gap after an earlier section */
@@ -1867,6 +1893,16 @@ static void draw_settings(Ui *u, float cx, float cw)
         row_label(u, x, y, w - 300, L"Appearance", NULL);
         static const wchar_t *opts[] = { L"System", L"Light", L"Dark" };
         segmented(u, x + w - 18 - 78 * 3, y + 15, HK_THEME, opts, 3, (int)s->theme, 78, NULL);
+        y += 62 + 10;
+    }
+    if (sf_want(u, L"Language", L"language translation")) {
+        y = sf_place(u, x, y);
+        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+        row_label(u, x, y, w - 300, L"Language", NULL);
+        const wchar_t *now = !s->language[0] ? tr(L"System") : str_ieq(s->language, L"en") ? L"English"
+                                                                : i18n_name(i18n_current());
+        float bw = ui_button_width(now, 0);
+        ui_button(HIT_ID(HK_LANGUAGE, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), now, 0, BTN_SECONDARY);
         y += 62 + 10;
     }
     if (sf_want(u, L"Animations", L"motion reduce accessibility")) {
@@ -2156,11 +2192,30 @@ static void draw_settings(Ui *u, float cx, float cw)
     sf_section(u, L"ABOUT", NULL);
     if (sf_want(u, L"Screen+ " SP_VERSION_W, L"version third-party notices licenses")) {
         y = sf_place(u, x, y);
-        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        row_label(u, x, y, w - 240, L"Screen+ " SP_VERSION_W, NULL);
-        float bw = ui_button_width(L"Third-party notices", 0);
-        ui_button(HIT_ID(HK_LICENSES, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Third-party notices", 0, BTN_GHOST);
-        y += 62 + 10;
+        ui_glass(rectf(x, y, w, 132), 14, 0, 0);
+        draw_mark(u, x + 20, y + 20, 1.6f);
+        ui_text(L"Screen+", u->fHeading, rectf(x + 82, y + 18, w - 100, 26), t->text);
+        wchar_t ver[64];
+#ifdef _WIN32
+        str_printf(ver, SP_COUNTOF(ver), L"Version %ls · Windows", SP_VERSION_W);
+#else
+        str_printf(ver, SP_COUNTOF(ver), L"Version %ls · Linux", SP_VERSION_W);
+#endif
+        ui_text(ver, u->fSmall, rectf(x + 82, y + 46, w - 100, 18), t->text3);
+        ui_text(L"Live wallpapers behind your desktop icons.", u->fSmall, rectf(x + 82, y + 64, w - 100, 18), t->text2);
+        /* links: the project (GitLab, GitHub), its issues, the notices of what it ships */
+        static const wchar_t *links[] = { L"Website", L"GitHub", L"Report a problem", L"Third-party notices" };
+        float bx = x + 82;
+        for (int i = 0; i < 4; i++) {
+            float bw = ui_button_width(links[i], 0);
+            ui_button(i < 3 ? HIT_ID(HK_ABOUT_LINK, i) : HIT_ID(HK_LICENSES, 0), rectf(bx, y + 88, bw, 30), links[i], 0,
+                      BTN_GHOST);
+            bx += bw + 6;
+        }
+        const wchar_t *mit = L"Free and open source (MIT)";
+        float mw = ui_text_width(mit, u->fCaption);
+        if (bx + mw + 18 < x + w) ui_text(mit, u->fCaption, rectf(x + w - 18 - mw, y + 96, mw + 2, 16), t->text3);
+        y += 132 + 10;
     }
     if (!sf.any) {
         float tw = ui_text_width(L"No matching settings", u->fHeading);
@@ -4547,6 +4602,7 @@ static void reset_settings(void)
     if (s->paused != d.s.paused) app_set_paused(d.s.paused);
     if (s->audio != d.s.audio) app_set_audio(d.s.audio);
     *s = d.s;
+    i18n_set(s->language);
     app_save_config();
     store_unblock_all();
     ui_refresh_motion();
@@ -4774,6 +4830,25 @@ static void play_every_menu(int id)
     rotate_changed();
 }
 
+/* Language: the system's, English, or one of resources/lang. */
+static void language_menu(int id)
+{
+    Settings *s = &g_app.cfg.s;
+    HMENU m = CreatePopupMenu();
+    if (!m) return;
+    AppendMenuW(m, MF_STRING | (!s->language[0] ? MF_CHECKED : 0), 1, L"System");
+    AppendMenuW(m, MF_SEPARATOR, 0, NULL);
+    AppendMenuW(m, MF_STRING | (str_ieq(s->language, L"en") ? MF_CHECKED : 0), 2, L"English");
+    for (int i = 0; i < i18n_count(); i++)
+        AppendMenuW(m, MF_STRING | (str_ieq(s->language, i18n_code(i)) ? MF_CHECKED : 0), 10 + (UINT)i, i18n_name(i));
+    UINT cmd = menu_below(m, id);
+    if (!cmd) return;
+    str_copy(s->language, SP_COUNTOF(s->language), cmd == 1 ? L"" : cmd == 2 ? L"en" : i18n_code((int)cmd - 10));
+    i18n_set(s->language);
+    app_save_config();
+    ui_on_config_changed();
+}
+
 static void sort_menu(int id)
 {
     HMENU m = CreatePopupMenu();
@@ -4946,6 +5021,7 @@ void pages_activate(int id, int dbl)
         }
         break;
     case HK_SORT:          sort_menu(id); break;
+    case HK_LANGUAGE:      language_menu(id); break;
     case HK_PLAY_EVERY:    play_every_menu(id); break;
     case HK_PLAY_SET:
         if (data) {
@@ -5320,6 +5396,11 @@ void pages_activate(int id, int dbl)
     case HK_STORE_DL:      store_download(data); break;
     case HK_STORE_RETRY:   store_retry(); break;
     case HK_GET_WEBVIEW:   shell_open(L"https://go.microsoft.com/fwlink/p/?LinkId=2124703"); break;
+    case HK_ABOUT_LINK:
+        shell_open(data == 0 ? L"https://gitlab.com/screenplus-group/screenplus"
+                   : data == 1 ? L"https://github.com/CoolNinja2009/ScreenPlus"
+                               : L"https://gitlab.com/screenplus-group/screenplus/-/issues");
+        break;
     case HK_LICENSES: {
         wchar_t p[SP_MAX_PATH];
         path_join(p, SP_COUNTOF(p), paths_exe_dir(), L"licenses");

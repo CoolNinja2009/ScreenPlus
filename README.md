@@ -35,6 +35,7 @@ Linux support is experimental and may be unstable on some setups.
   water and plants in a picture move
 - Colour grading and wallpaper properties, and recordings of your changes that play on a loop
 - A customisable accent colour across the app
+- The window in English, Deutsch, Español, Français, Italiano, Português, Русский, 日本語, 简体中文, हिन्दी, বাংলা, தமிழ் or తెలుగు (Settings › Language; Store listings stay as the sites write them)
 - Upscaling for videos and pictures smaller than the display (Smooth or Sharp)
 - Layout editor: fit, stretch, original or drag your own size (Shift keeps the shape), with a black, blurred, mirrored, edge or colour border
 - Pauses for fullscreen apps, covered desktops, the lock screen and battery power

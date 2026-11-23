@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "2.5.0" CACHE STRING "Screen+ version (major.minor.patch[-prerelease]); release builds pass the tag")
+set(SCREENPLUS_VERSION "2.6.0" CACHE STRING "Screen+ version (major.minor.patch[-prerelease]); release builds pass the tag")
 if(NOT SCREENPLUS_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z.-]+)?$")
     message(FATAL_ERROR "SCREENPLUS_VERSION must be major.minor.patch with an optional prerelease suffix")
 endif()
@@ -99,8 +99,9 @@ foreach(entry vs_main:vs_4_0:video_vs ps_nv12:ps_4_0:video_ps_nv12 ps_i420:ps_4_
 endforeach()
 
 # ---------------------------------------------------------------- application
+include(cmake/lang.cmake)
 set(SOURCES
-    src/main.c
+    src/main.c src/common/i18n.c ${SP_LANG_C}
     src/common/util.c src/common/log.c src/common/paths.c src/common/json.c src/common/webfetch.c
     src/common/ytdlp.c src/common/scrnsave.c src/common/autostart.c src/common/edid.c
     src/screensaver/screensaver.c

@@ -1,0 +1,450 @@
+# Screen+ UI in 日本語: English<TAB>translation (src/common/i18n.c). Made by scripts/lang-pack.py.
+@name	日本語
+  (in use)	  (使用中)
+ (SLIDESHOW)	 (スライドショー)
+ for this video	 この動画用
+ · %d wallpaper%ls · slideshow every %d min	 · 壁紙 %d 件%.0ls · %d 分ごとにスライドショー
+ · %d wallpaper%ls	 · 壁紙 %d 件%.0ls
+ · %d × %d · %.1f MB	 · %d × %d · %.1f MB
+ · Primary	 · メイン
+%d display%ls	ディスプレイ %d 台%.0ls
+%d selected	%d 件選択
+%d wallpaper%ls	壁紙 %d 件%.0ls
+%d × %d on a %d × %d display · Shift keeps the shape	%d × %d（%d × %d のディスプレイ）· Shift で縦横比を保持
+%ls downloads %ls the first time.	%ls は初回に %ls をダウンロードします。
+%ls needs more memory than this PC has.	%ls にはこの PC のメモリでは足りません。
+%ls needs your own .onnx file.	%ls には独自の .onnx ファイルが必要です。
+'%ls' can't be exported: its file is missing.	'%ls' はファイルがないためエクスポートできません。
+'%ls' can't be shown because the file is missing.	'%ls' はファイルがないため表示できません。
+(empty)	(空)
+(none)	(なし)
+(unnamed)	(名前なし)
+ABOUT	情報
+ALL DISPLAYS	すべてのディスプレイ
+APP RULES	アプリのルール
+AUDIO & RECOVERY	オーディオと復旧
+Accent colour	アクセントカラー
+Active	有効
+Add %d selected wallpaper%ls	選択した %d 件を追加%.0ls
+Add %d to library	%d 件をライブラリに追加
+Add app	アプリを追加
+Add to library	ライブラリに追加
+All displays	すべてのディスプレイ
+All files	すべてのファイル
+All wallpapers	すべての壁紙
+All	すべて
+Allow desktop mouse interaction	デスクトップでのマウス操作を許可
+Animations	アニメーション
+Another depth job is running · %.1f MB	別の深度処理を実行中 · %.1f MB
+Another screensaver is in use	別のスクリーンセーバーが使用中です
+Any app	すべてのアプリ
+Appearance	外観
+Apply a wallpaper to customise it.	壁紙を適用するとカスタマイズできます。
+Apply to all displays	すべてのディスプレイに適用
+Apply to display %d (%.40ls)	ディスプレイ %d に適用 (%.40ls)
+Apps	アプリ
+Arrangement	配置
+Auto update	自動更新
+Automatic	自動
+Available:	使用可能:
+Black	黒
+Block this wallpaper	この壁紙をブロック
+Blur	ぼかし
+Border	枠
+Bounce	バウンド
+Breathe	ブリーズ
+Brightness	明るさ
+Busy with another wallpaper.	別の壁紙を処理中です。
+Can't run	実行できません
+Can't run: not enough memory	実行できません: メモリ不足
+Cancel	キャンセル
+Category	カテゴリ
+Change every (minutes)	変更間隔（分）
+Change wallpaper automatically	壁紙を自動で変更
+Changes highlights throughout Screen+	Screen+ 全体の強調色を変更します
+Check now	今すぐ確認
+Choose a background	背景を選択
+Choose a file…	ファイルを選択…
+Choose a wallpaper from your library	ライブラリから壁紙を選択
+Choose the app's .exe file.	アプリの .exe ファイルを選択してください。
+Choose your .onnx	.onnx を選択
+Choose…	選択…
+Clear search	検索をクリア
+Collection name	コレクション名
+Collections	コレクション
+Collections…	コレクション…
+Colour	色
+Contrast	コントラスト
+Could not delete this model. Check that its files are writable and not in use.	このモデルを削除できませんでした。ファイルが書き込み可能で使用中でないか確認してください。
+Could not export '%ls'. The log has the reason.	'%ls' をエクスポートできませんでした。理由はログにあります。
+Could not export the selected wallpapers.	選択した壁紙をエクスポートできませんでした。
+Could not open '%ls'.	'%ls' を開けませんでした。
+Could not start the export.	エクスポートを開始できませんでした。
+Could not start the screensaver preview.	スクリーンセーバーのプレビューを開始できませんでした。
+Could not update the startup entry.	スタートアップ項目を更新できませんでした。
+Couldn't reach the wallpaper sites	壁紙サイトに接続できませんでした
+Covered	隠れている
+Create	作成
+Custom order	カスタム順
+Custom	カスタム
+Customise	カスタマイズ
+DAY AND NIGHT	昼と夜
+DESKTOP	デスクトップ
+Damaged item	破損した項目
+Damaged items will be skipped.	破損した項目はスキップされます。
+Dark	ダーク
+Date added	追加日
+Day and night wallpapers	昼と夜の壁紙
+Day wallpaper	昼の壁紙
+Delete collection (keeps the wallpapers)	コレクションを削除（壁紙は残ります）
+Delete the recording	録画を削除
+Delete	削除
+Displays	ディスプレイ
+Done	完了
+Download %ls	%ls をダウンロード
+Download model	モデルをダウンロード
+Download	ダウンロード
+Downloaded · %.1f MB · %ls	ダウンロード済み · %.1f MB · %ls
+Downloaded	ダウンロード済み
+Downloading %d%%	ダウンロード中 %d%%
+Downloading (%d%%) · %.1f MB	ダウンロード中 (%d%%) · %.1f MB
+Downloading… · %.1f MB	ダウンロード中… · %.1f MB
+Downloading…	ダウンロード中…
+Draw over the line to change it; right-click for presets	線の上をなぞって変更、右クリックでプリセット
+Duplicate	複製
+Ease in-out	イーズインアウト
+Edges	エッジ
+Edit the recording	録画を編集
+Enable audio-reactive spectrum	オーディオに反応するスペクトラムを有効化
+End on mouse movement	マウスを動かしたら終了
+Error	エラー
+Every %d min	%d 分ごと
+Export (.spf)…	エクスポート (.spf)…
+Export collection (.spp)…	コレクションをエクスポート (.spp)…
+Exported %d wallpapers.	%d 件の壁紙をエクスポートしました。
+Exported '%ls'.	'%ls' をエクスポートしました。
+Exporting %d wallpapers…	%d 件の壁紙をエクスポート中…
+Exporting '%ls'…	'%ls' をエクスポート中…
+Exporting collection '%ls'…	コレクション '%ls' をエクスポート中…
+Favourite	お気に入り
+Favourites	お気に入り
+File not found	ファイルが見つかりません
+Fill	拡大して全体を覆う
+Finishing '%ls'… Esc cancels.	'%ls' を仕上げ中… Esc でキャンセル。
+Finishing the export… Esc cancels.	エクスポートを仕上げ中… Esc でキャンセル。
+Fit	全体を表示
+Frame-rate limit	フレームレート上限
+From %02d:00	%02d:00 から
+Full	フル
+GENERAL	一般
+Gamma	ガンマ
+Get WebView2	WebView2 を入手
+Good	良い
+HTML WALLPAPERS	HTML 壁紙
+Heartbeat	ハートビート
+Height	高さ
+Hue shift	色相シフト
+IMAGE	画像
+Identify	識別
+Images	画像
+Import Lively wallpapers automatically	Lively の壁紙を自動でインポート
+Import a wallpaper folder	壁紙フォルダーをインポート
+Import files	ファイルをインポート
+Import from a link	リンクからインポート
+Import wallpapers from web links	Web リンクから壁紙をインポート
+Import	インポート
+In library	ライブラリ内
+In use by a depth job · %.1f MB	深度処理で使用中 · %.1f MB
+Independent	個別
+Interactive depth is on	インタラクティブ深度がオン
+Interactive depth	インタラクティブ深度
+Keep the window closed at sign-in	サインイン時にウィンドウを閉じたままにする
+LAYOUT	レイアウト
+LOOK & COLOUR	見た目と色
+Library	ライブラリ
+Light	ライト
+Loading…	読み込み中…
+Logs and data	ログとデータ
+MAKE WALLPAPER COOLER	壁紙をもっとクールに
+MODEL MANAGER	モデル マネージャー
+Make image wallpapers interactive	画像の壁紙をインタラクティブにする
+Make wallpaper cooler	壁紙をもっとクールに
+Managed by your organisation	組織によって管理されています
+Mirror	ミラー
+Mouse interaction is off in Settings.	マウス操作は設定でオフになっています。
+Mute while these apps use the microphone	これらのアプリがマイクを使う間はミュート
+Mute while this app uses the microphone	このアプリがマイクを使う間はミュート
+Muted	ミュート
+NOW SHOWING%ls  ·  %ls	表示中%ls  ·  %ls
+NOW SHOWING%ls  ·  DISPLAY %d	表示中%ls  ·  ディスプレイ %d
+NOW SHOWING%ls  ·  SPANNED ACROSS %d DISPLAYS	表示中%ls  ·  %d 台のディスプレイにまたがって表示
+Name	名前
+New collection	新しいコレクション
+New collection…	新しいコレクション…
+Night wallpaper	夜の壁紙
+No matching settings	一致する設定がありません
+No matching wallpapers	一致する壁紙がありません
+No results for '%.50ls'	'%.50ls' の結果はありません
+No wallpaper applied	壁紙が適用されていません
+No wallpaper	壁紙なし
+No wallpapers found	壁紙が見つかりません
+None	なし
+Not downloaded · %.1f MB · %ls	未ダウンロード · %.1f MB · %ls
+Not installed. Web wallpapers need it.	未インストールです。Web 壁紙に必要です。
+Nothing changed while recording, so there is nothing to play.	録画中に何も変わらなかったため、再生するものがありません。
+Nothing matches these filters	このフィルターに一致するものはありません
+OK	OK
+Off	オフ
+On	オン
+Open data folder	データ フォルダーを開く
+Open its page	ページを開く
+Open link in browser	ブラウザーでリンクを開く
+Open logs	ログを開く
+Open on %ls	%ls で開く
+Open	開く
+Opens in your browser	ブラウザーで開きます
+Original	オリジナル
+PERFORMANCE	パフォーマンス
+PHOTO	写真
+Paste a link	リンクを貼り付け
+Pause during fullscreen apps	全画面アプリの使用中は一時停止
+Pause on battery power	バッテリー駆動時は一時停止
+Pause the recording to change this	変更するには録画を一時停止してください
+Pause the recording	録画を一時停止
+Pause when covered by windows	ウィンドウに隠れたら一時停止
+Pause while locked	ロック中は一時停止
+Pause while these apps are in front	これらのアプリが前面にある間は一時停止
+Pause while this app is in front	このアプリが前面にある間は一時停止
+Pause	一時停止
+Paused	一時停止中
+Pictures and videos	画像と動画
+Pictures only	画像のみ
+Pictures	画像
+Play sound	サウンドを再生
+Play the recording	録画を再生
+Play wallpaper audio	壁紙のオーディオを再生
+Play	再生
+Playing %ls, a new wallpaper every %d min.	%ls を再生中。%d 分ごとに新しい壁紙に変わります。
+Playing as a slideshow	スライドショーとして再生中
+Plays at once in high quality, streamed into RAM. Nothing is saved.	すぐに高画質で再生し、RAM にストリーミングします。何も保存されません。
+PowerPoint is making the video	PowerPoint が動画を作成中
+PowerPoint is still working on '%ls'.	PowerPoint はまだ '%ls' を処理中です。
+PowerPoint · %d s a slide	PowerPoint · 1 スライド %d 秒
+Preparing…	準備中…
+Preview	プレビュー
+Primary	メイン
+Pulse	パルス
+Queued	待機中
+Ramp down	下降ランプ
+Ramp up	上昇ランプ
+Random	ランダム
+Reading…	読み取り中…
+Real-ESRGAN needs its model	Real-ESRGAN にはモデルが必要です
+Recent	最近
+Record your changes; they play on a loop	変更を録画すると、ループ再生されます
+Recording  %d:%02d	録画中  %d:%02d
+Recovering	復旧中
+Redo	やり直す
+Reduced	控えめ
+Remove from library (keeps the file)	ライブラリから削除（ファイルは残す）
+Remove from library and delete the download	ライブラリから削除してダウンロードも削除
+Remove from library	ライブラリから削除
+Remove	削除
+Renderer	レンダラー
+Reset filters	フィルターをリセット
+Reset look	見た目をリセット
+Reset settings	設定をリセット
+Reset	リセット
+Resolution	解像度
+Restart failed renderers automatically	失敗したレンダラーを自動で再起動
+Restart renderer	レンダラーを再起動
+Restart	再起動
+Restore defaults	既定に戻す
+Resume	再開
+Right-click to change how many times it repeats	右クリックで繰り返し回数を変更
+Running in safe mode	セーフ モードで実行中
+Running	実行中
+SCREEN+ COLLECTION	SCREEN+ コレクション
+SCREEN+ WALLPAPER	SCREEN+ 壁紙
+SCREENSAVER	スクリーンセーバー
+SLIDES	スライド
+SLIDESHOW	スライドショー
+SOUND	サウンド
+Same as the desktop	デスクトップと同じ
+Sample wallpaper updates	サンプル壁紙の更新
+Saturation	彩度
+Saves the best quality up to your screen's size.	画面サイズまでの最高画質で保存します。
+Screen+ is busy with another depth job, so this background stays flat for now.	Screen+ は別の深度処理中のため、この背景はいったん平面のままです。
+Search settings	設定を検索
+Search wallpapers	壁紙を検索
+Seconds per slide	1 スライドの秒数
+Select all	すべて選択
+Select	選択
+Settings reset.	設定をリセットしました。
+Settings	設定
+Sharp	シャープ
+Show a still while Screen+ starts	Screen+ の起動中に静止画を表示
+Show in File Explorer	エクスプローラーで表示
+Show in File Manager	ファイル マネージャーで表示
+Show the sign-in screen on resume	再開時にサインイン画面を表示
+Shows the page itself, live.	ページそのものをライブで表示します。
+Shuffle	シャッフル
+Sine	サイン波
+Site	サイト
+Size	サイズ
+Slow	ゆっくり
+Smooth	なめらか
+Sort by	並べ替え
+Sound is off	サウンドはオフです
+Sound on	サウンド オン
+Span	スパン
+Speed	速度
+Spike	スパイク
+Square	矩形波
+Start after (minutes)	開始までの時間（分）
+Start minimised to the tray	トレイに最小化して起動
+Start with Linux	Linux と同時に起動
+Start with Windows	Windows と同時に起動
+Starting	起動中
+Steps	ステップ
+Stop recording	録画を停止
+Stop	停止
+Stopped after repeated failures	失敗が続いたため停止しました
+Stopped	停止
+Store	Store
+Stream	ストリーム
+Strength	強さ
+Stretch	引き伸ばし
+System	システム
+TROUBLESHOOTING	トラブルシューティング
+The download could not start. Another depth job may be running.	ダウンロードを開始できませんでした。別の深度処理が実行中の可能性があります。
+The picture covers the display	画像がディスプレイを覆います
+The upscaling model download could not start. Another depth job may be running.	アップスケーリング モデルのダウンロードを開始できませんでした。別の深度処理が実行中の可能性があります。
+Third-party notices	サードパーティの通知
+This file can't be opened. It may be damaged, or made by a newer Screen+.	このファイルを開けません。破損しているか、新しい Screen+ で作成された可能性があります。
+This wallpaper can't be read and will be skipped.	この壁紙は読み取れないためスキップされます。
+This wallpaper has no properties.	この壁紙にはプロパティがありません。
+Tint brightness	色合いの明るさ
+Tint colour	色合いの色
+Tint strength	色合いの強さ
+Tint	色合い
+Triangle	三角波
+Try again	再試行
+Type how many times it repeats	繰り返し回数を入力
+Type	種類
+UPSCALING	アップスケーリング
+Undo	元に戻す
+Update	更新
+Upscaling	アップスケーリング
+Use Screen+ as the screensaver	Screen+ をスクリーンセーバーとして使用
+Use as screensaver	スクリーンセーバーとして使用
+Use default	既定を使用
+Use plain image	通常の画像を使用
+Use plain video	通常の動画を使用
+VIDEO	動画
+Very good	とても良い
+Very hard	とても強い
+Videos	動画
+Volume	音量
+WALLPAPER PROPERTIES	壁紙のプロパティ
+Waiting	待機中
+Wallpaper folder	壁紙フォルダー
+Wallpaper	壁紙
+Wallpapers from %d sites	%d サイトの壁紙
+Wallpapers	壁紙
+Wander	ワンダー
+Web page	Web ページ
+Width	幅
+Windows screensaver settings	Windows のスクリーンセーバー設定
+Your file	自分のファイル
+Your library is empty	ライブラリは空です
+Your library is kept.	ライブラリは保持されます。
+all displays	すべてのディスプレイ
+custom	カスタム
+duplicated	複製
+file	ファイル
+folder	フォルダー
+part of the span	スパンの一部
+selected display	選択したディスプレイ
+uses default	既定を使用
+web	Web
+your favourites	お気に入り
+'%ls' could not be found at its original location.	'%ls' が元の場所に見つかりませんでした。
+'%ls' is already in the library.	'%ls' はすでにライブラリにあります。
+'%ls' needs Microsoft PowerPoint, which isn't installed.	'%ls' には Microsoft PowerPoint が必要ですが、インストールされていません。
+'%ls' needs PowerPoint, which Linux doesn't have. Export it as a video instead.	'%ls' には PowerPoint が必要ですが、Linux にはありません。動画としてエクスポートしてください。
+'%ls' now uses %ls.	'%ls' は %ls を使うようになりました。
+Added %d wallpaper%ls to the collection '%ls'.	%d 件の壁紙%.0ls をコレクション '%ls' に追加しました。
+Added '%ls' to the library.	'%ls' をライブラリに追加しました。
+Added '%ls'.	'%ls' を追加しました。
+Could not add '%ls'.	'%ls' を追加できませんでした。
+Could not export '%ls'.	'%ls' をエクスポートできませんでした。
+Could not export collection '%ls'.	コレクション '%ls' をエクスポートできませんでした。
+Could not start PowerPoint for '%ls'.	'%ls' のために PowerPoint を起動できませんでした。
+Couldn't find the download for '%ls': %ls.	'%ls' のダウンロードが見つかりません: %ls。
+Exported %d of %d wallpapers. The log names the others.	%d / %d 件の壁紙をエクスポートしました。残りはログを参照してください。
+Exported collection '%ls' (%d wallpaper%ls).	コレクション '%ls' をエクスポートしました（壁紙 %d 件%.0ls）。
+Its weights are missing. Keep the .onnx.data file beside the .onnx.	重みファイルがありません。.onnx.data ファイルを .onnx と同じ場所に置いてください。
+Making the wallpaper cooler failed.	壁紙をクールにできませんでした。
+No Lively Wallpaper library was found.	Lively Wallpaper のライブラリが見つかりませんでした。
+No Wallpaper Engine library was found. Use Import folder on a workshop item or project folder.	Wallpaper Engine のライブラリが見つかりませんでした。ワークショップ アイテムやプロジェクト フォルダーには「フォルダーをインポート」を使ってください。
+Nothing was imported. These files are not supported.	何もインポートされませんでした。これらのファイルには対応していません。
+PowerPoint couldn't make a video of '%ls'.	PowerPoint は '%ls' から動画を作れませんでした。
+PowerPoint is turning '%ls' into a wallpaper. This can take a few minutes.	PowerPoint が '%ls' を壁紙に変換しています。数分かかることがあります。
+Removed '%ls' and its downloaded file.	'%ls' とダウンロードしたファイルを削除しました。
+Removed '%ls' and its video. The presentation stays.	'%ls' とその動画を削除しました。プレゼンテーションは残ります。
+Removed '%ls' from the library.	'%ls' をライブラリから削除しました。
+Saved. Turn on the screensaver in Settings to use it.	保存しました。使うには設定でスクリーンセーバーをオンにしてください。
+Settings could not be saved. Check that %ls is writable.	設定を保存できませんでした。%ls に書き込めるか確認してください。
+The %ls of '%ls' is gone, so it can't go back.	%.0ls'%ls' の元のファイルがないため、元に戻せません。
+The original file of '%ls' is gone.	'%ls' の元のファイルがありません。
+The presentation behind '%ls' can't be found, so its slides can't be timed again.	'%ls' の元のプレゼンテーションが見つからないため、スライドの時間を設定し直せません。
+The renderer kept failing and was restarted in safe mode.	レンダラーが失敗し続けたため、セーフ モードで再起動しました。
+The renderer stopped after repeated failures.	失敗が続いたため、レンダラーを停止しました。
+The renderer stopped unexpectedly. Restarting (%d of %d)…	レンダラーが予期せず停止しました。再起動中 (%d / %d)…
+The window could not load: %ls	ウィンドウを読み込めませんでした: %ls
+Too many downloads are waiting; try '%ls' again in a moment.	待機中のダウンロードが多すぎます。少し待ってから '%ls' をもう一度お試しください。
+Updated %ls.	%ls を更新しました。
+picture	画像
+video	動画
+Idle (desktop covered)	アイドル（デスクトップが隠れている）
+Paused for an app	アプリのため一時停止中
+Paused for fullscreen app	全画面アプリのため一時停止中
+Paused for the screensaver	スクリーンセーバーのため一時停止中
+Paused on battery	バッテリー駆動のため一時停止中
+Renderer error	レンダラー エラー
+Renderer stopped	レンダラー停止
+Restarting renderer	レンダラーを再起動中
+Suspended	中断
+Exit	終了
+Library is empty	ライブラリは空です
+Next wallpaper	次の壁紙
+Open Screen+	Screen+ を開く
+Pause wallpapers	壁紙を一時停止
+Restart renderer (stopped)	レンダラーを再起動（停止中）
+Resume wallpapers	壁紙を再開
+Switch wallpaper	壁紙を切り替え
+Wallpaper audio	壁紙のオーディオ
+Reset every setting to its factory value and unblock all Store wallpapers?\n\nYour library is kept.	すべての設定を初期値に戻し、Store でブロックした壁紙をすべて解除しますか?\n\nライブラリは保持されます。
+Language	言語
+Checked when you press Check now	「今すぐ確認」を押したときに確認します
+Checking for updates…	更新を確認中…
+Checking the sample wallpapers…	サンプル壁紙を確認中…
+No downloaded sample wallpapers to update	更新するダウンロード済みサンプル壁紙はありません
+Portable copy: updates are not installed automatically	ポータブル版: 更新は自動でインストールされません
+Some sample files could not be replaced (in use?); try again	一部のサンプル ファイルを置き換えられませんでした（使用中?）。もう一度お試しください
+The sample wallpapers could not be unpacked (a file may be in use; try again)	サンプル壁紙を展開できませんでした（ファイルが使用中の可能性があります。もう一度お試しください）
+The update could not start	更新を開始できませんでした
+Updated automatically	自動で更新されました
+Updating the sample wallpapers…	サンプル壁紙を更新中…
+Remove %d wallpapers from the library?\n\nThe files stay where they are.	%d 件の壁紙をライブラリから削除しますか?\n\nファイルはそのまま残ります。
+Remove %d wallpaper%ls from the library?\n\n%d downloaded or generated file%ls will be deleted.	%d 件の壁紙%.0ls をライブラリから削除しますか?\n\nダウンロードまたは生成された %d 件のファイル%.0ls が削除されます。
+Image	画像
+Video	動画
+Presets · %ls	プリセット · %ls
+Version %ls · Windows	バージョン %ls · Windows
+Version %ls · Linux	バージョン %ls · Linux
+Live wallpapers behind your desktop icons.	デスクトップ アイコンの後ろで動く壁紙。
+Website	Web サイト
+Report a problem	問題を報告
+Free and open source (MIT)	無料のオープンソース (MIT)

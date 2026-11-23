@@ -7,6 +7,8 @@
 #include <commctrl.h>
 #include <windowsx.h>
 
+#define AppendMenuW(m, f, id, s) AppendMenuW(m, f, id, tr(s))   /* the window's language (i18n.c) */
+
 enum {
     IDM_OPEN = 1000, IDM_PAUSE, IDM_NEXT, IDM_AUDIO, IDM_RESTART, IDM_EXIT,
     IDM_WP_BASE = 1100, IDM_WP_MAX = 1120
@@ -23,8 +25,8 @@ static void fill_tip(wchar_t *tip, size_t cap)
     int sev = 0;
     const wchar_t *state = app_engine_state_text(&sev);
     WallpaperEntry *e = config_find(&g_app.cfg, app_wallpaper_for(NULL));
-    if (e) str_printf(tip, cap, L"Screen+ — %ls\n%.60ls", state, e->name);
-    else str_printf(tip, cap, L"Screen+ — %ls", state);
+    if (e) str_printf(tip, cap, L"Screen+ — %ls\n%.60ls", tr(state), e->name);
+    else str_printf(tip, cap, L"Screen+ — %ls", tr(state));
 }
 
 BOOL tray_init(HWND owner, HINSTANCE inst)

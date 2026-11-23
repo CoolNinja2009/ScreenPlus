@@ -330,6 +330,11 @@ Renderer details:
   `ScreenPlus.exe --depth <image> <outdir>`; read `logs\depth.log`.
 
 ## Conventions
+- UI languages (`src/common/i18n.c`): the English text is the key. `ui_text`/`ui_text_width`/`ui_text_height`, tooltips,
+  `app_notice`, and in `ui_pages.c`/`tray.c` `str_printf` formats, `AppendMenuW` and `MessageBoxW` translate through `tr()`.
+  A new or changed UI string: add it to `resources/lang/keys.en` and every `resources/lang/<code>.txt` (`English<TAB>text`,
+  same % placeholders in the same order; `%.0ls` swallows an English plural "s"). `cmake/lang.cmake` packs the files.
+  The CLI, logs and the Store's listings stay English. Setting `language` ("" = system).
 - C17 with MSVC `/W4 /utf-8` and zero warnings. Use `wchar_t` throughout, and UTF-8 only at file, JSON and
   IPC boundaries.
 - Use the bounded helpers (`str_copy`, `str_printf`, `str_cat`, `path_join`, `SP_COUNTOF`); never unbounded

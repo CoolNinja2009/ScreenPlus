@@ -26,7 +26,7 @@ void app_notice(int kind, const wchar_t *fmt, ...)
     } else {
         va_list ap;
         va_start(ap, fmt);
-        _vsnwprintf_s(g_app.notice, SP_COUNTOF(g_app.notice), _TRUNCATE, fmt, ap);
+        _vsnwprintf_s(g_app.notice, SP_COUNTOF(g_app.notice), _TRUNCATE, tr(fmt), ap);
         va_end(ap);
         g_app.noticeKind = kind;
         if (kind == NOTICE_INFO) {
@@ -456,6 +456,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     int existed = file_exists(paths_config());
     int loaded = config_load(&g_app.cfg, paths_config());
     if (!loaded && !existed) first_run();
+    i18n_set(g_app.cfg.s.language);
     if (forward == CMD_PAUSE) g_app.cfg.s.paused = 1;
     if (forward == CMD_RESUME) g_app.cfg.s.paused = 0;
     apply_setup_choice();

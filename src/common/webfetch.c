@@ -137,6 +137,18 @@ static BOOL CALLBACK shared_init(PINIT_ONCE once, PVOID param, PVOID *ctx)
     return TRUE;
 }
 
+/* Sites whose Cloudflare refuses WinHTTP posing as Chrome (403 to every address) but serves an honest agent. */
+static int honest_host(const wchar_t *host)
+{
+    static const wchar_t *const k[] = { L"4kwallpapers.com" };
+    size_t n = wcslen(host);
+    for (size_t i = 0; i < SP_COUNTOF(k); i++) {
+        size_t m = wcslen(k[i]);
+        if (n >= m && str_ieq(host + n - m, k[i]) && (n == m || host[n - m - 1] == L'.')) return 1;
+    }
+    return 0;
+}
+
 static HttpGet *open_get(const wchar_t *url, int allowHttp, int shared, wchar_t *err, size_t errCap)
 {
     URL_COMPONENTS uc;
@@ -179,6 +191,9 @@ static HttpGet *open_get(const wchar_t *url, int allowHttp, int shared, wchar_t 
     if (g->conn)   /* default redirect policy: followed, but never from https to http */
         g->req = WinHttpOpenRequest(g->conn, L"GET", object, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES,
                                     uc.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0);
+    if (g->req && honest_host(host))
+        WinHttpAddRequestHeaders(g->req, L"User-Agent: Screen+", (DWORD)-1L,
+                                 WINHTTP_ADDREQ_FLAG_ADD | WINHTTP_ADDREQ_FLAG_REPLACE);
     if (g->req && shared) {
         DWORD v = WINHTTP_PROTOCOL_FLAG_HTTP2;
         WinHttpSetOption(g->req, WINHTTP_OPTION_ENABLE_HTTP_PROTOCOL, &v, sizeof v);
