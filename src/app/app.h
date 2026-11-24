@@ -88,6 +88,7 @@ void app_next_wallpaper(void);
 void app_restart_renderer(void);
 void app_exit(void);
 void app_show_ui(void);
+void app_show_classic_ui(void);     /* the built-in window even when the Bare one ships */
 void app_notice(int kind, const wchar_t *fmt, ...);
 void app_notice_hover(int hot);
 void app_refresh_monitors(void);

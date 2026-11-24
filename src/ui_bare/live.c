@@ -1,440 +1,445 @@
-/* Standalone Bare window talking to the existing Screen+ CLI on either platform.
- * The service remains the sole owner of config and wallpaper playback. */
+/* live.c: the Screen+ window on Bare, fed by the running service.
+ *
+ * A worker thread sends commands straight to the service (sp_ipc.c) and keeps
+ * the data fresh; the window thread only draws. The window is frameless and
+ * see-through: its background is the live desktop behind it, which the glass
+ * bends. The service stays the only owner of the config and of playback. */
 #include "screenplus_bare.h"
-#include "../common/json.h"
+#include "sp_ipc.h"
+#include "sp_kit.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>
+typedef SRWLOCK Lock;
+#define lock_init(l)   InitializeSRWLock(l)
+#define lock(l)        AcquireSRWLockExclusive(l)
+#define unlock(l)      ReleaseSRWLockExclusive(l)
+typedef CONDITION_VARIABLE Cond;
+#define cond_init(c)   InitializeConditionVariable(c)
+#define cond_signal(c) WakeConditionVariable(c)
 #else
-#include <sys/types.h>
-#include <sys/wait.h>
+#include <pthread.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
+#include <errno.h>
+typedef pthread_mutex_t Lock;
+#define lock_init(l)   pthread_mutex_init((l), NULL)
+#define lock(l)        pthread_mutex_lock(l)
+#define unlock(l)      pthread_mutex_unlock(l)
+typedef pthread_cond_t Cond;
+#define cond_init(c)   pthread_cond_init((c), NULL)
+#define cond_signal(c) pthread_cond_signal(c)
 #endif
+
+enum { DOC_STATUS, DOC_SETTINGS, DOC_LIST, DOC_LOOK, DOC_STORE, DOC_COUNT };
+#define MAX_JOBS 32
+#define MAX_ARGS 12
+
+typedef struct Job { int argc; char *argv[MAX_ARGS]; } Job;
+
+typedef struct Shared {
+    Lock lock;
+    Cond wake;
+    Job jobs[MAX_JOBS];
+    int job_head, job_count;
+    JVal *fresh[DOC_COUNT];   /* new answers the window hasn't taken yet */
+    bool have[DOC_COUNT];
+    bool connected;
+    float cpu;
+    char message[512];
+    bool message_new, message_failed;
+    int page;                 /* the page on screen (the Store is fetched only while it's shown) */
+    bool store_asked;
+    bool quit;
+} Shared;
+
+static Shared g;
+
+/* ---- the worker ------------------------------------------------------------ */
+
+static void wait_for_work(int ms) {
+#ifdef _WIN32
+    SleepConditionVariableSRW(&g.wake, &g.lock, (DWORD)ms, 0);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ts.tv_sec += ms / 1000;
+    ts.tv_nsec += (long)(ms % 1000) * 1000000L;
+    if (ts.tv_nsec >= 1000000000L) { ts.tv_sec++; ts.tv_nsec -= 1000000000L; }
+    pthread_cond_timedwait(&g.wake, &g.lock, &ts);
+#endif
+}
+
+/* Answers' "data", detached from the reply so the rest can be freed. */
+static JVal *take_data(JVal *reply) {
+    if (!reply) return NULL;
+    JVal *data = NULL;
+    for (int i = 0; reply->t == J_OBJ && i < reply->n; i++)
+        if (!strcmp(reply->keys[i], "data")) {
+            data = malloc(sizeof *data);
+            if (data) { *data = reply->kids[i]; reply->kids[i] = (JVal){ 0 }; }
+        }
+    json_free(reply);
+    return data;
+}
+
+static void publish(int slot, JVal *doc) {
+    lock(&g.lock);
+    json_free(g.fresh[slot]);
+    g.fresh[slot] = doc;
+    g.have[slot] = true;
+    unlock(&g.lock);
+}
+
+#ifdef _WIN32
+static float renderer_cpu(DWORD pid) {
+    static DWORD last_pid;
+    static ULONGLONG last_busy, last_wall;
+    if (!pid) return -1;
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h) return -1;
+    FILETIME c, e, k, u, now;
+    float result = -1;
+    if (GetProcessTimes(h, &c, &e, &k, &u)) {
+        GetSystemTimeAsFileTime(&now);
+        ULONGLONG busy = ((ULONGLONG)k.dwHighDateTime << 32 | k.dwLowDateTime) + ((ULONGLONG)u.dwHighDateTime << 32 | u.dwLowDateTime);
+        ULONGLONG wall = (ULONGLONG)now.dwHighDateTime << 32 | now.dwLowDateTime;
+        SYSTEM_INFO si;
+        GetSystemInfo(&si);
+        if (pid == last_pid && wall > last_wall)
+            result = (float)(100.0 * (double)(busy - last_busy) / (double)(wall - last_wall) / (double)si.dwNumberOfProcessors);
+        last_pid = pid; last_busy = busy; last_wall = wall;
+    }
+    CloseHandle(h);
+    return result;
+}
+#endif
+
+static void refresh(bool with_store) {
+    static const char *status[] = { "status", NULL }, *settings[] = { "settings", NULL }, *list[] = { "list", NULL },
+                      *look[] = { "look", NULL }, *store[] = { "store", "--previews", NULL };
+    JVal *st = take_data(sp_request(status));
+    bool up = st != NULL;
+    float cpu = -1;
+#ifdef _WIN32
+    if (st) {
+        float now = renderer_cpu((DWORD)json_num(json_get(json_get(st, "renderer"), "pid"), 0));
+        static float smooth = -1;
+        if (now >= 0) smooth = smooth < 0 ? now : smooth * 0.5f + now * 0.5f;
+        cpu = smooth;
+    }
+#endif
+    publish(DOC_STATUS, st);
+    if (up) {
+        publish(DOC_SETTINGS, take_data(sp_request(settings)));
+        publish(DOC_LIST, take_data(sp_request(list)));
+        publish(DOC_LOOK, take_data(sp_request(look)));
+        if (with_store) publish(DOC_STORE, take_data(sp_request(store)));
+    }
+    lock(&g.lock);
+    g.connected = up;
+    g.cpu = cpu;
+    unlock(&g.lock);
+    bare_wake();
+}
+
+static void run_job(Job *job) {
+    JVal *reply = sp_request((const char *const *)job->argv);
+    const char *text = reply ? json_str(json_get(reply, "text"), "") : "Screen+ isn't running";
+    bool ok = reply && json_bool(json_get(reply, "ok"), 0);
+    lock(&g.lock);
+    size_t n = strcspn(text, "\r\n");
+    if (n >= sizeof g.message) n = sizeof g.message - 1;
+    memcpy(g.message, text, n);
+    g.message[n] = 0;
+    if (!n) snprintf(g.message, sizeof g.message, "%s", ok ? "Done" : "That didn't work");
+    g.message_new = true;
+    g.message_failed = !ok;
+    unlock(&g.lock);
+    json_free(reply);
+    for (int i = 0; i < job->argc; i++) free(job->argv[i]);
+    bare_wake();
+}
+
+/* Seconds on a steady clock (the worker can't use bare_time). */
+static double clock_now(void) {
+#ifdef _WIN32
+    return (double)GetTickCount64() / 1000.0;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+#endif
+}
+
+#ifdef _WIN32
+static DWORD WINAPI worker(void *arg) {
+#else
+static void *worker(void *arg) {
+#endif
+    (void)arg;
+    double next = 0;
+#ifdef _WIN32
+    /* Opened on its own (not by Screen+): start the service beside it, in the tray. */
+    if (!sp_service_running()) {
+        wchar_t exe[MAX_PATH], cmd[MAX_PATH + 16];
+        DWORD n = GetModuleFileNameW(NULL, exe, MAX_PATH);
+        wchar_t *slash = n && n < MAX_PATH ? wcsrchr(exe, L'\\') : NULL;
+        if (slash && (size_t)(slash - exe) + 16 < MAX_PATH) {
+            wcscpy_s(slash + 1, MAX_PATH - (size_t)(slash + 1 - exe), L"ScreenPlus.exe");
+            _snwprintf_s(cmd, MAX_PATH + 16, _TRUNCATE, L"\"%ls\" --tray", exe);
+            STARTUPINFOW si = { sizeof si };
+            PROCESS_INFORMATION pi;
+            if (GetFileAttributesW(exe) != INVALID_FILE_ATTRIBUTES &&
+                CreateProcessW(exe, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) {
+                CloseHandle(pi.hThread);
+                CloseHandle(pi.hProcess);
+                for (int i = 0; i < 50 && !sp_service_running(); i++) Sleep(100);
+            }
+        }
+    }
+#endif
+    for (;;) {
+        lock(&g.lock);
+        if (g.quit) { unlock(&g.lock); break; }
+        Job job = { 0 };
+        bool have_job = g.job_count > 0;
+        if (have_job) {
+            job = g.jobs[g.job_head];
+            g.job_head = (g.job_head + 1) % MAX_JOBS;
+            g.job_count--;
+        }
+        bool store = g.page == SP_STORE;
+        bool asked = g.store_asked;
+        g.store_asked = false;
+        unlock(&g.lock);
+        if (have_job) {
+            run_job(&job);
+            /* quick follow-up so the result shows; more jobs first if queued */
+            next = 0;
+            continue;
+        }
+        if (clock_now() >= next || asked) {
+            refresh(store);
+            next = clock_now() + (store ? 1.0 : 2.0);
+        }
+        lock(&g.lock);
+        if (!g.quit && !g.job_count && !g.store_asked) {
+            int ms = (int)((next - clock_now()) * 1000);
+            wait_for_work(ms < 10 ? 10 : ms);
+        }
+        unlock(&g.lock);
+    }
+#ifdef _WIN32
+    return 0;
+#else
+    return NULL;
+#endif
+}
+
+/* ---- the window's side -------------------------------------------------------- */
+
+typedef struct Thumb { char *path; BareImage image; bool tried; double used; } Thumb;
 
 typedef struct Live {
-    SpBareView view;
-    SpBareModel model;
-    SpBareWallpaper *walls;
-    JVal *list_doc;
-    SpBareDisplay *displays;
-    JVal *status_doc;
-    SpBareStoreItem *store_items;
-    JVal *store_doc;
-    const char *cli;
-    char status[256];
-    SpBareAction pending;
-    char pending_path[4096];
-    int has_pending;
+    SpView view;
+    SpModel model;
+    JVal *docs[DOC_COUNT];
+    Thumb thumbs[512];
+    int thumb_count, loads_this_frame;
+    char message[512];
+    char theme_key[64];
 } Live;
 
-#ifdef _WIN32
-static int append_quoted(wchar_t *dst, size_t cap, const char *utf8) {
-    wchar_t word[2048];
-    int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8, -1, word, 2048);
-    if (!n) return 0;
-    size_t at = wcslen(dst);
-    if (at + (size_t)n * 2 + 4 >= cap) return 0;
-    dst[at++] = L'"';
-    for (int i = 0; i < n - 1;) {
-        int slashes = 0;
-        while (word[i] == L'\\') { slashes++; i++; }
-        for (int j = 0; j < slashes * (word[i] == L'"' || word[i] == 0 ? 2 : 1); j++) dst[at++] = L'\\';
-        if (word[i] == 0) break;
-        if (word[i] == L'"') dst[at++] = L'\\';
-        dst[at++] = word[i++];
+static void enqueue(void *user, const char *const *argv) {
+    (void)user;
+    Job job = { 0 };
+    for (int i = 0; argv[i] && job.argc < MAX_ARGS - 1; i++) {
+        size_t n = strlen(argv[i]);
+        job.argv[job.argc] = malloc(n + 1);
+        if (!job.argv[job.argc]) break;
+        memcpy(job.argv[job.argc++], argv[i], n + 1);
     }
-    dst[at++] = L'"'; dst[at] = 0;
-    return 1;
+    lock(&g.lock);
+    if (g.job_count < MAX_JOBS) {
+        g.jobs[(g.job_head + g.job_count) % MAX_JOBS] = job;
+        g.job_count++;
+        job.argc = 0;
+    }
+    cond_signal(&g.wake);
+    unlock(&g.lock);
+    for (int i = 0; i < job.argc; i++) free(job.argv[i]);
 }
 
-static char *cli_output(const char *cli, const char *const *args) {
-    wchar_t line[8192] = L"";
-    if (!append_quoted(line, 8192, cli)) return NULL;
-    for (int i = 0; args[i]; i++) {
-        size_t at = wcslen(line);
-        if (at + 2 >= 8192) return NULL;
-        line[at++] = L' '; line[at] = 0;
-        if (!append_quoted(line, 8192, args[i])) return NULL;
-    }
-    if (wcslen(line) + 10 >= 8192) return NULL;
-    wcscat(line, L" \"--json\"");
-    SECURITY_ATTRIBUTES sa = { sizeof sa, NULL, TRUE };
-    HANDLE read_end = NULL, write_end = NULL;
-    if (!CreatePipe(&read_end, &write_end, &sa, 0)) return NULL;
-    SetHandleInformation(read_end, HANDLE_FLAG_INHERIT, 0);
-    STARTUPINFOW si = { 0 }; si.cb = sizeof si;
-    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.hStdOutput = write_end; si.hStdError = write_end; si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
-    si.wShowWindow = SW_HIDE;
-    PROCESS_INFORMATION pi = { 0 };
-    BOOL started = CreateProcessW(NULL, line, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi);
-    CloseHandle(write_end);
-    if (!started) { CloseHandle(read_end); return NULL; }
-    size_t cap = 4096, used = 0;
-    char *out = malloc(cap);
-    if (out) {
-        for (;;) {
-            if (used + 4096 + 1 > cap) {
-                if (cap >= 16 * 1024 * 1024) break;
-                cap *= 2;
-                char *bigger = realloc(out, cap);
-                if (!bigger) break;
-                out = bigger;
-            }
-            DWORD got = 0;
-            if (!ReadFile(read_end, out + used, (DWORD)(cap - used - 1), &got, NULL) || !got) break;
-            used += got;
-        }
-        out[used] = 0;
-    }
-    CloseHandle(read_end);
-    WaitForSingleObject(pi.hProcess, 10000);
-    CloseHandle(pi.hThread); CloseHandle(pi.hProcess);
-    return out;
-}
-#else
-static char *cli_output(const char *cli, const char *const *args) {
-    int pipes[2];
-    if (pipe(pipes)) return NULL;
-    pid_t child = fork();
-    if (child < 0) { close(pipes[0]); close(pipes[1]); return NULL; }
-    if (!child) {
-        dup2(pipes[1], STDOUT_FILENO);
-        dup2(pipes[1], STDERR_FILENO);
-        close(pipes[0]); close(pipes[1]);
-        char *av[16]; int n = 0;
-        av[n++] = (char *)cli;
-        for (int i = 0; args[i] && n < 14; i++) av[n++] = (char *)args[i];
-        av[n++] = "--json"; av[n] = NULL;
-        execvp(cli, av);
-        _exit(127);
-    }
-    close(pipes[1]);
-    size_t cap = 4096, used = 0;
-    char *out = malloc(cap);
-    if (out) for (;;) {
-        if (used + 4096 + 1 > cap) {
-            if (cap >= 16 * 1024 * 1024) break;
-            cap *= 2;
-            char *bigger = realloc(out, cap);
-            if (!bigger) break;
-            out = bigger;
-        }
-        ssize_t got = read(pipes[0], out + used, cap - used - 1);
-        if (got <= 0) break;
-        used += (size_t)got;
-    }
-    if (out) out[used] = 0;
-    close(pipes[0]);
-    waitpid(child, NULL, 0);
-    return out;
-}
-#endif
-
-static JVal *command(Live *app, const char *const *args) {
-    char *out = cli_output(app->cli, args);
-    if (!out) return NULL;
-    JVal *doc = json_parse(out, strlen(out));
-    free(out);
-    return doc;
-}
-
-static const JVal *data(const JVal *doc) {
-    return json_bool(json_get(doc, "ok"), 0) ? json_get(doc, "data") : NULL;
-}
-
-static int succeeded(const JVal *doc) {
-    return json_bool(json_get(doc, "ok"), 0);
-}
-
-static void free_walls(SpBareWallpaper *walls, int count, JVal *doc) {
-    for (int i = 0; i < count; i++)
-        if (walls[i].thumbnail) bare_image_free(walls[i].thumbnail);
-    free(walls);
-    json_free(doc);
-}
-
-static void clear_walls(Live *app) {
-    free_walls(app->walls, app->model.wallpaper_count, app->list_doc);
-    app->walls = NULL;
-    app->model.wallpapers = NULL; app->model.wallpaper_count = 0;
-    app->model.active_wallpaper = -1;
-    app->list_doc = NULL;
-}
-
-static void refresh_look(Live *app);
-
-static void refresh(Live *app) {
-    JVal *status = command(app, (const char *[]){ "status", NULL });
-    const JVal *st = data(status);
-    if (st) {
-        app->model.paused = json_bool(json_get(st, "paused"), 0);
-        app->model.muted = !json_bool(json_get(st, "audio"), 0);
-        snprintf(app->status, sizeof app->status, "%s", json_str(json_get(st, "state"), "Ready"));
-        app->model.status = app->status;
-        const JVal *displays = json_get(st, "displays");
-        if (displays && displays->t == J_ARR) {
-            app->model.display_name = displays->n == 1 ? "1 display" : "All displays";
-            SpBareDisplay *fresh = calloc((size_t)displays->n, sizeof *fresh);
-            if (fresh || !displays->n) {
-                for (int i = 0; i < displays->n; i++) {
-                    const JVal *d = &displays->kids[i];
-                    const JVal *w = json_get(d, "wallpaper");
-                    fresh[i].name = json_str(json_get(d, "name"), "Display");
-                    fresh[i].wallpaper_title = json_str(json_get(w, "name"), "");
-                    fresh[i].index = (int)json_num(json_get(d, "index"), i + 1);
-                    fresh[i].width = (int)json_num(json_get(d, "width"), 0);
-                    fresh[i].height = (int)json_num(json_get(d, "height"), 0);
-                    fresh[i].hz = (int)json_num(json_get(d, "hz"), 0);
-                    fresh[i].primary = json_bool(json_get(d, "primary"), 0);
-                    fresh[i].connected = true;
-                }
-                free(app->displays);
-                json_free(app->status_doc);
-                app->displays = fresh;
-                app->status_doc = status;
-                app->model.displays = fresh;
-                app->model.display_count = displays->n;
-                status = NULL;
-            }
-        }
-    } else {
-        snprintf(app->status, sizeof app->status, "Screen+ service unavailable");
-        app->model.status = app->status;
-    }
-    json_free(status);
-    JVal *settings = command(app, (const char *[]){ "settings", NULL });
-    const JVal *s = data(settings);
-    if (s) {
-#ifdef _WIN32
-        app->model.start_with_system = json_bool(json_get(s, "start_with_windows"), 0);
-#else
-        app->model.start_with_system = json_bool(json_get(s, "start_with_linux"), 0);
-#endif
-        app->model.start_minimised = json_bool(json_get(s, "launch_to_tray"), 0);
-        app->model.still_at_start = json_bool(json_get(s, "still_wallpaper"), 0);
-        app->model.auto_update = json_bool(json_get(s, "auto_update"), 0);
-        app->model.sample_updates = json_bool(json_get(s, "auto_update_samples"), 0);
-        const char *theme = json_str(json_get(s, "theme"), "system");
-        const char *motion = json_str(json_get(s, "ui_motion"), "full");
-        app->model.appearance = !strcmp(theme, "light") ? 1 : !strcmp(theme, "dark") ? 2 : 0;
-        app->model.animation_level = !strcmp(motion, "reduced") ? 1 : !strcmp(motion, "off") ? 2 : 0;
-        const char *mode = json_str(json_get(s, "display_mode"), "independent");
-        app->model.display_mode = !strcmp(mode, "duplicate") ? 1 : !strcmp(mode, "span") ? 2 : 0;
-    }
-    json_free(settings);
-    JVal *list = command(app, (const char *[]){ "list", NULL });
-    const JVal *items = data(list);
-    if (!items || items->t != J_ARR) { json_free(list); return; }
-    SpBareWallpaper *walls = calloc((size_t)items->n, sizeof *walls);
-    if (!walls && items->n) { json_free(list); return; }
-    SpBareWallpaper *old_walls = app->walls;
-    int old_count = app->model.wallpaper_count;
-    JVal *old_doc = app->list_doc;
-    app->list_doc = list;
-    app->walls = walls;
-    app->model.wallpapers = walls;
-    app->model.wallpaper_count = items->n;
-    for (int i = 0; i < items->n; i++) {
-        const JVal *item = &items->kids[i];
-        const JVal *w = json_get(item, "wallpaper");
-        walls[i].id = json_str(json_get(w, "id"), "");
-        walls[i].title = json_str(json_get(w, "name"), "Untitled");
-        walls[i].kind = json_str(json_get(w, "type"), "");
-        walls[i].selected = json_bool(json_get(item, "onScreen"), 0);
-        walls[i].favourite = json_bool(json_get(w, "favourite"), 0);
-        walls[i].missing = json_bool(json_get(w, "missing"), 0);
-        if (walls[i].selected && app->model.active_wallpaper < 0) app->model.active_wallpaper = i;
-        const char *thumb = json_str(json_get(w, "thumbnail"), "");
-        if (!*thumb && !strcmp(walls[i].kind, "image")) thumb = json_str(json_get(w, "path"), "");
-        walls[i].thumbnail_path = thumb;
-        int load_limit = app->view.visible_limit > 90 ? app->view.visible_limit : 90;
-        if (*thumb && (i < load_limit || walls[i].selected)) {
-            for (int j = 0; j < old_count; j++) {
-                if (old_walls[j].thumbnail && !strcmp(walls[i].id, old_walls[j].id) &&
-                    !strcmp(thumb, old_walls[j].thumbnail_path ? old_walls[j].thumbnail_path : "")) {
-                    walls[i].thumbnail = old_walls[j].thumbnail;
-                    old_walls[j].thumbnail = 0;
-                    break;
-                }
-            }
-            if (!walls[i].thumbnail) walls[i].thumbnail = bare_image_load(thumb);
-        }
-    }
-    free_walls(old_walls, old_count, old_doc);
-    refresh_look(app);
-}
-
-static void load_more(Live *app) {
-    int limit = app->view.visible_limit;
-    if (limit > app->model.wallpaper_count) limit = app->model.wallpaper_count;
-    for (int i = 0; i < limit; i++) {
-        SpBareWallpaper *w = &app->walls[i];
-        if (!w->thumbnail && w->thumbnail_path && *w->thumbnail_path)
-            w->thumbnail = bare_image_load(w->thumbnail_path);
-    }
-}
-
-static void refresh_store(Live *app) {
-    JVal *doc = command(app, (const char *[]){ "store", NULL });
-    const JVal *result = data(doc);
-    const JVal *items = json_get(result, "items");
-    if (!items || items->t != J_ARR) {
-        json_free(doc);
-        app->model.store_error = "Store data unavailable";
-        return;
-    }
-    SpBareStoreItem *fresh = calloc((size_t)items->n, sizeof *fresh);
-    if (!fresh && items->n) { json_free(doc); return; }
-    for (int i = 0; i < items->n; i++) {
-        const JVal *item = &items->kids[i];
-        fresh[i].title = json_str(json_get(item, "title"), "Untitled");
-        fresh[i].source = json_str(json_get(item, "source"), "");
-        fresh[i].kind = json_str(json_get(item, "kind"), "");
-        fresh[i].number = (int)json_num(json_get(item, "number"), i + 1);
-    }
-    free(app->store_items);
-    json_free(app->store_doc);
-    app->store_items = fresh;
-    app->store_doc = doc;
-    app->model.store_items = fresh;
-    app->model.store_count = items->n;
-    app->model.store_loading = json_bool(json_get(result, "loading"), 0);
-    app->model.store_error = json_str(json_get(result, "error"), "");
-}
-
-static void refresh_look(Live *app) {
-    static const char *keys[] = { "brightness", "contrast", "saturation", "hue", "gamma" };
-    JVal *doc = command(app, (const char *[]){ "look", NULL });
-    const JVal *result = data(doc);
-    app->model.look_available = result && result->t == J_OBJ;
-    if (app->model.look_available)
-        for (int i = 0; i < 5; i++) app->model.look[i] = (int)json_num(json_get(result, keys[i]), 0);
-    json_free(doc);
-}
-
-static void run_action(Live *app, SpBareAction a) {
-    const char *args[5] = { NULL };
-    switch (a.kind) {
-    case SP_BARE_SELECT_WALLPAPER:
-        if (a.index >= 0 && a.index < app->model.wallpaper_count && !app->walls[a.index].missing) {
-            args[0] = "apply"; args[1] = app->walls[a.index].id;
-            if (a.value > 0) {
-                static char display_number[16];
-                snprintf(display_number, sizeof display_number, "%d", a.value);
-                args[2] = "--display"; args[3] = display_number;
-            }
-        }
-        break;
-    case SP_BARE_IMPORT: if (a.path && *a.path) { args[0] = "import"; args[1] = a.path; } break;
-    case SP_BARE_PAUSE: args[0] = a.value ? "pause" : "resume"; break;
-    case SP_BARE_MUTE: args[0] = "audio"; args[1] = a.value ? "off" : "on"; break;
-    case SP_BARE_RESTART: args[0] = "restart"; break;
-    case SP_BARE_SETTING: {
-        static const char *keys[] = {
-#ifdef _WIN32
-            "start_with_windows",
-#else
-            "start_with_linux",
-#endif
-            "launch_to_tray", "still_wallpaper", "auto_update", "auto_update_samples", "theme", "ui_motion"
-        };
-        static const char *themes[] = { "system", "light", "dark" };
-        static const char *motions[] = { "full", "reduced", "off" };
-        if (a.index < 0 || a.index >= 7) break;
-        args[0] = "settings"; args[1] = "set"; args[2] = keys[a.index];
-        args[3] = a.index == 5 ? themes[a.value >= 0 && a.value <= 2 ? a.value : 0] :
-                  a.index == 6 ? motions[a.value >= 0 && a.value <= 2 ? a.value : 0] : a.value ? "on" : "off";
-        break;
-    }
-    case SP_BARE_REFRESH: refresh(app); return;
-    case SP_BARE_LOAD_MORE: load_more(app); return;
-    case SP_BARE_NAVIGATE:
-        if (a.index == SP_BARE_STORE) refresh_store(app);
-        if (a.index == SP_BARE_CUSTOMISE) refresh_look(app);
-        return;
-    case SP_BARE_STORE_SEARCH:
-        if (a.path && *a.path) { args[0] = "store"; args[1] = "search"; args[2] = a.path; }
-        else { args[0] = "store"; args[1] = "search"; args[2] = ""; }
-        break;
-    case SP_BARE_STORE_MORE: args[0] = "store"; args[1] = "more"; break;
-    case SP_BARE_STORE_GET: {
-        static char number[16];
-        snprintf(number, sizeof number, "%d", a.index);
-        args[0] = "store"; args[1] = "get"; args[2] = number;
-        break;
-    }
-    case SP_BARE_LOOK_SET: {
-        static const char *keys[] = { "brightness", "contrast", "saturation", "hue", "gamma" };
-        static char value[16];
-        if (a.index < 0 || a.index >= 5) break;
-        snprintf(value, sizeof value, "%d", a.value);
-        args[0] = "look"; args[1] = "set"; args[2] = keys[a.index]; args[3] = value;
-        break;
-    }
-    case SP_BARE_LOOK_RESET: args[0] = "look"; args[1] = "reset"; break;
-    case SP_BARE_DISPLAY_MODE: {
-        static const char *modes[] = { "independent", "duplicate", "span" };
-        if (a.index < 0 || a.index >= 3) break;
-        args[0] = "mode"; args[1] = modes[a.index];
-        break;
-    }
-    default: return;
-    }
-    if (!args[0]) return;
-    JVal *reply = command(app, args);
-    if (!succeeded(reply)) {
-        snprintf(app->status, sizeof app->status, "%.250s", json_str(json_get(reply, "text"), "Action failed"));
-        app->model.status = app->status;
-    } else {
-        if (a.kind == SP_BARE_STORE_SEARCH || a.kind == SP_BARE_STORE_MORE || a.kind == SP_BARE_STORE_GET)
-            refresh_store(app);
-        else if (a.kind == SP_BARE_LOOK_SET || a.kind == SP_BARE_LOOK_RESET) refresh_look(app);
-        else refresh(app);
-    }
-    json_free(reply);
-}
-
-static void queue_action(void *user, SpBareAction a) {
+static BareImage thumbnail(void *user, const char *path) {
     Live *app = user;
-    app->pending = a;
-    if (a.path) {
-        size_t n = strlen(a.path);
-        if (n >= sizeof app->pending_path) return;
-        memcpy(app->pending_path, a.path, n + 1);
-        app->pending.path = app->pending_path;
+    for (int i = 0; i < app->thumb_count; i++)
+        if (!strcmp(app->thumbs[i].path, path)) {
+            Thumb *t = &app->thumbs[i];
+            t->used = bare_time();
+            if (!t->tried && app->loads_this_frame < 4) {
+                t->tried = true;
+                app->loads_this_frame++;
+                t->image = bare_image_load(path);
+            } else if (!t->tried) {
+                bare_wake();
+            }
+            return t->image;
+        }
+    if (app->thumb_count == (int)(sizeof app->thumbs / sizeof app->thumbs[0])) {
+        /* full: drop the least recently used */
+        int old = 0;
+        for (int i = 1; i < app->thumb_count; i++) if (app->thumbs[i].used < app->thumbs[old].used) old = i;
+        bare_image_free(app->thumbs[old].image);
+        free(app->thumbs[old].path);
+        app->thumbs[old] = app->thumbs[--app->thumb_count];
     }
-    app->has_pending = 1;
+    size_t n = strlen(path);
+    char *copy = malloc(n + 1);
+    if (!copy) return 0;
+    memcpy(copy, path, n + 1);
+    app->thumbs[app->thumb_count++] = (Thumb){ copy, 0, false, bare_time() };
+    bare_wake();
+    return 0;
 }
+
+static void open_path(void *user, const char *path) {
+    (void)user;
+    if (!path || !*path) return;
+#ifdef _WIN32
+    wchar_t w[2048], args[2100];
+    if (!MultiByteToWideChar(CP_UTF8, 0, path, -1, w, 2048)) return;
+    _snwprintf_s(args, 2100, _TRUNCATE, L"/select,\"%ls\"", w);
+    ShellExecuteW(NULL, L"open", L"explorer.exe", args, NULL, SW_SHOWNORMAL);
+#else
+    char dir[4096];
+    snprintf(dir, sizeof dir, "%s", path);
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0;
+    if (!fork()) { execlp("xdg-open", "xdg-open", dir, (char *)NULL); _exit(127); }
+#endif
+}
+
+static bool system_dark(void) {
+#ifdef _WIN32
+    DWORD v = 1, size = sizeof v;
+    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"AppsUseLightTheme", RRF_RT_REG_DWORD, NULL, &v, &size) == ERROR_SUCCESS)
+        return v == 0;
+#endif
+    return true;
+}
+
+static void apply_theme(Live *app) {
+    const char *theme = sp_setting(&app->model, "theme", "system");
+    const char *accent = sp_setting(&app->model, "accent_color", "#00D705");
+    const char *motion = sp_setting(&app->model, "ui_motion", "full");
+    bool dark = !strcmp(theme, "dark") || (strcmp(theme, "light") && system_dark());
+    char key[64];
+    snprintf(key, sizeof key, "%d|%s|%s", dark, accent, motion);
+    if (!strcmp(key, app->theme_key)) return;
+    snprintf(app->theme_key, sizeof app->theme_key, "%s", key);
+    unsigned rgb = 0x00D705;
+    if (accent[0] == '#') rgb = (unsigned)strtoul(accent + 1, NULL, 16);
+    sp_theme_set(dark, BARE_RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255),
+                 !strcmp(motion, "off") ? 2 : !strcmp(motion, "reduced") ? 1 : 0);
+}
+
+/* New answers from the worker: swap them in before the frame is drawn. */
+static void take_updates(Live *app) {
+    lock(&g.lock);
+    for (int i = 0; i < DOC_COUNT; i++)
+        if (g.have[i]) {
+            json_free(app->docs[i]);
+            app->docs[i] = g.fresh[i];
+            g.fresh[i] = NULL;
+            g.have[i] = false;
+        }
+    app->model.connected = g.connected;
+    app->model.cpu = g.cpu;
+    if (g.message_new) {
+        snprintf(app->message, sizeof app->message, "%s", g.message);
+        app->model.message = app->message;
+        app->model.message_time = bare_time();
+        app->model.message_failed = g.message_failed;
+        g.message_new = false;
+    }
+    app->model.busy = g.job_count > 0;
+    if (g.page != (int)app->view.page) {
+        if (app->view.page == SP_STORE) { g.store_asked = true; cond_signal(&g.wake); }
+        g.page = (int)app->view.page;
+    }
+    unlock(&g.lock);
+    app->model.status = app->docs[DOC_STATUS];
+    app->model.settings = app->docs[DOC_SETTINGS];
+    app->model.list = app->docs[DOC_LIST];
+    app->model.look = app->docs[DOC_LOOK];
+    app->model.store = app->docs[DOC_STORE];
+}
+
+#ifdef _WIN32
+/* One window: a second launch brings the first forward. */
+static bool already_open(void) {
+    CreateMutexW(NULL, TRUE, L"Local\\ScreenPlus.BareUi");
+    if (GetLastError() != ERROR_ALREADY_EXISTS) return false;
+    HWND w = FindWindowW(NULL, L"Screen+ ");
+    if (w) {
+        ShowWindow(w, IsIconic(w) ? SW_RESTORE : SW_SHOW);
+        SetForegroundWindow(w);
+    }
+    return true;
+}
+#endif
 
 int main(int argc, char **argv) {
-    Live app = { 0 };
 #ifdef _WIN32
-    app.cli = argc > 1 ? argv[1] : "ScreenPlus.com";
+    (void)argc; (void)argv;
+    if (already_open()) return 0;
 #else
-    app.cli = argc > 1 ? argv[1] : "screenplus";
+    if (argc > 1) sp_set_cli(argv[1]);
 #endif
-    app.model.active_wallpaper = -1;
-    app.model.status = "Connecting to Screen+";
-    app.model.transparent_window = true;
-    if (!bare_window_transparent(1500, 960, "Screen+")) return 1;
-    bare_background(BARE_CLEAR);
-    refresh(&app);
+    static Live app;
+    lock_init(&g.lock);
+    cond_init(&g.wake);
+    g.page = SP_LIBRARY;
+    app.model.user = &app;
+    app.model.thumbnail = thumbnail;
+    app.model.run = enqueue;
+    app.model.open_path = open_path;
+    app.model.cpu = -1;
+    sp_theme_set(system_dark(), BARE_RGB(0, 215, 5), 0);
+    /* The title ends in a space so a second launch finds this window and not the classic one. */
+    if (!bare_window_with(.width = 1560, .height = 1000, .title = "Screen+ ", .frameless = true,
+                          .min_width = 1020, .min_height = 660))
+        return 1;
+#ifdef _WIN32
+    HANDLE thread = CreateThread(NULL, 0, worker, NULL, 0, NULL);
+#else
+    pthread_t thread;
+    pthread_create(&thread, NULL, worker, NULL);
+#endif
     while (bare_frame()) {
-        if (app.has_pending) {
-            SpBareAction next = app.pending;
-            app.has_pending = 0;
-            run_action(&app, next);
-        }
-        sp_bare_draw(&app.view, &app.model, queue_action, &app);
+        app.loads_this_frame = 0;
+        take_updates(&app);
+        apply_theme(&app);
+        app.model.backdrop = bare_window_backdrop();
+        bare_background(sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222));
+        sp_draw(&app.view, &app.model);
     }
-    clear_walls(&app);
-    free(app.displays);
-    json_free(app.status_doc);
-    free(app.store_items);
-    json_free(app.store_doc);
+    lock(&g.lock);
+    g.quit = true;
+    cond_signal(&g.wake);
+    unlock(&g.lock);
+#ifdef _WIN32
+    /* A request can wait on the service for a while; don't hold the exit for it. */
+    WaitForSingleObject(thread, 1500);
+#else
+    pthread_join(thread, NULL);
+#endif
     bare_quit();
     return 0;
 }

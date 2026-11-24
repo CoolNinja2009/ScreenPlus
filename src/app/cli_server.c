@@ -924,6 +924,7 @@ static void cmd_store(Reply *r, const Req *q)
         say(r, L"\"%ls\": downloading into the library, or opening its page if the site has no direct file.\n", s->items[s->view[n - 1]].title);
         return;
     }
+    int previews = has_flag(q, L"--previews");
     if (s->failed) say(r, L"The Store could not be read: %ls\n", s->error);
     for (int i = 0; i < s->viewCount && i < 60; i++) {
         const StoreItem *it = &s->items[s->view[i]];
@@ -941,7 +942,16 @@ static void cmd_store(Reply *r, const Req *q)
         sb_puts(&r->data, ",\"source\":");
         jstr(&r->data, store_source_name(it->source));
         sb_puts(&r->data, ",\"kind\":");
-        sb_puts(&r->data, it->kind == SKIND_LIVE ? "\"live\"}" : "\"still\"}");
+        sb_puts(&r->data, it->kind == SKIND_LIVE ? "\"live\"" : "\"still\"");
+        /* --previews (the Bare window): fetch each card's preview and name its cached file */
+        if (previews) store_want(s->view[i], 480, 0);
+        WallpaperEntry pe;
+        sb_puts(&r->data, ",\"preview\":");
+        jstr(&r->data, store_preview_entry(s->view[i], &pe) ? pe.path : L"");
+        sb_puts(&r->data, ",\"badge\":");
+        jstr(&r->data, it->badge);
+        int pct = -1, dl = store_dl_state(s->view[i], &pct);
+        sb_printf(&r->data, ",\"width\":%d,\"height\":%d,\"download\":%d,\"percent\":%d}", it->w, it->h, dl, pct);
     }
     sb_puts(&r->data, "]}");
 }
@@ -1831,6 +1841,9 @@ static void run(Reply *r, const Req *q)
     } else if (str_ieq(c, L"show")) {
         app_show_ui();
         say(r, L"Window opened.\n");
+    } else if (str_ieq(c, L"ui") && q->argc == 2 && str_ieq(q->argv[1], L"classic")) {
+        app_show_classic_ui();
+        say(r, L"Classic window opened.\n");
     } else if (str_ieq(c, L"screensaver") && q->argc > 2 && str_ieq(q->argv[1], L"use")) {
         WallpaperEntry *e = NULL;
         if (!str_ieq(q->argv[2], L"desktop") && !(e = find_wallpaper(r, q->argv[2]))) return;

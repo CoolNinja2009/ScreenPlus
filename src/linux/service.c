@@ -310,6 +310,12 @@ void app_show_ui(void)
     if (ui_load() && g_ui_mod.show) g_ui_mod.show();
 }
 
+/* Linux keeps its one window for the Bare beta, so classic is the same window. */
+void app_show_classic_ui(void)
+{
+    app_show_ui();
+}
+
 void app_notice(int kind, const wchar_t *fmt, ...)
 {
     if (kind == NOTICE_NONE || !fmt) {      /* the notice's close button */

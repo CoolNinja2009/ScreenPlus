@@ -31,7 +31,7 @@ static const char k_help[] =
     "\n"
     "Service\n"
     "  show | hide            Open or close the window\n"
-    "  ui Bare                Open the optional Bare UI window\n"
+    "  ui Bare | classic      Open the optional Bare UI window, or the classic one\n"
     "  start                  Start Screen+ in the background\n"
     "  stop                   Stop it and give the desktop its wallpaper back\n"
     "  restart                Restart the wallpapers\n"
@@ -269,7 +269,7 @@ static int connect_probe(void)
 static int cmd_ui(int argc, char **argv)
 {
     if (argc != 2 || strcasecmp(argv[1], "Bare")) {
-        fputs("Usage: screenplus ui Bare\n", stderr);
+        fputs("Usage: screenplus ui Bare | classic\n", stderr);
         return EXIT_USAGE;
     }
     char *cli = sp_path_utf8(paths_exe());
@@ -328,7 +328,7 @@ static int dispatch(int argc, char **argv)
     if (!strcmp(c, "help") || !strcmp(c, "-h") || !strcmp(c, "--help")) { fputs(k_help, stdout); return EXIT_OK; }
     if (!strcmp(c, "version") || !strcmp(c, "--version") || !strcmp(c, "-v")) { puts("Screen+ " SP_VERSION_STR); return EXIT_OK; }
     if (!strcmp(c, "start")) return cmd_start();
-    if (!strcmp(c, "ui")) return cmd_ui(argc, argv);
+    if (!strcmp(c, "ui") && !(argc == 2 && !strcasecmp(argv[1], "classic"))) return cmd_ui(argc, argv);
     if (!strcmp(c, "logs") || !strcmp(c, "log")) return cmd_logs(argc, argv);
     if (!strcmp(c, "paths")) return cmd_paths();
     if (!strcmp(c, "path")) return cmd_path(argc > 1 ? argv[1] : NULL);

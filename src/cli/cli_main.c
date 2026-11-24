@@ -326,7 +326,7 @@ static const wchar_t k_help[] =
     L"App\n"
     L"  start [--show]                         start Screen+ if it is not running\n"
     L"  show | hide                            open or close the window\n"
-    L"  ui Bare                                open the Bare UI (requires the optional Bare UI build)\n"
+    L"  ui Bare | classic                      the Bare window (beta: the window when installed) or the classic one\n"
     L"  stop                                   quit Screen+\n"
     L"  settings [set <key> <value>]           app settings, e.g. settings set pause_on_battery off\n"
     L"      accent_color #RRGGBB               set the app's accent colour\n"
@@ -449,7 +449,7 @@ static int cmd_start(int show)
 static int cmd_ui(int argc, wchar_t **argv)
 {
     if (argc != 2 || !str_ieq(argv[1], L"Bare")) {
-        err(L"Usage: screenplus ui Bare\n");
+        err(L"Usage: screenplus ui Bare | classic\n");
         return EXIT_USAGE;
     }
     wchar_t exe[SP_MAX_PATH], cmd[SP_MAX_PATH + 32];
@@ -971,7 +971,7 @@ static int run_command(int argc, wchar_t **in)
         return cmd_help(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"version") || str_ieq(c, L"--version") || str_ieq(c, L"-v")) return cmd_version();
     if (str_ieq(c, L"start")) return cmd_start(n > 1 && str_ieq(argv[1], L"--show"));
-    if (str_ieq(c, L"ui")) return cmd_ui(n, argv);
+    if (str_ieq(c, L"ui") && !(n == 2 && str_ieq(argv[1], L"classic"))) return cmd_ui(n, argv);
     if (str_ieq(c, L"logs") || str_ieq(c, L"log")) return cmd_logs(n, argv);
     if (str_ieq(c, L"paths")) return cmd_paths();
     if (str_ieq(c, L"path")) return cmd_path(n > 1 ? argv[1] : NULL);

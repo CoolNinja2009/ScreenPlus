@@ -1,34 +1,56 @@
-# Bare UI branch
+# Bare UI (beta)
 
-This directory contains the new cross-platform Screen+ window. It uses Bare for the view and Screen+'s existing CLI for state and actions; the service remains the owner of wallpaper playback and configuration. The shipped `show` command still opens the existing UI while this branch is being completed.
+The new Screen+ window, drawn with [Bare](../../../../Bare) liquid glass. It is a separate process
+(`screenplus-bare-ui.exe`) and a client of the running service: data comes from the same JSON `ScreenPlus.com
+<command> --json` prints, and every action is a service command. The service stays the only owner of the config and
+of playback.
+
+- **See-through.** The window is frameless; its background is the live desktop behind it
+  (`bare_window_backdrop`, DXGI Desktop Duplication), and the sidebar, the page and every control are glass that
+  bends it. The window is left out of screenshots and screen sharing while it does this.
+- **Liquid motion.** Selections (the nav, filters, segmented choices) are a glass drop that glides between items on
+  a spring, clears into a lens and stretches while it moves; switch and slider knobs turn to glass while held;
+  pages slide in; toasts condense out of the glass (`sp_kit.c`). Settings → Animations: Full, Reduced, Off.
+- **Fast.** A worker thread sends WM_COPYDATA requests straight to the service (`sp_ipc.c`: no process per
+  request) and refreshes every 2 s, or right after an action; the window thread only draws.
+
+Files: `live.c` (the real window), `preview.c` (sample data, no service), `screenplus_bare.c` (the pages),
+`sp_kit.c` (glass controls), `sp_ipc.c` (service requests), `test_view.c` (headless filter test).
+
+## In the app
+
+When `screenplus-bare-ui.exe` is installed beside `ScreenPlus.exe` (a build with `-DSCREENPLUS_BARE_UI=ON`), it is
+the window: the tray, a plain launch and `screenplus show` open it. `screenplus ui classic` opens the classic window
+(every option lives there while this one is in beta); `screenplus ui Bare` opens this one.
+
+Linux: the beta is Windows-only for now (no backdrop there yet); `ui classic` opens the usual window.
 
 ## Build
 
-From the ScreenPlus root, point `BARE_SOURCE_DIR` at the Bare checkout on its `bare-ui` branch:
-
 ```sh
 cmake -S . -B build -DSCREENPLUS_BARE_UI=ON -DBARE_SOURCE_DIR=/path/to/Bare
-cmake --build build --target ScreenPlusCli screenplus-bare-ui
-build/ScreenPlus.com ui Bare    # Windows
-# build/screenplus ui Bare      # Linux
+cmake --build build
 ```
 
-The Bare UI build is optional so existing Screen+ builds do not require a Bare checkout. The CLI launches the Bare executable beside itself; `show` continues to open the original window. The process reads `status`, `list`, `settings`, `look`, and `store` through `--json`; actions use the corresponding CLI commands. The preview executable uses sample data without connecting to a running service.
-
-For an isolated preview and headless view test:
+Preview and the view test on their own:
 
 ```sh
 cmake -S src/ui_bare -B build-bare-ui -DBARE_SOURCE_DIR=/path/to/Bare
-cmake --build build-bare-ui --target screenplus-bare-preview screenplus-bare-view-test
-ctest --test-dir build-bare-ui --output-on-failure
+cmake --build build-bare-ui
+ctest --test-dir build-bare-ui
+SP_BACKDROP=gen build-bare-ui/screenplus-bare-preview --page settings   # a generated picture behind the glass
 ```
 
-## Current coverage
+## Covered so far
 
-- Library: search, type filters, selection, import file, pause, sound, restart, refresh, and incremental card rendering.
-- Displays: show connected monitors, change display mode, and choose a wallpaper for one monitor.
-- Customise: brightness, contrast, saturation, hue, and gamma for the active wallpaper.
-- Store: list, search, load more, and get an item. The Store loads asynchronously; use Refresh to see newly fetched results.
-- Settings: startup, launch behavior, still wallpaper, automatic updates, appearance, and motion.
+- Library: now showing (pause, sound, restart, show file), display choice, search, type filters, Favourites and
+  collections, sort, apply by click, right-click menu (apply to a display, favourite, show in folder, remove),
+  import a file or a folder, add from a link.
+- Displays: arrangement to scale, display mode, choose a wallpaper for one display.
+- Customise: live brightness, contrast, saturation, hue and gamma; Reset look.
+- Store: browse with previews, search, more, get with progress.
+- Settings: general, updates (Check now), appearance, animations, accent colour, playback, sound, web wallpapers,
+  slideshow, library, screensaver.
 
-The remaining controls in the existing UI, translations, and integration with the app's `show` route are still pending. The live window requests an SDL alpha-composited surface through the Bare checkout's `bare_window_transparent` API. Whether the desktop shows through and how the compositor handles blur must be verified on Windows and Linux. Bare's glass shader samples the content rendered inside its window; it cannot refract the desktop behind the window yet. Do not replace the existing UI until those controls and platform behavior are ported and visually tested.
+Not yet: Customise's author properties, layout, upscaling and recordings; the Language setting and translations
+(Bare's fonts are Latin-only so far); the screensaver page; drag to reorder. Those are in the classic window.
