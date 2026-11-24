@@ -10,7 +10,7 @@
 %d display%ls	डिस्प्ले: %d%.0ls
 %d selected	%d चुने गए
 %d wallpaper%ls	वॉलपेपर: %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d, %d × %d डिस्प्ले पर · Shift आकार बनाए रखता है
+%d × %d on a %d × %d display	%d × %d, %d × %d डिस्प्ले पर
 %ls downloads %ls the first time.	%ls पहली बार %ls डाउनलोड करता है।
 %ls needs more memory than this PC has.	%ls को इस PC से ज़्यादा मेमोरी चाहिए।
 %ls needs your own .onnx file.	%ls को आपकी अपनी .onnx फ़ाइल चाहिए।
@@ -244,7 +244,6 @@ Recent	हाल के
 Record your changes; they play on a loop	अपने बदलाव रिकॉर्ड करें; वे लूप में चलेंगे
 Recording  %d:%02d	रिकॉर्डिंग  %d:%02d
 Recovering	रिकवर हो रहा है
-Redo	फिर से करें
 Reduced	कम
 Remove from library (keeps the file)	लाइब्रेरी से हटाएँ (फ़ाइल रहेगी)
 Remove from library and delete the download	लाइब्रेरी से हटाएँ और डाउनलोड मिटाएँ
@@ -318,7 +317,6 @@ Stretch	खींचें
 System	सिस्टम
 TROUBLESHOOTING	समस्या निवारण
 The download could not start. Another depth job may be running.	डाउनलोड शुरू नहीं हो सका। शायद कोई दूसरा डेप्थ काम चल रहा है।
-The picture covers the display	तस्वीर पूरा डिस्प्ले ढकती है
 The upscaling model download could not start. Another depth job may be running.	अपस्केलिंग मॉडल का डाउनलोड शुरू नहीं हो सका। शायद कोई दूसरा डेप्थ काम चल रहा है।
 Third-party notices	थर्ड-पार्टी नोटिस
 This file can't be opened. It may be damaged, or made by a newer Screen+.	यह फ़ाइल नहीं खुल सकती। यह खराब हो सकती है, या किसी नए Screen+ से बनी हो सकती है।
@@ -333,7 +331,6 @@ Try again	फिर कोशिश करें
 Type how many times it repeats	कितनी बार दोहराना है लिखें
 Type	प्रकार
 UPSCALING	अपस्केलिंग
-Undo	पूर्ववत करें
 Update	अपडेट करें
 Upscaling	अपस्केलिंग
 Use Screen+ as the screensaver	Screen+ को स्क्रीनसेवर बनाएँ

@@ -10,7 +10,7 @@
 %d display%ls	திரைகள்: %d%.0ls
 %d selected	%d தேர்ந்தெடுக்கப்பட்டன
 %d wallpaper%ls	வால்பேப்பர்கள்: %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d, %d × %d திரையில் · Shift வடிவத்தைக் காக்கும்
+%d × %d on a %d × %d display	%d × %d, %d × %d திரையில்
 %ls downloads %ls the first time.	%ls முதல் முறை %ls-ஐப் பதிவிறக்கும்.
 %ls needs more memory than this PC has.	%ls-க்கு இந்த PC-யில் உள்ளதை விட அதிக நினைவகம் தேவை.
 %ls needs your own .onnx file.	%ls-க்கு உங்கள் சொந்த .onnx கோப்பு தேவை.
@@ -244,7 +244,6 @@ Recent	சமீபத்தியவை
 Record your changes; they play on a loop	உங்கள் மாற்றங்களைப் பதிவுசெய்யுங்கள்; அவை சுழற்சியில் இயங்கும்
 Recording  %d:%02d	பதிவுசெய்கிறது  %d:%02d
 Recovering	மீட்கிறது
-Redo	மீண்டும் செய்
 Reduced	குறைவு
 Remove from library (keeps the file)	நூலகத்திலிருந்து அகற்று (கோப்பு இருக்கும்)
 Remove from library and delete the download	நூலகத்திலிருந்து அகற்றி பதிவிறக்கத்தை நீக்கு
@@ -318,7 +317,6 @@ Stretch	நீட்டு
 System	அமைப்பு
 TROUBLESHOOTING	சிக்கல் தீர்வு
 The download could not start. Another depth job may be running.	பதிவிறக்கத்தைத் தொடங்க முடியவில்லை. மற்றொரு ஆழப் பணி நடக்கலாம்.
-The picture covers the display	படம் திரையை முழுதாக மூடும்
 The upscaling model download could not start. Another depth job may be running.	மேம்படுத்தல் மாதிரியின் பதிவிறக்கத்தைத் தொடங்க முடியவில்லை. மற்றொரு ஆழப் பணி நடக்கலாம்.
 Third-party notices	மூன்றாம் தரப்பு அறிவிப்புகள்
 This file can't be opened. It may be damaged, or made by a newer Screen+.	இந்தக் கோப்பைத் திறக்க முடியாது. அது சேதமடைந்திருக்கலாம், அல்லது புதிய Screen+ ஆல் உருவாக்கப்பட்டிருக்கலாம்.
@@ -333,7 +331,6 @@ Try again	மீண்டும் முயல்
 Type how many times it repeats	எத்தனை முறை மீண்டும் வரும் என உள்ளிடுங்கள்
 Type	வகை
 UPSCALING	மேம்படுத்தல்
-Undo	செயல்தவிர்
 Update	புதுப்பி
 Upscaling	மேம்படுத்தல்
 Use Screen+ as the screensaver	Screen+-ஐ ஸ்கிரீன்சேவராகப் பயன்படுத்து

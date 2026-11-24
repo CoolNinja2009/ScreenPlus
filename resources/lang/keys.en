@@ -8,7 +8,7 @@
 %d display%ls
 %d selected
 %d wallpaper%ls
-%d × %d on a %d × %d display · Shift keeps the shape
+%d × %d on a %d × %d display
 %ls downloads %ls the first time.
 %ls needs more memory than this PC has.
 %ls needs your own .onnx file.
@@ -242,7 +242,6 @@ Recent
 Record your changes; they play on a loop
 Recording  %d:%02d
 Recovering
-Redo
 Reduced
 Remove from library (keeps the file)
 Remove from library and delete the download
@@ -316,7 +315,6 @@ Stretch
 System
 TROUBLESHOOTING
 The download could not start. Another depth job may be running.
-The picture covers the display
 The upscaling model download could not start. Another depth job may be running.
 Third-party notices
 This file can't be opened. It may be damaged, or made by a newer Screen+.
@@ -331,7 +329,6 @@ Try again
 Type how many times it repeats
 Type
 UPSCALING
-Undo
 Update
 Upscaling
 Use Screen+ as the screensaver

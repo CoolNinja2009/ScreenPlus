@@ -7,6 +7,11 @@ set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(ROOT ${CMAKE_SOURCE_DIR}/src)
+option(SCREENPLUS_BARE_UI "Build the optional Bare UI client" OFF)
+if(SCREENPLUS_BARE_UI)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/src/ui_bare ${CMAKE_BINARY_DIR}/ui_bare)
+    install(TARGETS screenplus-bare-ui DESTINATION lib/screenplus)
+endif()
 set(SHARED
     compat.c winobj.c run.c desktop_hypr.c apprules.c
     monitor.c ${ROOT}/common/util.c ${ROOT}/common/paths.c ${ROOT}/common/log.c ${ROOT}/common/json.c ${ROOT}/common/edid.c

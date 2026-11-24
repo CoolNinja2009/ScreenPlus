@@ -10,7 +10,7 @@
 %d display%ls	Écrans : %d%.0ls
 %d selected	%d sélectionné(s)
 %d wallpaper%ls	Fonds d'écran : %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d sur un écran de %d × %d · Maj garde les proportions
+%d × %d on a %d × %d display	%d × %d sur un écran de %d × %d
 %ls downloads %ls the first time.	%ls télécharge %ls la première fois.
 %ls needs more memory than this PC has.	%ls demande plus de mémoire que ce PC n'en a.
 %ls needs your own .onnx file.	%ls a besoin de votre propre fichier .onnx.
@@ -244,7 +244,6 @@ Recent	Récents
 Record your changes; they play on a loop	Enregistrez vos changements ; ils sont lus en boucle
 Recording  %d:%02d	Enregistrement  %d:%02d
 Recovering	Récupération
-Redo	Rétablir
 Reduced	Réduites
 Remove from library (keeps the file)	Retirer de la bibliothèque (garde le fichier)
 Remove from library and delete the download	Retirer de la bibliothèque et supprimer le téléchargement
@@ -318,7 +317,6 @@ Stretch	Étirer
 System	Système
 TROUBLESHOOTING	DÉPANNAGE
 The download could not start. Another depth job may be running.	Le téléchargement n'a pas pu démarrer. Une autre tâche de profondeur est peut-être en cours.
-The picture covers the display	L'image couvre l'écran
 The upscaling model download could not start. Another depth job may be running.	Le téléchargement du modèle d'agrandissement n'a pas pu démarrer. Une autre tâche de profondeur est peut-être en cours.
 Third-party notices	Mentions de tiers
 This file can't be opened. It may be damaged, or made by a newer Screen+.	Ce fichier ne peut pas être ouvert. Il est peut-être endommagé, ou créé par un Screen+ plus récent.
@@ -333,7 +331,6 @@ Try again	Réessayer
 Type how many times it repeats	Tapez le nombre de répétitions
 Type	Type
 UPSCALING	AGRANDISSEMENT
-Undo	Annuler
 Update	Mettre à jour
 Upscaling	Agrandissement
 Use Screen+ as the screensaver	Utiliser Screen+ comme écran de veille

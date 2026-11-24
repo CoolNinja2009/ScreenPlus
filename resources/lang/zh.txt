@@ -10,7 +10,7 @@
 %d display%ls	%d 台显示器%.0ls
 %d selected	已选 %d 项
 %d wallpaper%ls	%d 张壁纸%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d，显示器为 %d × %d · 按住 Shift 保持比例
+%d × %d on a %d × %d display	%d × %d，显示器为 %d × %d
 %ls downloads %ls the first time.	%ls 首次使用时会下载 %ls。
 %ls needs more memory than this PC has.	%ls 所需内存超出这台电脑的容量。
 %ls needs your own .onnx file.	%ls 需要你自己的 .onnx 文件。
@@ -244,7 +244,6 @@ Recent	最近
 Record your changes; they play on a loop	录制你的更改，它们会循环播放
 Recording  %d:%02d	正在录制  %d:%02d
 Recovering	正在恢复
-Redo	重做
 Reduced	减少
 Remove from library (keeps the file)	从库中移除（保留文件）
 Remove from library and delete the download	从库中移除并删除下载
@@ -318,7 +317,6 @@ Stretch	拉伸
 System	跟随系统
 TROUBLESHOOTING	故障排除
 The download could not start. Another depth job may be running.	无法开始下载。可能有另一个深度任务正在运行。
-The picture covers the display	图片覆盖整个显示器
 The upscaling model download could not start. Another depth job may be running.	无法开始下载放大模型。可能有另一个深度任务正在运行。
 Third-party notices	第三方声明
 This file can't be opened. It may be damaged, or made by a newer Screen+.	无法打开此文件。它可能已损坏，或由更新版本的 Screen+ 创建。
@@ -333,7 +331,6 @@ Try again	重试
 Type how many times it repeats	输入重复次数
 Type	类型
 UPSCALING	放大
-Undo	撤销
 Update	更新
 Upscaling	放大
 Use Screen+ as the screensaver	使用 Screen+ 作为屏幕保护程序

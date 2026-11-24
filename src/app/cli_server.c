@@ -95,6 +95,8 @@ static void j_wallpaper(StrBuf *b, const WallpaperEntry *e)
     jstr(b, format_key(e->format));
     sb_puts(b, ",\"path\":");
     jstr(b, e->path);
+    sb_puts(b, ",\"thumbnail\":");
+    jstr(b, e->thumb);
     sb_printf(b, ",\"missing\":%s,\"favourite\":%s,\"volume\":%d", e->missing ? "true" : "false",
               (e->flags & WPFLAG_FAV) ? "true" : "false", entry_volume(e));
     if (e->flags & WPFLAG_PPTX) sb_printf(b, ",\"slideSeconds\":%d", entry_slide_sec(e));
@@ -928,6 +930,20 @@ static void cmd_store(Reply *r, const Req *q)
         say(r, L"%4d  %-13ls %-5ls %ls\n", i + 1, store_source_name(it->source), it->kind == SKIND_LIVE ? L"live" : L"still", it->title);
     }
     say(r, L"%d shown%ls\n", s->viewCount, s->loading ? L", still loading" : L"");
+    sb_printf(&r->data, "{\"loading\":%s,\"failed\":%s,\"error\":", s->loading ? "true" : "false", s->failed ? "true" : "false");
+    jstr(&r->data, s->error);
+    sb_puts(&r->data, ",\"items\":[");
+    for (int i = 0; i < s->viewCount && i < 60; i++) {
+        const StoreItem *it = &s->items[s->view[i]];
+        if (i) sb_puts(&r->data, ",");
+        sb_printf(&r->data, "{\"number\":%d,\"title\":", i + 1);
+        jstr(&r->data, it->title);
+        sb_puts(&r->data, ",\"source\":");
+        jstr(&r->data, store_source_name(it->source));
+        sb_puts(&r->data, ",\"kind\":");
+        sb_puts(&r->data, it->kind == SKIND_LIVE ? "\"live\"}" : "\"still\"}");
+    }
+    sb_puts(&r->data, "]}");
 }
 
 /* SHARP isn't downloaded: this names the user's own .onnx and makes it the chosen model. */

@@ -10,7 +10,7 @@
 %d display%ls	Дисплеев: %d%.0ls
 %d selected	Выбрано: %d
 %d wallpaper%ls	Обоев: %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d на дисплее %d × %d · Shift сохраняет пропорции
+%d × %d on a %d × %d display	%d × %d на дисплее %d × %d
 %ls downloads %ls the first time.	%ls скачивает %ls при первом запуске.
 %ls needs more memory than this PC has.	%ls требуется больше памяти, чем есть у этого ПК.
 %ls needs your own .onnx file.	%ls нужен ваш собственный файл .onnx.
@@ -244,7 +244,6 @@ Recent	Недавние
 Record your changes; they play on a loop	Запишите изменения; они будут повторяться по кругу
 Recording  %d:%02d	Запись  %d:%02d
 Recovering	Восстановление
-Redo	Повторить
 Reduced	Сокращённая
 Remove from library (keeps the file)	Убрать из библиотеки (файл останется)
 Remove from library and delete the download	Убрать из библиотеки и удалить загрузку
@@ -318,7 +317,6 @@ Stretch	Растянуть
 System	Системная
 TROUBLESHOOTING	УСТРАНЕНИЕ НЕПОЛАДОК
 The download could not start. Another depth job may be running.	Не удалось начать загрузку. Возможно, выполняется другая задача глубины.
-The picture covers the display	Картинка закрывает дисплей
 The upscaling model download could not start. Another depth job may be running.	Не удалось начать загрузку модели масштабирования. Возможно, выполняется другая задача глубины.
 Third-party notices	Сторонние лицензии
 This file can't be opened. It may be damaged, or made by a newer Screen+.	Не удаётся открыть файл. Возможно, он повреждён или создан более новой версией Screen+.
@@ -333,7 +331,6 @@ Try again	Повторить
 Type how many times it repeats	Введите число повторов
 Type	Тип
 UPSCALING	МАСШТАБИРОВАНИЕ
-Undo	Отменить
 Update	Обновить
 Upscaling	Масштабирование
 Use Screen+ as the screensaver	Использовать Screen+ как заставку

@@ -1,5 +1,6 @@
 # ---- build output (build.cmd / CMake + Ninja); installers and zips come from GitHub Releases
 /build/
+/build-bare-ui/
 /out/
 /dist/
 /release/

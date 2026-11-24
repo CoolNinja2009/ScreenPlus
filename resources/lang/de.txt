@@ -10,7 +10,7 @@
 %d display%ls	Bildschirme: %d%.0ls
 %d selected	%d ausgewählt
 %d wallpaper%ls	Hintergründe: %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d auf einem %d × %d-Bildschirm · Umschalt behält die Form
+%d × %d on a %d × %d display	%d × %d auf einem %d × %d-Bildschirm
 %ls downloads %ls the first time.	%ls lädt beim ersten Mal %ls herunter.
 %ls needs more memory than this PC has.	%ls braucht mehr Speicher, als dieser PC hat.
 %ls needs your own .onnx file.	%ls braucht Ihre eigene .onnx-Datei.
@@ -244,7 +244,6 @@ Recent	Neueste
 Record your changes; they play on a loop	Änderungen aufnehmen; sie laufen in einer Schleife
 Recording  %d:%02d	Aufnahme  %d:%02d
 Recovering	Wird wiederhergestellt
-Redo	Wiederholen
 Reduced	Reduziert
 Remove from library (keeps the file)	Aus der Bibliothek entfernen (Datei bleibt)
 Remove from library and delete the download	Aus der Bibliothek entfernen und Download löschen
@@ -318,7 +317,6 @@ Stretch	Strecken
 System	System
 TROUBLESHOOTING	PROBLEMBEHANDLUNG
 The download could not start. Another depth job may be running.	Der Download konnte nicht starten. Vielleicht läuft ein anderer Tiefenauftrag.
-The picture covers the display	Das Bild füllt den Bildschirm
 The upscaling model download could not start. Another depth job may be running.	Der Download des Hochskalierungsmodells konnte nicht starten. Vielleicht läuft ein anderer Tiefenauftrag.
 Third-party notices	Hinweise zu Drittanbietern
 This file can't be opened. It may be damaged, or made by a newer Screen+.	Diese Datei kann nicht geöffnet werden. Sie ist vielleicht beschädigt oder stammt von einem neueren Screen+.
@@ -333,7 +331,6 @@ Try again	Erneut versuchen
 Type how many times it repeats	Anzahl der Wiederholungen eingeben
 Type	Typ
 UPSCALING	HOCHSKALIERUNG
-Undo	Rückgängig
 Update	Aktualisieren
 Upscaling	Hochskalierung
 Use Screen+ as the screensaver	Screen+ als Bildschirmschoner verwenden

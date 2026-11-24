@@ -215,6 +215,11 @@ target_compile_options(ScreenPlusCli PRIVATE /W4 /utf-8 /guard:cf /GS /wd4204 /w
 target_link_options(ScreenPlusCli PRIVATE /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /guard:cf /INCREMENTAL:NO)
 target_link_libraries(ScreenPlusCli PRIVATE user32 shell32 shlwapi ole32 oleaut32 advapi32 bcrypt winhttp taskschd)
 
+option(SCREENPLUS_BARE_UI "Build the optional Bare UI client" OFF)
+if(SCREENPLUS_BARE_UI)
+    add_subdirectory(src/ui_bare)
+endif()
+
 # Validation helpers (not shipped): check the wallpaper is attached and visible behind the
 # icons, and print the livelySystemInformation payload the engine feeds web wallpapers.
 add_executable(desktop_probe tests/desktop_probe.c)
@@ -242,14 +247,18 @@ add_custom_command(TARGET ScreenPlus POST_BUILD
 # Install NSIS 3 (winget install NSIS.NSIS) or pass -DMAKENSIS=<path to makensis.exe>.
 find_program(MAKENSIS makensis PATHS "C:/Program Files (x86)/NSIS" "C:/Program Files/NSIS" "$ENV{LOCALAPPDATA}/Programs/NSIS")
 if(MAKENSIS)
+    if(SCREENPLUS_BARE_UI)
+        set(_bare_setup_arg /DBARE_UI)
+        set(_bare_setup_dep screenplus-bare-ui)
+    endif()
     set(SETUP_EXE "${CMAKE_BINARY_DIR}/ScreenPlus-Setup-${SCREENPLUS_VERSION}.exe")
     file(TO_NATIVE_PATH "${CMAKE_BINARY_DIR}" _stage)
     file(TO_NATIVE_PATH "${SETUP_EXE}" _setup)
     add_custom_command(OUTPUT "${SETUP_EXE}"
         COMMAND "${MAKENSIS}" /V2 "/DVERSION=${SCREENPLUS_VERSION}" "/DNUMERIC_VERSION=${SCREENPLUS_NUMERIC_VERSION}"
-                "/DSTAGE=${_stage}" "/DOUTFILE=${_setup}"
+                "/DSTAGE=${_stage}" "/DOUTFILE=${_setup}" ${_bare_setup_arg}
                 "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi"
-        DEPENDS ScreenPlus ScreenPlusCli "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi" "${CMAKE_SOURCE_DIR}/installer/wizard.bmp"
+        DEPENDS ScreenPlus ScreenPlusCli ${_bare_setup_dep} "${CMAKE_SOURCE_DIR}/installer/screenplus.nsi" "${CMAKE_SOURCE_DIR}/installer/wizard.bmp"
                 "${CMAKE_SOURCE_DIR}/installer/header.bmp" "${CMAKE_SOURCE_DIR}/LICENSE" "${CMAKE_BINARY_DIR}/sizes.nsh"
         COMMENT "Building ScreenPlus-Setup-${SCREENPLUS_VERSION}.exe" VERBATIM)
     add_custom_target(ScreenPlusSetup ALL DEPENDS "${SETUP_EXE}")

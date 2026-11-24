@@ -10,7 +10,7 @@
 %d display%ls	Pantallas: %d%.0ls
 %d selected	%d seleccionados
 %d wallpaper%ls	Fondos: %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d en una pantalla de %d × %d · Mayús mantiene la forma
+%d × %d on a %d × %d display	%d × %d en una pantalla de %d × %d
 %ls downloads %ls the first time.	%ls descarga %ls la primera vez.
 %ls needs more memory than this PC has.	%ls necesita más memoria de la que tiene este PC.
 %ls needs your own .onnx file.	%ls necesita tu propio archivo .onnx.
@@ -244,7 +244,6 @@ Recent	Recientes
 Record your changes; they play on a loop	Graba tus cambios; se reproducen en bucle
 Recording  %d:%02d	Grabando  %d:%02d
 Recovering	Recuperando
-Redo	Rehacer
 Reduced	Reducidas
 Remove from library (keeps the file)	Quitar de la biblioteca (conserva el archivo)
 Remove from library and delete the download	Quitar de la biblioteca y eliminar la descarga
@@ -318,7 +317,6 @@ Stretch	Estirar
 System	Sistema
 TROUBLESHOOTING	SOLUCIÓN DE PROBLEMAS
 The download could not start. Another depth job may be running.	No se pudo iniciar la descarga. Puede que haya otra tarea de profundidad en curso.
-The picture covers the display	La imagen cubre la pantalla
 The upscaling model download could not start. Another depth job may be running.	No se pudo iniciar la descarga del modelo de escalado. Puede que haya otra tarea de profundidad en curso.
 Third-party notices	Avisos de terceros
 This file can't be opened. It may be damaged, or made by a newer Screen+.	Este archivo no se puede abrir. Puede estar dañado o haberlo creado un Screen+ más reciente.
@@ -333,7 +331,6 @@ Try again	Reintentar
 Type how many times it repeats	Escribe cuántas veces se repite
 Type	Tipo
 UPSCALING	ESCALADO
-Undo	Deshacer
 Update	Actualizar
 Upscaling	Escalado
 Use Screen+ as the screensaver	Usar Screen+ como protector de pantalla

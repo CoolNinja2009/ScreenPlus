@@ -10,7 +10,7 @@
 %d display%ls	Schermi: %d%.0ls
 %d selected	%d selezionati
 %d wallpaper%ls	Sfondi: %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d su uno schermo %d × %d · Maiusc mantiene la forma
+%d × %d on a %d × %d display	%d × %d su uno schermo %d × %d
 %ls downloads %ls the first time.	%ls scarica %ls la prima volta.
 %ls needs more memory than this PC has.	%ls richiede più memoria di quella del PC.
 %ls needs your own .onnx file.	%ls richiede un tuo file .onnx.
@@ -244,7 +244,6 @@ Recent	Recenti
 Record your changes; they play on a loop	Registra le modifiche; vengono riprodotte in loop
 Recording  %d:%02d	Registrazione  %d:%02d
 Recovering	Ripristino
-Redo	Ripeti
 Reduced	Ridotte
 Remove from library (keeps the file)	Rimuovi dalla libreria (mantiene il file)
 Remove from library and delete the download	Rimuovi dalla libreria ed elimina il download
@@ -318,7 +317,6 @@ Stretch	Allunga
 System	Sistema
 TROUBLESHOOTING	RISOLUZIONE DEI PROBLEMI
 The download could not start. Another depth job may be running.	Impossibile avviare il download. Potrebbe essere in corso un'altra elaborazione di profondità.
-The picture covers the display	L'immagine copre lo schermo
 The upscaling model download could not start. Another depth job may be running.	Impossibile avviare il download del modello di upscaling. Potrebbe essere in corso un'altra elaborazione di profondità.
 Third-party notices	Note di terze parti
 This file can't be opened. It may be damaged, or made by a newer Screen+.	Impossibile aprire questo file. Potrebbe essere danneggiato o creato da un Screen+ più recente.
@@ -333,7 +331,6 @@ Try again	Riprova
 Type how many times it repeats	Scrivi quante volte si ripete
 Type	Tipo
 UPSCALING	UPSCALING
-Undo	Annulla
 Update	Aggiorna
 Upscaling	Upscaling
 Use Screen+ as the screensaver	Usa Screen+ come salvaschermo

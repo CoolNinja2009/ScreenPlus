@@ -10,7 +10,7 @@
 %d display%ls	డిస్‌ప్లేలు: %d%.0ls
 %d selected	%d ఎంచుకున్నవి
 %d wallpaper%ls	వాల్‌పేపర్లు: %d%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d, %d × %d డిస్‌ప్లేపై · Shift ఆకారాన్ని ఉంచుతుంది
+%d × %d on a %d × %d display	%d × %d, %d × %d డిస్‌ప్లేపై
 %ls downloads %ls the first time.	%ls మొదటిసారి %ls ను డౌన్‌లోడ్ చేస్తుంది.
 %ls needs more memory than this PC has.	%ls కి ఈ PC లో ఉన్నదానికంటే ఎక్కువ మెమరీ కావాలి.
 %ls needs your own .onnx file.	%ls కి మీ సొంత .onnx ఫైల్ కావాలి.
@@ -244,7 +244,6 @@ Recent	ఇటీవలివి
 Record your changes; they play on a loop	మీ మార్పులను రికార్డ్ చేయండి; అవి లూప్‌లో ప్లే అవుతాయి
 Recording  %d:%02d	రికార్డ్ చేస్తోంది  %d:%02d
 Recovering	రికవర్ అవుతోంది
-Redo	మళ్లీ చేయి
 Reduced	తగ్గించినవి
 Remove from library (keeps the file)	లైబ్రరీ నుండి తీసివేయి (ఫైల్ ఉంటుంది)
 Remove from library and delete the download	లైబ్రరీ నుండి తీసివేసి డౌన్‌లోడ్‌ను తొలగించు
@@ -318,7 +317,6 @@ Stretch	సాగదీయి
 System	సిస్టమ్
 TROUBLESHOOTING	సమస్య పరిష్కారం
 The download could not start. Another depth job may be running.	డౌన్‌లోడ్ ప్రారంభం కాలేదు. మరో డెప్త్ పని నడుస్తూ ఉండవచ్చు.
-The picture covers the display	చిత్రం డిస్‌ప్లేను పూర్తిగా కప్పుతుంది
 The upscaling model download could not start. Another depth job may be running.	అప్‌స్కేలింగ్ మోడల్ డౌన్‌లోడ్ ప్రారంభం కాలేదు. మరో డెప్త్ పని నడుస్తూ ఉండవచ్చు.
 Third-party notices	మూడవ పక్ష నోటీసులు
 This file can't be opened. It may be damaged, or made by a newer Screen+.	ఈ ఫైల్‌ను తెరవలేము. ఇది పాడై ఉండవచ్చు, లేదా కొత్త Screen+ తో తయారై ఉండవచ్చు.
@@ -333,7 +331,6 @@ Try again	మళ్లీ ప్రయత్నించు
 Type how many times it repeats	ఎన్నిసార్లు పునరావృతమవుతుందో టైప్ చేయండి
 Type	రకం
 UPSCALING	అప్‌స్కేలింగ్
-Undo	రద్దుచేయి
 Update	అప్‌డేట్ చేయి
 Upscaling	అప్‌స్కేలింగ్
 Use Screen+ as the screensaver	Screen+ ను స్క్రీన్‌సేవర్‌గా వాడు

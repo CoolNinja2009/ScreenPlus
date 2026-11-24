@@ -10,7 +10,7 @@
 %d display%ls	ディスプレイ %d 台%.0ls
 %d selected	%d 件選択
 %d wallpaper%ls	壁紙 %d 件%.0ls
-%d × %d on a %d × %d display · Shift keeps the shape	%d × %d（%d × %d のディスプレイ）· Shift で縦横比を保持
+%d × %d on a %d × %d display	%d × %d（%d × %d のディスプレイ）
 %ls downloads %ls the first time.	%ls は初回に %ls をダウンロードします。
 %ls needs more memory than this PC has.	%ls にはこの PC のメモリでは足りません。
 %ls needs your own .onnx file.	%ls には独自の .onnx ファイルが必要です。
@@ -244,7 +244,6 @@ Recent	最近
 Record your changes; they play on a loop	変更を録画すると、ループ再生されます
 Recording  %d:%02d	録画中  %d:%02d
 Recovering	復旧中
-Redo	やり直す
 Reduced	控えめ
 Remove from library (keeps the file)	ライブラリから削除（ファイルは残す）
 Remove from library and delete the download	ライブラリから削除してダウンロードも削除
@@ -318,7 +317,6 @@ Stretch	引き伸ばし
 System	システム
 TROUBLESHOOTING	トラブルシューティング
 The download could not start. Another depth job may be running.	ダウンロードを開始できませんでした。別の深度処理が実行中の可能性があります。
-The picture covers the display	画像がディスプレイを覆います
 The upscaling model download could not start. Another depth job may be running.	アップスケーリング モデルのダウンロードを開始できませんでした。別の深度処理が実行中の可能性があります。
 Third-party notices	サードパーティの通知
 This file can't be opened. It may be damaged, or made by a newer Screen+.	このファイルを開けません。破損しているか、新しい Screen+ で作成された可能性があります。
@@ -333,7 +331,6 @@ Try again	再試行
 Type how many times it repeats	繰り返し回数を入力
 Type	種類
 UPSCALING	アップスケーリング
-Undo	元に戻す
 Update	更新
 Upscaling	アップスケーリング
 Use Screen+ as the screensaver	Screen+ をスクリーンセーバーとして使用

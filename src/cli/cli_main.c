@@ -326,6 +326,7 @@ static const wchar_t k_help[] =
     L"App\n"
     L"  start [--show]                         start Screen+ if it is not running\n"
     L"  show | hide                            open or close the window\n"
+    L"  ui Bare                                open the Bare UI (requires the optional Bare UI build)\n"
     L"  stop                                   quit Screen+\n"
     L"  settings [set <key> <value>]           app settings, e.g. settings set pause_on_battery off\n"
     L"      accent_color #RRGGBB               set the app's accent colour\n"
@@ -440,6 +441,35 @@ static int cmd_start(int show)
         return EXIT_FAILED;
     }
     out(L" %lsrunning%ls.\n", c_green(), c_off());
+    return EXIT_OK;
+}
+
+/* The Bare window is a separate client of the same service. Starting the
+ * service in tray mode keeps this command from opening the classic window. */
+static int cmd_ui(int argc, wchar_t **argv)
+{
+    if (argc != 2 || !str_ieq(argv[1], L"Bare")) {
+        err(L"Usage: screenplus ui Bare\n");
+        return EXIT_USAGE;
+    }
+    wchar_t exe[SP_MAX_PATH], cmd[SP_MAX_PATH + 32];
+    path_join(exe, SP_COUNTOF(exe), paths_exe_dir(), L"screenplus-bare-ui.exe");
+    if (!file_exists(exe)) {
+        err(L"Bare UI was not found next to ScreenPlus.com (%ls). Build with -DSCREENPLUS_BARE_UI=ON.\n", exe);
+        return EXIT_FAILED;
+    }
+    if (!app_window() && cmd_start(0) != EXIT_OK) return EXIT_FAILED;
+    str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\"", exe);
+    STARTUPINFOW si = { sizeof si };
+    PROCESS_INFORMATION pi;
+    if (!CreateProcessW(exe, cmd, NULL, NULL, FALSE, CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
+                        NULL, paths_exe_dir(), &si, &pi)) {
+        err(L"Could not open the Bare UI (error %lu).\n", GetLastError());
+        return EXIT_FAILED;
+    }
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    out(L"Bare UI opened.\n");
     return EXIT_OK;
 }
 
@@ -941,6 +971,7 @@ static int run_command(int argc, wchar_t **in)
         return cmd_help(n > 1 ? argv[1] : NULL);
     if (str_ieq(c, L"version") || str_ieq(c, L"--version") || str_ieq(c, L"-v")) return cmd_version();
     if (str_ieq(c, L"start")) return cmd_start(n > 1 && str_ieq(argv[1], L"--show"));
+    if (str_ieq(c, L"ui")) return cmd_ui(n, argv);
     if (str_ieq(c, L"logs") || str_ieq(c, L"log")) return cmd_logs(n, argv);
     if (str_ieq(c, L"paths")) return cmd_paths();
     if (str_ieq(c, L"path")) return cmd_path(n > 1 ? argv[1] : NULL);

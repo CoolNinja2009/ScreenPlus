@@ -16,6 +16,8 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
+#include <strings.h>
+#include <sys/wait.h>
 
 enum { EXIT_OK = 0, EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_NOT_RUNNING = 3 };
 
@@ -29,6 +31,7 @@ static const char k_help[] =
     "\n"
     "Service\n"
     "  show | hide            Open or close the window\n"
+    "  ui Bare                Open the optional Bare UI window\n"
     "  start                  Start Screen+ in the background\n"
     "  stop                   Stop it and give the desktop its wallpaper back\n"
     "  restart                Restart the wallpapers\n"
@@ -263,12 +266,69 @@ static int connect_probe(void)
     return EXIT_OK;
 }
 
+static int cmd_ui(int argc, char **argv)
+{
+    if (argc != 2 || strcasecmp(argv[1], "Bare")) {
+        fputs("Usage: screenplus ui Bare\n", stderr);
+        return EXIT_USAGE;
+    }
+    char *cli = sp_path_utf8(paths_exe());
+    if (!cli) return EXIT_FAILED;
+    char *slash = strrchr(cli, '/');
+    if (!slash) { free(cli); fputs("Could not locate the Screen+ executable.\n", stderr); return EXIT_FAILED; }
+    size_t dir_len = (size_t)(slash - cli);
+    char ui[MAX_PATH * 4];
+    int n = snprintf(ui, sizeof ui, "%.*s/screenplus-bare-ui", (int)dir_len, cli);
+    if (n < 0 || (size_t)n >= sizeof ui || access(ui, X_OK)) {
+        fprintf(stderr, "Bare UI was not found next to screenplus. Build with -DSCREENPLUS_BARE_UI=ON.\n");
+        free(cli);
+        return EXIT_FAILED;
+    }
+    if (connect_probe() != EXIT_OK && cmd_start() != EXIT_OK) { free(cli); return EXIT_FAILED; }
+    int errpipe[2];
+    if (pipe(errpipe)) { free(cli); return EXIT_FAILED; }
+    if (fcntl(errpipe[1], F_SETFD, FD_CLOEXEC) < 0) {
+        close(errpipe[0]); close(errpipe[1]); free(cli); return EXIT_FAILED;
+    }
+    pid_t child = fork();
+    if (child < 0) {
+        close(errpipe[0]); close(errpipe[1]); free(cli); return EXIT_FAILED;
+    }
+    if (!child) {
+        close(errpipe[0]);
+        pid_t window = fork();
+        if (window < 0) {
+            int saved = errno;
+            (void)write(errpipe[1], &saved, sizeof saved);
+            _exit(127);
+        }
+        if (window > 0) _exit(0);   /* the CLI reaps this child; the window outlives the prompt */
+        execl(ui, ui, cli, (char *)NULL);
+        int saved = errno;
+        (void)write(errpipe[1], &saved, sizeof saved);
+        _exit(127);
+    }
+    close(errpipe[1]);
+    (void)waitpid(child, NULL, 0);
+    int child_error = 0;
+    ssize_t got = read(errpipe[0], &child_error, sizeof child_error);
+    close(errpipe[0]);
+    free(cli);
+    if (got > 0) {
+        fprintf(stderr, "Could not open the Bare UI: %s\n", strerror(child_error));
+        return EXIT_FAILED;
+    }
+    puts("Bare UI opened.");
+    return EXIT_OK;
+}
+
 static int dispatch(int argc, char **argv)
 {
     const char *c = argv[0];
     if (!strcmp(c, "help") || !strcmp(c, "-h") || !strcmp(c, "--help")) { fputs(k_help, stdout); return EXIT_OK; }
     if (!strcmp(c, "version") || !strcmp(c, "--version") || !strcmp(c, "-v")) { puts("Screen+ " SP_VERSION_STR); return EXIT_OK; }
     if (!strcmp(c, "start")) return cmd_start();
+    if (!strcmp(c, "ui")) return cmd_ui(argc, argv);
     if (!strcmp(c, "logs") || !strcmp(c, "log")) return cmd_logs(argc, argv);
     if (!strcmp(c, "paths")) return cmd_paths();
     if (!strcmp(c, "path")) return cmd_path(argc > 1 ? argv[1] : NULL);

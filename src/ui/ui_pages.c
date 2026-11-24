@@ -4103,22 +4103,17 @@ static float draw_wp_layout_section(Ui *u, float x, float y, float w, const Wall
 
     float by = area.bottom + 6.0f;
     wchar_t cap[120];
-    str_printf(cap, SP_COUNTOF(cap), L"%d × %d on a %d × %d display · Shift keeps the shape",
+    str_printf(cap, SP_COUNTOF(cap), L"%d × %d on a %d × %d display",
                (int)lroundf(r[2] * dw), (int)lroundf(r[3] * dh), dw, dh);
-    float rw = ui_button_width(L"Reset", GL_REFRESH), uw = ui_button_width(L"Undo", 0), dw2 = ui_button_width(L"Redo", 0);
-    ui_text(cap, u->fBody, rectf(x + 18, by + 4, w - 36 - rw - uw - dw2 - 16, 24), t->text2);
-    float bx0 = x + w - 18 - rw;
-    ui_button(HIT_ID(HK_LAYOUT_RESET, 0), rectf(bx0, by, rw, 32), L"Reset", GL_REFRESH, BTN_GHOST);
-    ui_button(HIT_ID(HK_LAYOUT_RESET, 2), rectf(bx0 - 6 - dw2, by, dw2, 32), L"Redo", 0,
-              BTN_GHOST);
-    ui_button(HIT_ID(HK_LAYOUT_RESET, 1), rectf(bx0 - 12 - dw2 - uw, by, uw, 32), L"Undo", 0,
-              BTN_GHOST);
+    float rw = ui_button_width(L"Reset", GL_REFRESH);     /* undo and redo: Ctrl+Z, Ctrl+Y */
+    ui_text(cap, u->fBody, rectf(x + 18, by + 4, w - 36 - rw - 16, 24), t->text2);
+    ui_button(HIT_ID(HK_LAYOUT_RESET, 0), rectf(x + w - 18 - rw, by, rw, 32), L"Reset", GL_REFRESH, BTN_GHOST);
 
     float ry = area.bottom + 44.0f;
     row_separator(u, x, ry, w);
     int nf = page ? 2 : 5, sel = page ? (fill == LFILL_COLOR) : fill;
     float sw = 34.0f, fw = SP_CLAMP((w - 36.0f - 130.0f - sw - 10.0f) / nf, 52.0f, 80.0f);
-    row_label(u, x, ry, w - nf * fw - sw - 62, L"Border", layout_uncovered(r) ? NULL : L"The picture covers the display");
+    row_label(u, x, ry, w - nf * fw - sw - 62, L"Border", NULL);
     segmented(u, x + w - 18 - nf * fw - sw - 10, ry + 15, HK_LAYOUT_FILL, page ? pageFills : fills, nf, sel, fw,
               page ? pageFillData : NULL);
     D2D1_RECT_F sr = rectf(x + w - 18 - sw, ry + 14, sw, 34);

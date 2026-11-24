@@ -508,6 +508,9 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File "${STAGE}\${APP_EXE}"
   File "${STAGE}\ScreenPlus.com"                       ; terminal companion: `screenplus <command>`
+!ifdef BARE_UI
+  File "${STAGE}\screenplus-bare-ui.exe"
+!endif
   File "${STAGE}\ScreenPlus.scr"                       ; screensaver: a copy of the app Windows starts with /s, /p, /c
   File "${STAGE}\avcodec-*.dll"
   File "${STAGE}\avformat-*.dll"
@@ -668,6 +671,7 @@ Section "Uninstall"
   Delete "$INSTDIR\${APP_EXE}"
   Delete "$INSTDIR\ScreenPlus.scr"
   Delete "$INSTDIR\ScreenPlus.com"
+  Delete "$INSTDIR\screenplus-bare-ui.exe"
   Delete "$INSTDIR\avcodec-*.dll"
   Delete "$INSTDIR\avformat-*.dll"
   Delete "$INSTDIR\avutil-*.dll"
