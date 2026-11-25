@@ -510,6 +510,8 @@ Section "Install"
   File "${STAGE}\ScreenPlus.com"                       ; terminal companion: `screenplus <command>`
 !ifdef BARE_UI
   File "${STAGE}\screenplus-bare-ui.exe"
+!else
+  Delete "$INSTDIR\screenplus-bare-ui.exe"              ; an older install's: never left to open in place of this one
 !endif
   File "${STAGE}\ScreenPlus.scr"                       ; screensaver: a copy of the app Windows starts with /s, /p, /c
   File "${STAGE}\avcodec-*.dll"

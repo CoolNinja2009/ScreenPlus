@@ -174,9 +174,10 @@ jobs:
           (Split-Path $nsis -Parent) >> $env:GITHUB_PATH
           Write-Host "Using $nsis"
 
+      # with the Bare window (src/ui_bare fetches Bare from GitHub); off until Settings turns it on
       - name: Build app and installer
         shell: cmd
-        run: call build.cmd Release ${{ needs.version.outputs.version }}
+        run: call build.cmd Release ${{ needs.version.outputs.version }} "-DSCREENPLUS_BARE_UI=ON"
 
       # Code signing through SignPath Foundation (free for open source), so Defender and SmartScreen
       # trust the files instead of flagging an unknown unsigned exe. It runs once the repository variable
@@ -213,7 +214,7 @@ jobs:
           $v = '${{ needs.version.outputs.version }}'
           Copy-Item signed-bin\ScreenPlus.exe, signed-bin\ScreenPlus.com build\ -Force
           Copy-Item build\ScreenPlus.exe build\ScreenPlus.scr -Force
-          & (Get-Command makensis -ErrorAction Stop).Source /V2 "/DVERSION=$v" "/DSTAGE=$PWD\build" `
+          & (Get-Command makensis -ErrorAction Stop).Source /V2 "/DVERSION=$v" "/DSTAGE=$PWD\build" /DBARE_UI `
             "/DOUTFILE=$PWD\build\ScreenPlus-Setup-$v.exe" installer\screenplus.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
 
