@@ -1,5 +1,9 @@
 /* sp_kit.c: Screen+'s liquid-glass controls (see sp_kit.h). */
 #include "sp_kit.h"
+#ifndef _WIN32
+#include "../linux/ui_icons.h"
+#include <unistd.h>
+#endif
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -132,6 +136,24 @@ BareFont sp_icon_font(void) {
             icons = bare_font_load(p);
             if (icons) icons_state = 1;
         }
+#else
+        /* Fluent System Icons, shipped beside the program (as the classic UI uses it) or the installed app's */
+        char dir[1024] = "", path[1100];
+        ssize_t n = readlink("/proc/self/exe", dir, sizeof dir - 1);
+        if (n > 0) {
+            dir[n] = 0;
+            char *slash = strrchr(dir, '/');
+            if (slash) *slash = 0;
+        }
+        const char *home = getenv("HOME");
+        for (int i = 0; i < 2 && icons_state == 2; i++) {
+            if (i == 0) snprintf(path, sizeof path, "%s/fonts/FluentSystemIcons-Regular.ttf", dir);
+            else snprintf(path, sizeof path, "%s/.local/share/screenplus-app/fonts/FluentSystemIcons-Regular.ttf",
+                          home ? home : "");
+            if (access(path, R_OK)) continue;
+            icons = bare_font_load(path);
+            if (icons) icons_state = 1;
+        }
 #endif
     }
     return icons_state == 1 ? icons : 0;
@@ -139,6 +161,22 @@ BareFont sp_icon_font(void) {
 
 void sp_icon(const char *glyph, float size, BareColor color) {
     if (!glyph || !sp_icon_font()) return;
+#ifndef _WIN32
+    /* the Segoe code points (SPI_*) to Fluent's */
+    const unsigned char *g = (const unsigned char *)glyph;
+    char mapped[5];
+    if ((g[0] & 0xF0) == 0xE0 && g[1] && g[2]) {
+        uint32_t c = ui_icon_map(((uint32_t)(g[0] & 15) << 12) | ((uint32_t)(g[1] & 63) << 6) | (g[2] & 63));
+        if (c < 0x10000) {
+            mapped[0] = (char)(0xE0 | (c >> 12)), mapped[1] = (char)(0x80 | ((c >> 6) & 63));
+            mapped[2] = (char)(0x80 | (c & 63)), mapped[3] = 0;
+        } else {
+            mapped[0] = (char)(0xF0 | (c >> 18)), mapped[1] = (char)(0x80 | ((c >> 12) & 63));
+            mapped[2] = (char)(0x80 | ((c >> 6) & 63)), mapped[3] = (char)(0x80 | (c & 63)), mapped[4] = 0;
+        }
+        glyph = mapped;
+    }
+#endif
     bare_text(glyph, .font = sp_icon_font(), .size = size, .color = color, .nowrap = true, .line_height = 1.0f);
 }
 

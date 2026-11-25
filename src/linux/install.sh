@@ -36,7 +36,7 @@ case "${SCREENPLUS_DESKTOP:-}" in
         fi ;;
 esac
 
-# ---- What is missing: "kind:name" words (lib:<soname>, qml:<module>, cmd:<command>)
+# ---- What is missing: "kind:name" words (lib:<soname>, qml:<module>, cmd:<command>, vk:loader|amd|intel|soft)
 missing= notes=
 need() { missing="$missing $1"; }
 libs() {       # what a program loads; some systems have no ldd script, only the loader
@@ -77,6 +77,21 @@ check_system() {
         done
     fi
     for c in ffmpeg curl bsdtar; do command -v $c >/dev/null 2>&1 || need "cmd:$c"; done
+    # Vulkan: the Bare window draws with it. A driver for the GPU (AMD, Intel: Mesa's), else Mesa's software one
+    # (virtual machines, a GPU without a driver). NVIDIA's own driver brings its own.
+    ldconfig -p 2>/dev/null | grep -q 'libvulkan\.so\.1 ' || [ -e /usr/lib/libvulkan.so.1 ] ||
+        [ -e /usr/lib64/libvulkan.so.1 ] || [ -e /usr/lib/x86_64-linux-gnu/libvulkan.so.1 ] || need "vk:loader"
+    icd=
+    for f in /usr/share/vulkan/icd.d/*.json /etc/vulkan/icd.d/*.json /usr/local/share/vulkan/icd.d/*.json; do
+        [ -f "$f" ] && { icd=1; break; }
+    done
+    if [ -z "$icd" ]; then
+        gpu=soft
+        for v in /sys/class/drm/card*/device/vendor; do
+            case $(cat "$v" 2>/dev/null) in 0x1002) gpu=amd; break ;; 0x8086) gpu=intel; break ;; esac
+        done
+        need "vk:$gpu"
+    fi
 }
 
 # The package that gives one missing piece, per package manager. dnf resolves libraries and commands by what they
@@ -84,6 +99,10 @@ check_system() {
 package() {
     kind=${1%%:*} name=${1#*:}
     case $pm:$kind in
+        pacman:vk) case $name in loader) echo vulkan-icd-loader ;; amd) echo vulkan-radeon ;; intel) echo vulkan-intel ;; *) echo vulkan-swrast ;; esac ;;
+        apt-get:vk) [ "$name" = loader ] && echo libvulkan1 || echo mesa-vulkan-drivers ;;
+        dnf:vk) [ "$name" = loader ] && echo vulkan-loader || echo mesa-vulkan-drivers ;;
+        zypper:vk) case $name in loader) echo libvulkan1 ;; amd) echo libvulkan_radeon ;; intel) echo libvulkan_intel ;; *) echo libvulkan_lvp ;; esac ;;
         dnf:lib) echo "$name()(64bit)" ;;
         dnf:cmd) echo "/usr/bin/$name" ;;
         dnf:qml) case $name in QtMultimedia) echo qt6-qtmultimedia ;; *) echo qt6-qtwebengine ;; esac ;;
@@ -160,7 +179,7 @@ report() {
         if [ -n "$p" ]; then case " $pkgs " in *" $p "*) ;; *) pkgs="$pkgs $p"; qpkgs="$qpkgs '$p'" ;; esac
         else unknown="$unknown ${m#*:}"; fi
     done
-    echo "Screen+ needs these from the system:$(for m in $missing; do printf ' %s' "${m#*:}"; done)"
+    echo "Screen+ needs these from the system:$(for m in $missing; do case $m in vk:loader) printf ' Vulkan' ;; vk:*) printf ' a Vulkan driver' ;; *) printf ' %s' "${m#*:}" ;; esac; done)"
     if [ -n "$unknown" ]; then echo "Install the packages that provide:$unknown"; fi
     return 1
 }

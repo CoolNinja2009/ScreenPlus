@@ -4,15 +4,13 @@
  * no process per request. The shell answers with IPC_CLI_REPLY to our message window
  * while SendMessageTimeout waits, so the answer is there when it returns. Use from one
  * thread (the window belongs to the thread that made it).
- * Linux: runs the `screenplus` CLI with --json. */
+ * Linux: the service's socket ($XDG_RUNTIME_DIR/screenplus.sock), as the `screenplus` CLI talks to it: the
+ * request, then the whole answer up to the end. */
 #include "sp_ipc.h"
 #include "../common/json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#ifdef _WIN32
-#include "../common/ipc.h"
 
 static StrBuf request_json(const char *const *argv) {
     StrBuf b = { 0 };
@@ -24,6 +22,9 @@ static StrBuf request_json(const char *const *argv) {
     sb_puts(&b, "]}");
     return b;
 }
+
+#ifdef _WIN32
+#include "../common/ipc.h"
 
 static char  *g_reply;
 static size_t g_reply_len;
@@ -78,51 +79,52 @@ JVal *sp_request(const char *const *argv) {
 }
 
 #else
-#include <sys/types.h>
-#include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
-static const char *g_cli = "screenplus";
-void sp_set_cli(const char *path) { if (path && *path) g_cli = path; }
+static int connect_service(void) {
+    const char *dir = getenv("XDG_RUNTIME_DIR");
+    struct sockaddr_un a;
+    memset(&a, 0, sizeof a);
+    a.sun_family = AF_UNIX;
+    int n = dir && *dir ? snprintf(a.sun_path, sizeof a.sun_path, "%s/screenplus.sock", dir)   /* src/linux/run.c */
+                        : snprintf(a.sun_path, sizeof a.sun_path, "/tmp/screenplus.sock-%u", (unsigned)getuid());
+    if (n <= 0 || (size_t)n >= sizeof a.sun_path) return -1;
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    if (fd >= 0 && connect(fd, (struct sockaddr *)&a, sizeof a)) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
 
-bool sp_service_running(void) { return true; }
+bool sp_service_running(void) {
+    int fd = connect_service();
+    if (fd < 0) return false;
+    close(fd);
+    return true;
+}
 
 JVal *sp_request(const char *const *argv) {
-    int pipes[2];
-    if (pipe(pipes)) return NULL;
-    pid_t child = fork();
-    if (child < 0) { close(pipes[0]); close(pipes[1]); return NULL; }
-    if (!child) {
-        dup2(pipes[1], STDOUT_FILENO);
-        close(pipes[0]); close(pipes[1]);
-        char *av[20]; int n = 0;
-        av[n++] = (char *)g_cli;
-        for (int i = 0; argv[i] && n < 18; i++) av[n++] = (char *)argv[i];
-        av[n++] = "--json"; av[n] = NULL;
-        execvp(g_cli, av);
-        _exit(127);
+    int fd = connect_service();
+    if (fd < 0) return NULL;
+    StrBuf q = request_json(argv);
+    size_t off = 0;
+    while (!q.failed && off < q.len) {
+        ssize_t w = write(fd, q.p + off, q.len - off);
+        if (w <= 0) break;
+        off += (size_t)w;
     }
-    close(pipes[1]);
-    size_t cap = 4096, used = 0;
-    char *out = malloc(cap);
-    if (out) for (;;) {
-        if (used + 4096 + 1 > cap) {
-            if (cap >= 16 * 1024 * 1024) break;
-            cap *= 2;
-            char *bigger = realloc(out, cap);
-            if (!bigger) break;
-            out = bigger;
-        }
-        ssize_t got = read(pipes[0], out + used, cap - used - 1);
-        if (got <= 0) break;
-        used += (size_t)got;
-    }
-    close(pipes[0]);
-    waitpid(child, NULL, 0);
-    if (!out) return NULL;
-    out[used] = 0;
-    JVal *doc = json_parse(out, used);
-    free(out);
+    sb_free(&q);
+    shutdown(fd, SHUT_WR);
+    StrBuf in = { 0 };
+    char buf[8192];
+    ssize_t got;
+    while ((got = read(fd, buf, sizeof buf)) > 0 && in.len < 64u << 20) sb_append(&in, buf, (size_t)got);
+    close(fd);
+    JVal *doc = in.len && !in.failed ? json_parse(in.p, in.len) : NULL;
+    sb_free(&in);
     return doc;
 }
 #endif

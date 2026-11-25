@@ -37,6 +37,29 @@ static inline uint32_t ui_icon_map(uint32_t c)
     case 0xE735: return 0xF710;   /* STAR_ON: star (no filled font) */
     case 0xE8CB: return 0xF18B;   /* SORT: arrow_sort */
     case 0xE70D: return 0xF2A4;   /* chevron down, drawn as a literal in ui_pages.c */
+    /* the Bare UI's icons (src/ui_bare/sp_kit.h SPI_*) */
+    case 0xE790: return 0xF2F5;   /* PALETTE: color */
+    case 0xE921: return 0xEBD0;   /* MIN: subtract */
+    case 0xE922: return 0xE7EB;   /* MAX: maximize */
+    case 0xE923: return 0xEB96;   /* RESTORE: square_multiple */
+    case 0xE8BB: return 0xF369;   /* CLOSE: dismiss */
+    case 0xE895: return 0xF190;   /* SYNC: arrow_sync */
+    case 0xE81E: return 0xF4CB;   /* LAYERS: layer */
+    case 0xE771: return 0xF592;   /* BRUSH: paint_brush */
+    case 0xE774: return 0xF45A;   /* GLOBE: globe */
+    case 0xEF3C: return 0xE5FD;   /* DROPPER: eyedropper */
+    case 0xECA5: return 0xF462;   /* TILES: grid */
+    case 0xE8B9: return 0xF488;   /* PICTURE: image */
+    case 0xE83F: return 0xF1CD;   /* BATTERY: battery_9 */
+    case 0xE72E: return 0xE78F;   /* LOCK: lock_closed */
+    case 0xE740: return 0xE684;   /* FULL: full_screen_maximize */
+    case 0xE7B3: return 0xE5F2;   /* EYE: eye */
+    case 0xE962: return 0xE443;   /* MOUSE: cursor */
+    case 0xE8D6: return 0xE854;   /* AUDIO: music_note_2 */
+    case 0xE777: return 0xE701;   /* HEAL: heart_pulse */
+    case 0xE786: return 0xEB1C;   /* SLIDES: slide_multiple */
+    case 0xE8B1: return 0xEF36;   /* SHUFFLE: arrow_shuffle */
+    case 0xE823: return 0xF2DD;   /* CLOCK: clock */
     default: return c;
     }
 }

@@ -370,11 +370,9 @@ static bool already_open(void) {
 #endif
 
 int main(int argc, char **argv) {
-#ifdef _WIN32
     (void)argc; (void)argv;
+#ifdef _WIN32
     if (!getenv("BARE_CAPTURE") && already_open()) return 0;
-#else
-    if (argc > 1) sp_set_cli(argv[1]);
 #endif
     static Live app;
     lock_init(&g.lock);

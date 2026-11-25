@@ -7,6 +7,3 @@
  * or didn't answer. Call from one thread only. */
 JVal *sp_request(const char *const *argv);
 bool  sp_service_running(void);
-#ifndef _WIN32
-void  sp_set_cli(const char *path);
-#endif
