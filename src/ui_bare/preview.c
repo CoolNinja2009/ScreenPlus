@@ -217,6 +217,17 @@ static void open_path(void *user, const char *path) {
     say(user, text, false);
 }
 
+static void frame(void *user) {
+    Preview *p = user;
+    const char *accent = setting("accent_color")->value;
+    unsigned rgb = (unsigned)strtoul(accent + 1, NULL, 16);
+    const char *motion = setting("ui_motion")->value;
+    sp_theme_set(strcmp(setting("theme")->value, "light") != 0, BARE_RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255),
+                 !strcmp(motion, "off") ? 2 : !strcmp(motion, "reduced") ? 1 : 0);
+    p->model.backdrop = p->backdrop ? p->backdrop : bare_window_backdrop();
+    sp_draw(&p->view, &p->model);
+}
+
 int main(int argc, char **argv) {
     static Preview p;
     static const char *pages[] = { "library", "displays", "customise", "store", "settings" };
@@ -242,15 +253,7 @@ int main(int argc, char **argv) {
     const char *bg = getenv("SP_BACKDROP");
     if (bg && !strcmp(bg, "gen")) p.backdrop = generated(7, 1560, 1000, true);
     else if (bg && *bg) p.backdrop = bare_image_load(bg);
-    while (bare_frame()) {
-        const char *accent = setting("accent_color")->value;
-        unsigned rgb = (unsigned)strtoul(accent + 1, NULL, 16);
-        const char *motion = setting("ui_motion")->value;
-        sp_theme_set(strcmp(setting("theme")->value, "light") != 0, BARE_RGB((rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255),
-                     !strcmp(motion, "off") ? 2 : !strcmp(motion, "reduced") ? 1 : 0);
-        p.model.backdrop = p.backdrop ? p.backdrop : bare_window_backdrop();
-        sp_draw(&p.view, &p.model);
-    }
+    bare_run(frame, &p);
     bare_quit();
     return 0;
 }

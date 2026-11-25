@@ -49,7 +49,7 @@ static HWND reply_window(void) {
     WNDCLASSEXW wc = { sizeof wc };
     wc.lpfnWndProc = reply_proc;
     wc.hInstance = GetModuleHandleW(NULL);
-    wc.lpszClassName = L"ScreenPlus.BareUi.Reply";
+    wc.lpszClassName = SP_CLI_CLASS;   /* the shell answers only this class (cli_server_handle) */
     RegisterClassExW(&wc);
     w = CreateWindowExW(0, wc.lpszClassName, L"", 0, 0, 0, 0, 0, HWND_MESSAGE, NULL, wc.hInstance, NULL);
     if (w) ChangeWindowMessageFilterEx(w, WM_COPYDATA, MSGFLT_ALLOW, NULL);

@@ -381,6 +381,16 @@ static void take_updates(Live *app) {
     app->model.store = app->docs[DOC_STORE];
 }
 
+static void frame(void *user) {
+    Live *app = user;
+    app->loads_this_frame = 0;
+    take_updates(app);
+    apply_theme(app);
+    app->model.backdrop = bare_window_backdrop();
+    bare_background(sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222));
+    sp_draw(&app->view, &app->model);
+}
+
 #ifdef _WIN32
 /* One window: a second launch brings the first forward. */
 static bool already_open(void) {
@@ -422,14 +432,9 @@ int main(int argc, char **argv) {
     pthread_t thread;
     pthread_create(&thread, NULL, worker, NULL);
 #endif
-    while (bare_frame()) {
-        app.loads_this_frame = 0;
-        take_updates(&app);
-        apply_theme(&app);
-        app.model.backdrop = bare_window_backdrop();
-        bare_background(sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222));
-        sp_draw(&app.view, &app.model);
-    }
+    /* bare_run, not a bare_frame loop: it keeps drawing while the window is dragged,
+     * so the glass follows what's under it. */
+    bare_run(frame, &app);
     lock(&g.lock);
     g.quit = true;
     cond_signal(&g.wake);
