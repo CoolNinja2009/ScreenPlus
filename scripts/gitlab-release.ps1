@@ -141,6 +141,7 @@ if ($haveTools) {
 }
 New-Item -ItemType Directory -Force release | Out-Null
 Copy-Item $setup, "build\ScreenPlus-$ver-samples.zip", "build\ScreenPlus-$ver-samples.json" release\
+Copy-Item build\*.spf release\   # sample app wallpapers (Bare programs), one .spf each
 Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$ver-win-x64-portable.zip"
 if ($env:VERSION) { Get-ChildItem release; exit 0 }   # the release job adds the sums and publishes
 Get-ChildItem release -File | ForEach-Object {

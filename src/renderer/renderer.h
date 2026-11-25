@@ -79,6 +79,7 @@ void renderer_post(HWND notify, uint32_t rid, int code, HRESULT hr, const wchar_
 Renderer *image_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);
 Renderer *video_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);
 Renderer *html_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);
+Renderer *app_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap);   /* app_renderer.c: .exe wallpapers */
 
 /* Process-wide subsystems (engine process only). */
 BOOL video_ffmpeg_available(wchar_t *err, size_t cap);

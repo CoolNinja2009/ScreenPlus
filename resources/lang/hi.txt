@@ -21,6 +21,7 @@
 (unnamed)	(बिना नाम)
 ABOUT	जानकारी
 ALL DISPLAYS	सभी डिस्प्ले
+APP	ऐप
 APP RULES	ऐप नियम
 AUDIO & RECOVERY	ऑडियो और रिकवरी
 Accent colour	एक्सेंट रंग

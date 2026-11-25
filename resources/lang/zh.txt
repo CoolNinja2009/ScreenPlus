@@ -21,6 +21,7 @@
 (unnamed)	（未命名）
 ABOUT	关于
 ALL DISPLAYS	所有显示器
+APP	应用
 APP RULES	应用规则
 AUDIO & RECOVERY	音频与恢复
 Accent colour	强调色

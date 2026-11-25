@@ -21,6 +21,7 @@
 (unnamed)	(sans nom)
 ABOUT	À PROPOS
 ALL DISPLAYS	TOUS LES ÉCRANS
+APP	APPLI
 APP RULES	RÈGLES PAR APPLI
 AUDIO & RECOVERY	SON ET RÉCUPÉRATION
 Accent colour	Couleur d'accentuation

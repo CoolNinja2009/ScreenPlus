@@ -76,7 +76,7 @@ static void jstr(StrBuf *b, const wchar_t *w)
 
 static const wchar_t *type_key(WallpaperType t)
 {
-    return t == WP_IMAGE ? L"image" : t == WP_VIDEO ? L"video" : t == WP_HTML ? L"html" : L"none";
+    return t == WP_IMAGE ? L"image" : t == WP_VIDEO ? L"video" : t == WP_HTML ? L"html" : t == WP_APP ? L"app" : L"none";
 }
 
 static const wchar_t *format_key(int f)
@@ -318,6 +318,7 @@ static int list_match(const WallpaperEntry *e, const wchar_t *f, int onScreen)
     if (str_ieq(f, L"image") || str_ieq(f, L"images")) return e->type == WP_IMAGE;
     if (str_ieq(f, L"video") || str_ieq(f, L"videos")) return e->type == WP_VIDEO;
     if (str_ieq(f, L"html") || str_ieq(f, L"web")) return e->type == WP_HTML;
+    if (str_ieq(f, L"app") || str_ieq(f, L"apps")) return e->type == WP_APP;
     if (str_ieq(f, L"lively")) return e->format == WPF_LIVELY;
     if (str_ieq(f, L"we")) return e->format == WPF_WE;
     if (str_ieq(f, L"missing")) return e->missing;
@@ -949,7 +950,8 @@ static int look_key(const wchar_t *k)
 
 static void look_print(Reply *r, const WallpaperEntry *e, const WallpaperAdjust *a)
 {
-    say(r, L"Look of \"%ls\"%ls\n", e->name, e->type == WP_HTML ? L" (web wallpaper: CSS, gamma not available)" : L"");
+    say(r, L"Look of \"%ls\"%ls\n", e->name, e->type == WP_HTML ? L" (web wallpaper: CSS, gamma not available)"
+                                                    : e->type == WP_APP ? L" (program: not available)" : L"");
     for (int k = 0; k < LK_COUNT; k++) {
         if (k == LK_TINT) {
             say(r, L"  %-16ls #%06X\n", k_look[k].key, a->tint & 0xFFFFFF);
@@ -1616,6 +1618,10 @@ static void cmd_layout(Reply *r, const Req *q)
     if (!e) return;
     WallpaperLayout l;
     wpapi_load_layout(e->id, &l);
+    if (e->type == WP_APP) {
+        fail(r, L"\"%ls\" is a program: it lays out its own picture.", e->name);
+        return;
+    }
     int page = e->type == WP_HTML && !(e->flags & WPFLAG_DEPTH), changed = 0;   /* a depth page is its picture */
     for (int i = 1; i < q->argc; i++) {
         const wchar_t *a = q->argv[i];

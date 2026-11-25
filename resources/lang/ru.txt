@@ -21,6 +21,7 @@
 (unnamed)	(без имени)
 ABOUT	О ПРОГРАММЕ
 ALL DISPLAYS	ВСЕ ДИСПЛЕИ
+APP	ПРИЛОЖЕНИЕ
 APP RULES	ПРАВИЛА ДЛЯ ПРИЛОЖЕНИЙ
 AUDIO & RECOVERY	ЗВУК И ВОССТАНОВЛЕНИЕ
 Accent colour	Цвет акцента

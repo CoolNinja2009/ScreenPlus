@@ -252,6 +252,42 @@ char *wpapi_properties_js(const WallpaperEntry *wp, JVal **sent)
     return b.p;
 }
 
+char *wpapi_properties_lines(const WallpaperEntry *wp, JVal **sent)
+{
+    if (!wp || (wp->format != WPF_LIVELY && wp->format != WPF_WE)) return NULL;
+    wchar_t op[SP_MAX_PATH];
+    wpapi_overrides_path(wp->id, op, SP_COUNTOF(op));
+    JVal *over = with_live(wp->id, file_exists(op) ? json_parse_file(op) : NULL);
+    JVal *vals = property_values(wp, over);
+    json_free(over);
+    if (!vals || vals->t != J_OBJ) {
+        json_free(vals);
+        return NULL;
+    }
+    const JVal *prev = sent ? *sent : NULL;
+    StrBuf b = { 0 };
+    for (int i = 0; i < vals->n; i++) {
+        const char *key = vals->keys[i];
+        if (!key || (prev && jval_same(json_get(prev, key), &vals->kids[i]))) continue;
+        sb_puts(&b, "{\"type\":\"property\",\"name\":");
+        json_write_string(&b, key);
+        sb_puts(&b, ",\"value\":");
+        json_write(&b, &vals->kids[i]);
+        sb_puts(&b, "}\n");
+    }
+    if (sent) {
+        json_free(*sent);
+        *sent = vals;
+    } else {
+        json_free(vals);
+    }
+    if (b.failed || !b.len) {
+        sb_free(&b);
+        return NULL;
+    }
+    return b.p;
+}
+
 /* ================================================================ customise panel */
 
 static const JVal k_jnull = { J_NULL };

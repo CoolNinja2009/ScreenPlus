@@ -21,6 +21,8 @@ const wchar_t *wpapi_shim_js(void);
  * are sent and *sent is updated (*sent == NULL: a fresh page, everything is sent). NULL when
  * there is nothing to send. */
 char *wpapi_properties_js(const WallpaperEntry *wp, JVal **sent);
+/* The same values for an app wallpaper's stdin: one {"type":"property","name":..,"value":..} line each. */
+char *wpapi_properties_lines(const WallpaperEntry *wp, JVal **sent);
 
 /* Overrides file for a wallpaper: <data>\props\<id>.json ({"name": value, ...}). */
 void wpapi_overrides_path(const wchar_t *wallpaperId, wchar_t *out, size_t cap);

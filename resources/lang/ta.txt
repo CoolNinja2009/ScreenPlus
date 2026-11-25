@@ -21,6 +21,7 @@
 (unnamed)	(பெயரில்லை)
 ABOUT	தகவல்
 ALL DISPLAYS	எல்லாத் திரைகளும்
+APP	ஆப்
 APP RULES	ஆப் விதிகள்
 AUDIO & RECOVERY	ஒலி & மீட்பு
 Accent colour	அழுத்த நிறம்

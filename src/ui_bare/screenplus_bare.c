@@ -89,7 +89,7 @@ bool sp_wallpaper_matches(const JVal *item, const char *search, int filter, int 
 }
 
 static const char *type_label(const char *type) {
-    return !strcmp(type, "html") ? "HTML" : !strcmp(type, "video") ? "Video" : !strcmp(type, "image") ? "Image" : type;
+    return !strcmp(type, "html") ? "HTML" : !strcmp(type, "video") ? "Video" : !strcmp(type, "image") ? "Image" : !strcmp(type, "app") ? "App" : type;
 }
 
 static const char *file_name(const char *path) {
@@ -324,7 +324,7 @@ static void sidebar(SpView *v, const SpModel *m) {
             BareState blob = bare_box(.id = ID("nav.blob"), .position = BARE_ABSOLUTE, .x = r.x - box.x + stretch * 0.15f,
                      .y = r.y - box.y - stretch * 0.5f,
                      .width = have ? r.w - stretch * 0.3f : 10, .height = have ? r.h + stretch : 10, .radius = 22, .glass = g,
-                     .opacity = have ? 1.0f : BARE_ZERO, .border = 1,
+                     .opacity = have && blob_in > 0.001f ? blob_in : BARE_ZERO, .border = 1,
                      .border_color = sp_alpha(sp_mix(sp.accent, BARE_WHITE, 0.55f), moving ? 110 : 160),
                      .shadow = { 0, 4, 22, 0, sp_alpha(sp.accent, moving ? 30 : 110) },
                      .passthrough = true, .animate = sp_liquid());
@@ -1960,7 +1960,7 @@ static void customise(SpView *v, const SpModel *m) {
         }
         if (m->layout && sp_button(ID("cus.layout.reset"), SPI_TILES, "Reset layout", SP_BTN_GLASS).clicked)
             CRUN("layout", "reset");
-        if (m->look && sp_button(ID("cus.reset"), SPI_REFRESH, "Reset look", SP_BTN_GLASS).clicked)
+        if (m->look && strcmp(type, "app") && sp_button(ID("cus.reset"), SPI_REFRESH, "Reset look", SP_BTN_GLASS).clicked)
             CRUN("look", "reset");
     }
     bare_column(.width = BARE_GROW, .height = BARE_GROW, .gap = 14, .scroll = BARE_SCROLL_Y, .pad = { 4, 6, 24, 6 }) {
@@ -1975,7 +1975,7 @@ static void customise(SpView *v, const SpModel *m) {
                     bare_text(json_str(json_get(lw, "name"), ""), .size = 22, .weight = BARE_SEMIBOLD, .color = sp.ink,
                               .ellipsis = true, .nowrap = true);
                     char line[80];
-                    snprintf(line, sizeof line, "%s%s", !strcmp(type, "html") ? "Web page" : !strcmp(type, "video") ? "Video" : "Picture",
+                    snprintf(line, sizeof line, "%s%s", !strcmp(type, "html") ? "Web page" : !strcmp(type, "video") ? "Video" : !strcmp(type, "app") ? "Program" : "Picture",
                              v->target_display ? "  \xC2\xB7  this display" : "  \xC2\xB7  all displays");
                     sp_label(line, 15, sp.dim, BARE_REGULAR);
                 }
@@ -1984,10 +1984,12 @@ static void customise(SpView *v, const SpModel *m) {
                 section("Make wallpaper cooler");
                 customise_cool(v, m);
             }
-            rec_bar(v, m, REC_SEC_LOOK, "Colour grading");
-            rec_graphs(v, m, REC_SEC_LOOK);
-            customise_look(v, m);
-            if (m->layout) { section("Layout"); customise_layout(v, m, w); }
+            if (strcmp(type, "app")) {   /* a program draws its own picture: no grading or layout */
+                rec_bar(v, m, REC_SEC_LOOK, "Colour grading");
+                rec_graphs(v, m, REC_SEC_LOOK);
+                customise_look(v, m);
+                if (m->layout) { section("Layout"); customise_layout(v, m, w); }
+            }
             if (m->upscale) { section("Upscaling"); customise_upscale(v, m); }
             if (strcmp(type, "image")) {
                 if (json_get(lw, "slideSeconds")) section("Slides");

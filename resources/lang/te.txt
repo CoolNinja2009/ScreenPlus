@@ -21,6 +21,7 @@
 (unnamed)	(పేరు లేదు)
 ABOUT	గురించి
 ALL DISPLAYS	అన్ని డిస్‌ప్లేలు
+APP	యాప్
 APP RULES	యాప్ నియమాలు
 AUDIO & RECOVERY	ఆడియో & రికవరీ
 Accent colour	యాక్సెంట్ రంగు

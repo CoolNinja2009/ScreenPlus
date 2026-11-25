@@ -23,6 +23,14 @@
 #define FORMAT_MAX_FILES 10000
 #define FORMAT_MAX_BYTES (20ULL * 1024 * 1024 * 1024)
 
+/* The last wallpaper type a file may hold here: programs (WP_APP) only where they can run. A program in a file is
+ * no riskier than the .exe it came from, and the preview says plainly that it is one before it is added. */
+#ifdef _WIN32
+#define FORMAT_MAX_TYPE WP_APP
+#else
+#define FORMAT_MAX_TYPE WP_HTML
+#endif
+
 static unsigned u16(const unsigned char *p) { return (unsigned)p[0] | ((unsigned)p[1] << 8); }
 static unsigned u32(const unsigned char *p) { return u16(p) | (u16(p + 2) << 16); }
 
@@ -195,7 +203,10 @@ static BOOL spf_pack(const WallpaperEntry *e, const wchar_t *dest)
     if (link) str_copy(rel, SP_COUNTOF(rel), e->path);
     else {
         path_dirname(folder, SP_COUNTOF(folder), e->path);
-        BOOL group = e->type == WP_HTML;
+        wchar_t lp[SP_MAX_PATH];
+        path_join(lp, SP_COUNTOF(lp), folder, L"LivelyProperties.json");
+        /* a page's whole folder; a program's only when it is a package (properties beside it), never e.g. Downloads */
+        BOOL group = e->type == WP_HTML || (e->type == WP_APP && file_exists(lp));
         path_join(media, SP_COUNTOF(media), stage, L"media");
         path_join(target, SP_COUNTOF(target), media, group ? L"wallpaper" : path_filename(e->path));
         if (group) {
@@ -236,7 +247,7 @@ static BOOL spf_pack(const WallpaperEntry *e, const wchar_t *dest)
     path_join(out, SP_COUNTOF(out), stage, L"manifest.json");
     BOOL ok = !b.failed && write_text(out, &b);
     sb_free(&b);
-    if (ok) ok = pack_atomic(stage, dest, !link && e->type != WP_HTML);
+    if (ok) ok = pack_atomic(stage, dest, !link && e->type != WP_HTML && e->type != WP_APP);
     remove_tree(stage);
     return ok;
 }
@@ -465,7 +476,7 @@ static int import_spf_stage(const wchar_t *stage, const wchar_t *collection)
     int flags = (int)json_num(json_get(j, "flags"), 0) & ~WPFLAG_PPTX;
     if (link) flags = (flags & ~(WPFLAG_DEPTH)) | WPFLAG_URL;
     else flags &= ~(WPFLAG_URL | WPFLAG_YTDLP);
-    if (type < WP_IMAGE || type > WP_HTML || ((flags & WPFLAG_DEPTH) && type != WP_HTML) ||
+    if (type < WP_IMAGE || type > FORMAT_MAX_TYPE || ((flags & WPFLAG_DEPTH) && type != WP_HTML) ||
         (link && (type != WP_HTML && type != WP_VIDEO))) {
         json_free(j); remove_tree(stage); return 0;
     }
@@ -584,7 +595,8 @@ static void read_item(FormatItem *it)
     json_str_w(json_get(j, "name"), e->name, SP_COUNTOF(e->name));
     json_str_w(json_get(j, "path"), rel, SP_COUNTOF(rel));
     json_str_w(json_get(j, "thumb"), thumbRel, SP_COUNTOF(thumbRel));
-    e->type = (WallpaperType)SP_CLAMP((int)json_num(json_get(j, "type"), WP_IMAGE), WP_IMAGE, WP_HTML);
+    e->type = (WallpaperType)(int)json_num(json_get(j, "type"), WP_IMAGE);
+    if (e->type < WP_IMAGE || e->type > FORMAT_MAX_TYPE) { json_free(j); return; }
     e->format = SP_CLAMP((int)json_num(json_get(j, "format"), WPF_PLAIN), WPF_PLAIN, WPF_WE);
     e->flags = (int)json_num(json_get(j, "flags"), 0);
     e->volCut = SP_CLAMP((int)json_num(json_get(j, "volCut"), 0), 0, 100);
@@ -597,7 +609,7 @@ static void read_item(FormatItem *it)
     else {
         path_join(e->path, SP_COUNTOF(e->path), it->stage, rel);
         if (!file_exists(e->path)) { json_free(j); return; }
-        if (e->type == WP_HTML) { path_dirname(p, SP_COUNTOF(p), e->path); it->bytes = tree_bytes(p, 0); }
+        if (e->type == WP_HTML || e->type == WP_APP) { path_dirname(p, SP_COUNTOF(p), e->path); it->bytes = tree_bytes(p, 0); }
         else it->bytes = one_file_bytes(e->path);
         if (thumbRel[0]) path_join(e->thumb, SP_COUNTOF(e->thumb), it->stage, thumbRel);
         if (!file_exists(e->thumb)) e->thumb[0] = 0;
@@ -653,13 +665,14 @@ int sp_preview_rows(const FormatItem *it, wchar_t rows[][2][200], int max)
     int n = 0;
 #define ROW(label, ...) do { if (n < max) { str_copy(rows[n][0], 200, label); str_printf(rows[n][1], 200, __VA_ARGS__); n++; } } while (0)
     const WallpaperEntry *e = &it->e;
-    static const wchar_t *const types[] = { L"", L"Image", L"Video", L"Web page (HTML)" };
+    static const wchar_t *const types[] = { L"", L"Image", L"Video", L"Web page (HTML)", L"Program (.exe)" };
     static const wchar_t *const sources[] = { L"", L" · from Lively", L" · from Wallpaper Engine" };
     const wchar_t *kind = (e->flags & WPFLAG_DEPTH) ? ((e->flags & WPFLAG_DEPTHVIDEO) ? L"Interactive video (depth)"
                                                                                      : L"Interactive image (depth)")
-                        : types[SP_CLAMP((int)e->type, 1, 3)];
+                        : types[SP_CLAMP((int)e->type, 1, 4)];
     ROW(L"Type", L"%ls%ls%ls", kind, sources[SP_CLAMP(e->format, 0, 2)],
         (e->flags & WPFLAG_AUDIO) ? L" · reacts to sound" : L"");
+    if (e->type == WP_APP) ROW(L"Warning", L"It runs as a program on this PC. Add it only if you trust where it came from.");
     if (it->link) ROW(L"Link", L"%ls%ls", e->path, (e->flags & WPFLAG_YTDLP) ? L" (streamed)" : L"");
     else {
         wchar_t sz[32]; size_text(it->bytes, sz, SP_COUNTOF(sz));

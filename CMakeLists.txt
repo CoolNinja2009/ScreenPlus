@@ -115,6 +115,7 @@ set(SOURCES
     src/renderer/video/video_renderer.c src/renderer/video/video_audio.c src/renderer/video/ffmpeg_thumb.c
     src/renderer/video/video_stream.c
     src/renderer/html/html_renderer.c src/renderer/html/wallpaper_api.c
+    src/renderer/app/app_renderer.c
     src/app/app.c src/app/supervisor.c src/app/startup.c src/app/library.c src/app/preview_capture.c
     src/app/cli_server.c src/app/file_format.c src/app/url_import.c src/app/remux.c src/app/depth.c src/app/depth_infer.c src/app/webvideo.c src/app/store.c src/app/update.c src/app/samples_update.c src/app/rotate.c src/app/pptx.c
     src/app/store_sources.c

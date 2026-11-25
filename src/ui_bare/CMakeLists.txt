@@ -6,7 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 # Bare: a checkout beside this one (Projects/Bare), else Bare at BARE_COMMIT from GitHub (CI). Move BARE_COMMIT on
 # when Screen+ needs newer Bare.
-set(BARE_COMMIT 9d9a33c30b2ea782fe7caed32afaef746e84e6cc)
+set(BARE_COMMIT a7804f98c5534c7fd5c8ae54cfe5735af1c9957f)
 set(BARE_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../Bare" CACHE PATH "Bare source checkout")
 set(BARE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BARE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -65,6 +65,36 @@ if(WIN32)
 else()
     target_link_libraries(screenplus-bare-ui PRIVATE m pthread)
     target_link_libraries(screenplus-bare-preview PRIVATE m)
+endif()
+# Sample app wallpapers (Windows): Bare programs from Bare's examples/, each packed into <build>/<Name>.spf, the file
+# a release carries (CI uploads *.spf). Their shaders come from the headers committed in Bare (examples/<dir>/generated).
+if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    if(DEFINED bare_SOURCE_DIR)
+        set(_bare_root "${bare_SOURCE_DIR}")
+    else()
+        set(_bare_root "${BARE_SOURCE_DIR}")
+    endif()
+    function(screenplus_sample_app name dir)
+        set(src "${_bare_root}/examples/${dir}")
+        add_executable(sample-${dir} WIN32 "${src}/${dir}.c")
+        target_link_libraries(sample-${dir} PRIVATE bare)
+        target_include_directories(sample-${dir} PRIVATE "${src}/generated")
+        set_target_properties(sample-${dir} PROPERTIES OUTPUT_NAME ${dir}
+                              RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/sample-apps/${dir}")
+        if(MSVC)
+            target_compile_options(sample-${dir} PRIVATE /W4 /utf-8)
+            target_compile_definitions(sample-${dir} PRIVATE _CRT_SECURE_NO_WARNINGS)
+            target_link_options(sample-${dir} PRIVATE /ENTRY:mainCRTStartup)
+        else()
+            target_link_options(sample-${dir} PRIVATE -mwindows)
+        endif()
+        add_custom_command(TARGET sample-${dir} POST_BUILD
+            COMMAND "${CMAKE_COMMAND}" "-DNAME=${name}" "-DEXE=$<TARGET_FILE:sample-${dir}>"
+                    "-DPROPS=${src}/LivelyProperties.json" "-DPREVIEW=${src}/preview.jpg" "-DOUT=${CMAKE_BINARY_DIR}/${name}.spf"
+                    -P "${CMAKE_SOURCE_DIR}/cmake/pack_spf.cmake"
+            VERBATIM)
+    endfunction()
+    screenplus_sample_app(Aurora aurora)
 endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)

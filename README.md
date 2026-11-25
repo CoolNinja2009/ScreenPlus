@@ -91,9 +91,10 @@ The SHARP model is available at [HuggingFace](https://huggingface.co/Cool2009/SH
 | Video | MP4, M4V, MOV, MKV, WebM, AVI, WMV, MPG, TS, M2TS, GIF |
 | Image | JPG, PNG, BMP, GIF, TIFF, WebP, HEIC, AVIF, JXR |
 | Web | HTML folders, Lively and Wallpaper Engine web wallpapers |
+| App | A Windows program (.exe), Lively app wallpapers |
 | Link | [Sites supported by yt-dlp](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md), direct video and image links, web pages |
 
-Application, Unity, Godot and Wallpaper Engine scene wallpapers are not supported.
+Unity, Godot and Wallpaper Engine scene wallpapers are not supported. App wallpapers are Windows only.
 
 ## Wallpaper API
 
@@ -101,6 +102,12 @@ Web wallpapers get the Lively and Wallpaper Engine APIs: `livelyPropertyListener
 `livelyCurrentTrack`, `livelySystemInformation`, `livelyWallpaperPlaybackChanged`, `wallpaperRegisterAudioListener`
 and `wallpaperPropertyListener`. Pages run in WebView2 at `https://wallpaper.screenplus.example/` and receive mouse
 input but not keyboard input.
+
+App wallpapers start as `program.exe --screenplus-parent <hwnd> --screenplus-size <w>x<h>` (also `SCREENPLUS_PARENT`).
+Create your window as a child of that window, or Screen+ takes in your first window. The mouse arrives as normal
+window messages. A `LivelyProperties.json` beside the exe fills Customise, and stdin gets one JSON line per change:
+`{"type":"property","name":"speed","value":2}`, `{"type":"pause","value":true}` (stop drawing) and
+`{"type":"volume","value":0..100}`. An .spf can carry a program; opening one says so before anything is added.
 
 ## Command line
 

@@ -267,6 +267,7 @@ jobs:
           Copy-Item $setup release\
           Copy-Item "build\ScreenPlus-$v-samples.zip" release\   # setup's optional download (screenplus samples install)
           Copy-Item "build\ScreenPlus-$v-samples.json" release\  # every sample file's SHA-256: the app's sample updates
+          Copy-Item build\*.spf release\                           # sample app wallpapers (Bare programs), one .spf each
           Compress-Archive -Path "$stage\*" -DestinationPath "release\ScreenPlus-$v-win-x64-portable.zip"
           Get-ChildItem release
 

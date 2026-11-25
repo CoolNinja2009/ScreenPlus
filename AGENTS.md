@@ -67,6 +67,10 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
   samples' files with the latest release's `ScreenPlus-<ver>-samples.json` (every file's SHA-256, a CI release asset),
   names the changed ones and unpacks only those files from the samples zip. Files the user added and Customise
   settings (`props\`) stay; the library is never changed.
+- Sample app wallpapers (from now on every new sample): C programs on Bare in Bare's `examples/<dir>/` (`.parent` window
+  option, `examples/screenplus/screenplus_wallpaper.h` for the stdin protocol), built with `-DSCREENPLUS_BARE_UI=ON` by
+  `screenplus_sample_app` in `src/ui_bare/CMakeLists.txt` and packed by `cmake/pack_spf.cmake` into `build\<Name>.spf`, a
+  release asset on GitHub and GitLab (Windows only). Needs `BARE_COMMIT` to include the sample. So far: Aurora.
 - CI signs releases through SignPath Foundation once `SIGNPATH_ORGANIZATION_ID` (variable) and `SIGNPATH_API_TOKEN`
   (secret) exist: exes first, setup rebuilt with makensis around them, then setup. Setup is in `.signpath/`.
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use
@@ -132,6 +136,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 | `src/renderer/video/` | `video_renderer.c`, `video_audio.c`, `video_stream.c`, `ffmpeg_thumb.c` (UI thumbnails), `video.hlsl` (NV12/I420/RGB + grading); details below |
 | `src/renderer/html/` | `html_renderer.c` (WebView2), `wallpaper_api.c` (Lively/WE JS APIs, author properties); details below |
 | `src/renderer/image/image_renderer.c` | WIC decode; presents on paint only |
+| `src/renderer/app/app_renderer.c` | App wallpapers (`WP_APP`, .exe, Windows only): the program in a job object, its window a child of the host (`--screenplus-parent`, else its first top-level window is taken in), mouse posted as window messages, properties/pause/volume as JSON lines on stdin (`wpapi_properties_lines`, a writer thread). Customise: properties only (no look/layout/upscale); .spf carries them (its folder when `LivelyProperties.json` is beside the exe; the preview warns it is a program; not on Linux); downloads never make one |
 | `src/ui/ui_core.c` | Window, Direct2D/DirectWrite primitives, input, focus, caret, tooltip |
 | `src/ui/ui_pages.c` | Library, Displays, Customise and Settings pages; `pages_activate`, `pages_context`, `pages_tooltip` |
 | `src/ui/thumbs.c`, `d2d_c.h`, `dwrite_c.h` | Thumbnail worker thread; hand-written C COM declarations |
@@ -221,7 +226,7 @@ Renderer details:
   | `tools\` | `yt-dlp.exe`, `qjs.exe` |
   | `depth\` | `ort\onnxruntime.dll`, `model.onnx` + `backend.json` (the default model), `models\<key>\` (the others: `model.onnx`, DA3's `model.onnx_data`, `backend.json`), all downloaded on request and pinned in `depth.c`; `<id>\` = a depth wallpaper's page `index[-<key>].html`, picture or video, `depth[-<key>].png`/`.bin` |
 - `WallpaperEntry` fields:
-  - `type`: image, video or html.
+  - `type`: image, video, html or app (an .exe; a folder with one .exe + `LivelyProperties.json`; Lively type 0).
   - `path`: a file, the HTML entry document, or an http(s) URL.
   - `format`: plain, lively or we.
   - `flags`: `WPFLAG_URL` (http(s) path), `WPFLAG_YTDLP` (a stream that yt-dlp resolves), `WPFLAG_AUDIO`,
@@ -386,7 +391,7 @@ Renderer details:
   tool.
 
 ## Known gaps (vs Lively)
-- There are no application, Unity or Godot wallpapers; they are reported as unsupported.
+- There are no Unity or Godot wallpapers; they are reported as unsupported. Lively app packages' `Arguments` are ignored.
 - Missing features: in-app update notices. Web screensavers get no audio, system or
   track data.
 - Customise skips author property types `button` and `label`. Web grading has no gamma, because CSS has no

@@ -21,6 +21,7 @@
 (unnamed)	(名前なし)
 ABOUT	情報
 ALL DISPLAYS	すべてのディスプレイ
+APP	アプリ
 APP RULES	アプリのルール
 AUDIO & RECOVERY	オーディオと復旧
 Accent colour	アクセントカラー

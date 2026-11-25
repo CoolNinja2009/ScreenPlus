@@ -209,6 +209,7 @@ static void make_still(IWICImagingFactory *f, Req *r)
             if (!px) px = from_shell(f, r->thumb, r->w, r->h);         /* an interactive video's original */
             if (!px) ffmpeg_thumbnail(r->thumb, r->w, r->h, &px);
         }
+        if (!px && r->type == WP_APP) px = html_preview(f, r->path, r->w, r->h);   /* a preview beside the program */
         if (!px && r->type == WP_HTML) {
             px = html_preview(f, r->path, r->w, r->h);
             if (!px) {                    /* nothing shipped: the recorded preview, or record one */

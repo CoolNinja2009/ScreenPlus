@@ -52,6 +52,24 @@ BOOL library_html_entry(const wchar_t *folder, wchar_t *out, size_t cap)
     return n == 1;
 }
 
+/* An app wallpaper's folder: one .exe beside a LivelyProperties.json (a bare folder of programs is not one). */
+static BOOL app_entry(const wchar_t *folder, wchar_t *out, size_t cap)
+{
+    wchar_t p[SP_MAX_PATH];
+    path_join(p, SP_COUNTOF(p), folder, L"LivelyProperties.json");
+    if (!file_exists(p)) return FALSE;
+    path_join(p, SP_COUNTOF(p), folder, L"*.exe");
+    WIN32_FIND_DATAW fd;
+    HANDLE h = FindFirstFileW(p, &fd);
+    if (h == INVALID_HANDLE_VALUE) return FALSE;
+    int n = 0;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && ++n == 1) path_join(out, cap, folder, fd.cFileName);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return n == 1;
+}
+
 static int add_entry(WallpaperType t, const wchar_t *path, const wchar_t *name, int format, int flags,
                      const wchar_t *thumb, ImportStats *st)
 {
@@ -78,13 +96,12 @@ static int add_file(const wchar_t *path, ImportStats *st)
         st->bad++;
         return 0;
     }
-    wchar_t name[SP_NAME_LEN] = L"";
-    if (t == WP_HTML) {                      /* HTML wallpapers are named after their folder */
-        wchar_t dir[SP_MAX_PATH];
-        path_dirname(dir, SP_COUNTOF(dir), path);
-        str_copy(name, SP_COUNTOF(name), path_filename(dir));
-    }
-    return add_entry(t, path, name, WPF_PLAIN, 0, NULL, st);
+    wchar_t name[SP_NAME_LEN] = L"", dir[SP_MAX_PATH], lp[SP_MAX_PATH];
+    path_dirname(dir, SP_COUNTOF(dir), path);
+    path_join(lp, SP_COUNTOF(lp), dir, L"LivelyProperties.json");
+    int props = t == WP_APP && file_exists(lp);   /* an app's Customise settings, in Lively's format */
+    if (t == WP_HTML || props) str_copy(name, SP_COUNTOF(name), path_filename(dir));   /* named after their folder */
+    return add_entry(t, path, name, props ? WPF_LIVELY : WPF_PLAIN, 0, NULL, st);
 }
 
 /* ---------------------------------------------------------------- packages */
@@ -144,6 +161,9 @@ static int import_lively_package(const wchar_t *folder, ImportStats *st)
     if (argAudio) flags |= WPFLAG_AUDIO;
     if (argSysInfo) flags |= WPFLAG_SYSINFO;
     switch (type) {   /* Lively WallpaperType */
+#ifdef _WIN32
+    case 0:  t = WP_APP; break;                           /* app: a program (app_renderer.c) */
+#endif
     case 1:  t = WP_HTML; break;                          /* web */
     case 2:  t = WP_HTML; flags = WPFLAG_AUDIO; break;    /* webaudio */
     case 3:  t = WP_HTML; flags = WPFLAG_URL; break;      /* url */
@@ -231,7 +251,7 @@ static void add_folder(const wchar_t *folder, ImportStats *st)
     if (import_package(folder, st)) return;
     if (import_package_library(folder, st)) return;
     wchar_t entry[SP_MAX_PATH];
-    if (library_html_entry(folder, entry, SP_COUNTOF(entry))) {
+    if (library_html_entry(folder, entry, SP_COUNTOF(entry)) || app_entry(folder, entry, SP_COUNTOF(entry))) {
         add_file(entry, st);
         return;
     }
@@ -543,12 +563,13 @@ void library_import_dialog(HWND owner, BOOL folder)
     } else {
         static const COMDLG_FILTERSPEC filters[] = {
             { L"Wallpapers", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr;"
-                             L"*.mp4;*.m4v;*.mov;*.wmv;*.webm;*.mkv;*.avi;*.mpg;*.mpeg;*.ts;*.m2ts;*.html;*.htm;"
+                             L"*.mp4;*.m4v;*.mov;*.wmv;*.webm;*.mkv;*.avi;*.mpg;*.mpeg;*.ts;*.m2ts;*.html;*.htm;*.exe;"
                              L"*.pptx;*.ppsx;*.pptm;*.ppt;*.pps;*.potx;*.spp;*.spf;LivelyInfo.json;project.json" },
             { L"Screen+ playlists and wallpapers", L"*.spp;*.spf" },
             { L"Images", L"*.jpg;*.jpeg;*.jfif;*.png;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.heic;*.heif;*.avif;*.jxr" },
             { L"Videos", L"*.mp4;*.m4v;*.mov;*.wmv;*.webm;*.mkv;*.avi;*.mpg;*.mpeg;*.ts;*.m2ts;*.gif" },
             { L"HTML wallpaper", L"*.html;*.htm" },
+            { L"App wallpaper", L"*.exe" },
             { L"PowerPoint", L"*.pptx;*.ppsx;*.pptm;*.ppt;*.pps;*.potx" },
             { L"Lively / Wallpaper Engine package", L"LivelyInfo.json;project.json" },
             { L"All files", L"*.*" },

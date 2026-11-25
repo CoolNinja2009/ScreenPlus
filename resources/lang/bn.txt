@@ -21,6 +21,7 @@
 (unnamed)	(নামহীন)
 ABOUT	সম্পর্কে
 ALL DISPLAYS	সব ডিসপ্লে
+APP	অ্যাপ
 APP RULES	অ্যাপের নিয়ম
 AUDIO & RECOVERY	অডিও ও পুনরুদ্ধার
 Accent colour	অ্যাকসেন্ট রং

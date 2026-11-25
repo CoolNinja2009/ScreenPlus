@@ -137,6 +137,7 @@ static void add_window(const MonitorInfo *m, const RECT *rc, int content)
     case WP_IMAGE: w->r = image_renderer_create(&ctx, err, SP_COUNTOF(err)); break;
     case WP_VIDEO: w->r = video_renderer_create(&ctx, err, SP_COUNTOF(err)); break;
     case WP_HTML:  w->r = html_renderer_create(&ctx, err, SP_COUNTOF(err)); break;
+    case WP_APP:   w->r = app_renderer_create(&ctx, err, SP_COUNTOF(err)); break;
     default: break;
     }
     if (!w->r) LOGW(L"screensaver: '%ls' can't be shown: %ls", S.wp.name, err[0] ? err : L"unsupported");
