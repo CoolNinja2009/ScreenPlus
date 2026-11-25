@@ -7,6 +7,9 @@
 #include "app.h"
 #include "file_format.h"
 #include "../ui/ui.h"
+#ifdef _WIN32
+#include "../ui/thumbs.h"
+#endif
 #include "../common/util.h"
 #include "../common/json.h"
 #include "../common/log.h"
@@ -199,6 +202,10 @@ static int parse_on_off(const wchar_t *v, int current, int *out)
     else return 0;
     return 1;
 }
+
+static void take_note_look(const WallpaperEntry *e, const WallpaperAdjust *now);
+static void take_note_volume(const WallpaperEntry *e, int value);
+static void take_note_prop(const WallpaperEntry *e, const CustomProp *cp);
 
 static void customise_changed(void)
 {
@@ -761,6 +768,7 @@ static void cmd_volume(Reply *r, const Req *q)
         e->volCut = 100 - v;
         app_save_config();
         ui_on_config_changed();
+        take_note_volume(e, v);
         say(r, L"\"%ls\" plays at %d%%.\n", e->name, v);
         sb_printf(&r->data, "{\"volume\":%d}", v);
         return;
@@ -1043,6 +1051,429 @@ static void cmd_sharp(Reply *r, const Req *q)
     say(r, depth_model_ready(i) ? L"SHARP model: %ls\n" : L"No SHARP model yet: screenplus sharp <file.onnx>\n", f);
 }
 
+/* ------------------------------------------------------------------ recordings and Make wallpaper cooler
+ * The record button of a Customise section, for windows that drive Screen+ through commands (the Bare window):
+ * `record <section> start` begins a take, the look / volume / props commands that follow note their changes into
+ * it, `stop` saves the loop the engine plays. Same storage and maths as the classic window (wprec_* in
+ * wallpaper_api.c). */
+
+static const char *const k_recSections[REC_SECTIONS] = { "look", "props", "volume" };
+static const char *const k_recLookKeys[LK_COUNT] = { "brightness", "contrast", "saturation", "hue", "gamma", "tint",
+                                                     "tintLift", "tintBrightness" };
+
+static struct {
+    RecTake        *k;
+    int             sec;
+    wchar_t         id[SP_ID_LEN];
+    WallpaperAdjust start, last;
+    int             volumeLast;
+    int             count;
+    char          **names;          /* props: each property's name and value when the take began */
+    JVal          **values;
+} g_take;
+
+static void take_drop(void)
+{
+    for (int i = 0; i < g_take.count; i++) {
+        free(g_take.names[i]);
+        json_free(g_take.values[i]);
+    }
+    free(g_take.names);
+    free(g_take.values);
+    g_take.names = NULL;
+    g_take.values = NULL;
+    g_take.count = 0;
+}
+
+static int take_for(const WallpaperEntry *e, int sec) { return g_take.k && g_take.sec == sec && str_ieq(g_take.id, e->id); }
+
+static void take_note_look(const WallpaperEntry *e, const WallpaperAdjust *now)
+{
+    if (!take_for(e, REC_LOOK)) return;
+    for (int k = 0; k < LK_COUNT; k++) {
+        if (k == LK_TINT) {
+            if (now->tint == g_take.last.tint) continue;
+            JVal *b = wpapi_num_value(g_take.start.tint, 1), *v = wpapi_num_value(now->tint, 1);
+            wprec_take_note(g_take.k, "tint", RT_COLOR, 0, 1, 0, 0, b, v);
+            json_free(b);
+            json_free(v);
+            continue;
+        }
+        int *was = look_field(&g_take.last, k), value = *look_field((WallpaperAdjust *)now, k);
+        if (value == *was) continue;
+        JVal *b = wpapi_num_value(*look_field(&g_take.start, k), 1), *v = wpapi_num_value(value, 1);
+        wprec_take_note(g_take.k, k_recLookKeys[k], RT_NUM, 0, 1, k_look[k].min, k_look[k].max, b, v);
+        json_free(b);
+        json_free(v);
+    }
+    g_take.last = *now;
+}
+
+static void take_note_volume(const WallpaperEntry *e, int value)
+{
+    if (!take_for(e, REC_VOLUME) || value == g_take.volumeLast) return;
+    JVal *b = wpapi_num_value(g_take.volumeLast, 1), *v = wpapi_num_value(value, 1);
+    wprec_take_note(g_take.k, "volume", RT_NUM, 0, 1, 0, 100, b, v);
+    json_free(b);
+    json_free(v);
+    g_take.volumeLast = value;
+}
+
+static void take_note_prop(const WallpaperEntry *e, const CustomProp *cp)
+{
+    if (!take_for(e, REC_PROPS)) return;
+    for (int i = 0; i < g_take.count; i++) {
+        if (strcmp(g_take.names[i], cp->name)) continue;
+        int kind, style = 0;
+        switch (cp->type) {
+        case CP_SLIDER:   kind = RT_NUM; break;
+        case CP_CHECKBOX: kind = RT_BOOL; break;
+        case CP_COLOR:    kind = RT_COLOR; wpapi_color_get(cp, &style); break;
+        default:          kind = RT_CHOICE; break;     /* dropdowns, combos, files, text */
+        }
+        wprec_take_note(g_take.k, cp->name, kind, style, cp->step, cp->min, cp->max, g_take.values[i], cp->value);
+        return;
+    }
+}
+
+/* Ends the take: TRUE when it saved a recording. */
+static BOOL take_stop(void)
+{
+    if (!g_take.k) return FALSE;
+    Rec rec;
+    BOOL ok = wprec_take_finish(g_take.k, &rec);
+    g_take.k = NULL;
+    take_drop();
+    if (ok) wprec_save(g_take.id, g_take.sec, &rec);
+    wprec_free(&rec);
+    customise_changed();
+    return ok;
+}
+
+static void take_start(WallpaperEntry *e, int sec)
+{
+    take_stop();
+    wprec_save(e->id, sec, NULL);                    /* a new take replaces the old one, which stops playing */
+    g_take.sec = sec;
+    str_copy(g_take.id, SP_COUNTOF(g_take.id), e->id);
+    wpapi_load_adjust(e->id, &g_take.start);
+    g_take.last = g_take.start;
+    g_take.volumeLast = entry_volume(e);
+    if (sec == REC_PROPS && e->format) {
+        int n = 0;
+        CustomProp *list = wpapi_props_list(e, &n);
+        g_take.names = n ? (char **)calloc((size_t)n, sizeof *g_take.names) : NULL;
+        g_take.values = n ? (JVal **)calloc((size_t)n, sizeof *g_take.values) : NULL;
+        if (g_take.names && g_take.values) {
+            g_take.count = n;
+            for (int i = 0; i < n; i++) {
+                size_t len = strlen(list[i].name) + 1;
+                g_take.names[i] = (char *)malloc(len);
+                if (g_take.names[i]) memcpy(g_take.names[i], list[i].name, len);
+                else g_take.names[i] = (char *)calloc(1, 1);
+                wpapi_jval_copy(&g_take.values[i], list[i].value);
+            }
+        }
+        wpapi_props_free(list, n);
+    }
+    g_take.k = wprec_take_start();
+    customise_changed();
+}
+
+/* Pause holds the playhead and makes the frame it stopped on the section's own settings; play carries on. */
+static void rec_toggle_pause(WallpaperEntry *e, int sec, Rec *r, int pause)
+{
+    double now = wprec_now();
+    if (!pause && r->paused > 0) {
+        r->epoch += now - r->paused;
+        r->paused = 0;
+    } else if (pause && r->paused <= 0) {
+        double pos = wprec_pos(r, now);
+        r->paused = now;
+        if (sec == REC_LOOK) {
+            WallpaperAdjust a;
+            wpapi_load_adjust(e->id, &a);
+            wprec_look(r, pos, &a);
+            wpapi_save_adjust(e->id, &a);
+        } else if (sec == REC_VOLUME && r->count) {
+            e->volCut = 100 - SP_CLAMP((int)lround(wprec_num(&r->t[0], r->n, pos)), 0, 100);
+            app_save_config();
+        } else if (sec == REC_PROPS) {
+            for (int k = 0; k < r->count; k++) {
+                JVal *v = wprec_value(&r->t[k], r->n, pos);
+                if (v) wpapi_save_override(e, r->t[k].key, v);
+                json_free(v);
+            }
+        }
+    }
+}
+
+static const char *rec_kind_name(int kind)
+{
+    return kind == RT_BOOL ? "bool" : kind == RT_CHOICE ? "choice" : kind == RT_COLOR ? "colour" : "number";
+}
+
+/* One section's recording as JSON: the played samples (at most 240, heights 0..1; colours as #RRGGBB). */
+static void rec_json(StrBuf *b, const WallpaperEntry *e, int sec, const Rec *r)
+{
+    if (!r->n) {
+        sb_puts(b, "null");
+        return;
+    }
+    double now = wprec_now();
+    sb_printf(b, "{\"samples\":%d,\"seconds\":%.3f,\"speed\":%.4g,\"smooth\":%d,\"paused\":%s,\"position\":%.4f,"
+                 "\"rate\":%d,\"tracks\":[",
+              r->n, (double)r->n / REC_RATE, r->speed, r->smooth, r->paused > 0 ? "true" : "false",
+              wprec_pos(r, now) / (double)r->n, REC_RATE);
+    int props = 0;
+    CustomProp *list = sec == REC_PROPS && e->format ? wpapi_props_list(e, &props) : NULL;
+    for (int k = 0; k < r->count; k++) {
+        const RecTrack *t = &r->t[k];
+        const wchar_t *label = NULL;
+        wchar_t wkey[96];
+        if (k) sb_puts(b, ",");
+        sb_puts(b, "{\"key\":");
+        json_write_string(b, t->key);
+        for (int i = 0; i < props && !label; i++) if (!strcmp(list[i].name, t->key)) label = list[i].label;
+        for (int i = 0; sec == REC_LOOK && !label && i < LK_COUNT; i++) if (!strcmp(k_recLookKeys[i], t->key)) label = k_look[i].key;
+        if (sec == REC_VOLUME) label = L"volume";
+        if (!label) {
+            MultiByteToWideChar(CP_UTF8, 0, t->key, -1, wkey, SP_COUNTOF(wkey));
+            label = wkey;
+        }
+        sb_puts(b, ",\"label\":");
+        jstr(b, label);
+        sb_printf(b, ",\"kind\":\"%s\",\"lo\":%.10g,\"hi\":%.10g", rec_kind_name(t->kind), t->lo, t->hi);
+        if (t->opts) {
+            sb_puts(b, ",\"options\":");
+            json_write(b, t->opts);
+        }
+        sb_puts(b, ",\"values\":[");
+        int count = SP_MIN(r->n, 240);
+        for (int i = 0; i < count; i++) {
+            float v = t->play ? t->play[(int)((double)i * r->n / count)] : t->v[(int)((double)i * r->n / count)];
+            if (i) sb_puts(b, ",");
+            if (t->kind == RT_COLOR) sb_printf(b, "\"#%06X\"", (unsigned)v & 0xFFFFFF);
+            else sb_printf(b, "%.3f", SP_CLAMP(wprec_norm(t, v, 0), 0.0f, 1.0f));
+        }
+        sb_puts(b, "]}");
+    }
+    wpapi_props_free(list, props);
+    sb_puts(b, "]}");
+}
+
+static int rec_section(const wchar_t *w)
+{
+    for (int s = 0; s < REC_SECTIONS; s++) {
+        wchar_t name[16];
+        MultiByteToWideChar(CP_UTF8, 0, k_recSections[s], -1, name, SP_COUNTOF(name));
+        if (str_ieq(w, name)) return s;
+    }
+    if (str_ieq(w, L"properties") || str_ieq(w, L"settings")) return REC_PROPS;
+    if (str_ieq(w, L"sound")) return REC_VOLUME;
+    return -1;
+}
+
+static int rec_track(const Rec *r, const wchar_t *w)
+{
+    int n = 0;
+    if (parse_int(w, 1, r->count, &n)) return n - 1;
+    for (int k = 0; k < r->count; k++) {
+        wchar_t key[96];
+        MultiByteToWideChar(CP_UTF8, 0, r->t[k].key, -1, key, SP_COUNTOF(key));
+        if (str_ieq(w, key)) return k;
+    }
+    return -1;
+}
+
+static int rec_preset(const wchar_t *w)
+{
+    for (int p = 0; p < RP_COUNT; p++)
+        if (str_ieq(w, k_recPresetNames[p])) return p;
+    for (int p = 0; p < RP_COUNT; p++)
+        if (str_icontains(k_recPresetNames[p], w)) return p;
+    return -1;
+}
+
+#define REC_USAGE L"Usage: screenplus record [<look|props|volume> start | stop | delete | pause | play |\n" \
+                  L"                                   speed <0.25-4> | smooth <0-100> | preset <track> <preset> [times] |\n" \
+                  L"                                   draw <track> <x0> <y0> <x1> <y1>] [--display N]"
+
+/* record: the take and each section's recording, plus the presets (shapes drawn at 48 points). */
+static void cmd_record(Reply *r, const Req *q)
+{
+    const MonitorInfo *mon;
+    WallpaperEntry *e = target_wallpaper(r, q, &mon);
+    if (!e) return;
+    if (q->argc > 1) {
+        int sec = rec_section(q->argv[1]);
+        const wchar_t *op = q->argc > 2 ? q->argv[2] : L"";
+        if (sec < 0 || !op[0]) { fail(r, REC_USAGE); return; }
+        if (str_ieq(op, L"start")) {
+            take_start(e, sec);
+            say(r, L"Recording %hs: change it, then: screenplus record %hs stop\n", k_recSections[sec], k_recSections[sec]);
+            return;
+        }
+        if (str_ieq(op, L"stop")) {
+            if (!take_for(e, sec)) { fail(r, L"Not recording %hs.", k_recSections[sec]); return; }
+            if (take_stop()) say(r, L"Saved: the %hs recording plays on a loop.\n", k_recSections[sec]);
+            else say(r, L"Nothing changed while recording, so there is nothing to play.\n");
+            return;
+        }
+        if (str_ieq(op, L"delete")) {
+            if (take_for(e, sec)) take_stop();
+            wprec_save(e->id, sec, NULL);
+            customise_changed();
+            say(r, L"The %hs recording is deleted.\n", k_recSections[sec]);
+            return;
+        }
+        Rec rec;
+        if (!wprec_load(e->id, sec, &rec) || !rec.n) {
+            wprec_free(&rec);
+            fail(r, L"\"%ls\" has no %hs recording.", e->name, k_recSections[sec]);
+            return;
+        }
+        BOOL ok = TRUE;
+        if (str_ieq(op, L"pause") || str_ieq(op, L"play")) {
+            rec_toggle_pause(e, sec, &rec, str_ieq(op, L"pause"));
+        } else if (str_ieq(op, L"speed") && q->argc > 3) {
+            double now = wprec_now(), pos = wprec_pos(&rec, now);
+            rec.speed = SP_CLAMP(_wtof(q->argv[3]), 0.25, 4.0);
+            rec.epoch = now - pos / (rec.speed * REC_RATE) * 1000.0;   /* the playhead stays where it is */
+        } else if (str_ieq(op, L"smooth") && q->argc > 3) {
+            rec.smooth = SP_CLAMP(_wtoi(q->argv[3]), 0, 100);
+            wprec_prepare(&rec);
+        } else if (str_ieq(op, L"preset") && q->argc > 4) {
+            int t = rec_track(&rec, q->argv[3]), p = rec_preset(q->argv[4]);
+            if (q->argc > 5 && p >= 0) wprec_preset_reps_set(p, _wtoi(q->argv[5]));
+            ok = t >= 0 && p >= 0 && wprec_apply_preset(&rec, t, p, (unsigned)wprec_now() | 1u);
+        } else if (str_ieq(op, L"draw") && q->argc > 7) {
+            int t = rec_track(&rec, q->argv[3]);
+            ok = t >= 0 && wprec_draw(&rec, t, (float)_wtof(q->argv[4]), (float)_wtof(q->argv[5]),
+                                      (float)_wtof(q->argv[6]), (float)_wtof(q->argv[7]));
+        } else {
+            ok = FALSE;
+        }
+        if (ok) {
+            wprec_save(e->id, sec, &rec);
+            customise_changed();
+        }
+        wprec_free(&rec);
+        if (!ok) { fail(r, REC_USAGE); return; }
+    }
+    /* show */
+    sb_puts(&r->data, "{\"recording\":");
+    if (g_take.k && str_ieq(g_take.id, e->id)) {
+        sb_printf(&r->data, "{\"section\":\"%s\",\"seconds\":%.1f}", k_recSections[g_take.sec], wprec_take_seconds(g_take.k));
+        say(r, L"Recording %hs: %.0f s\n", k_recSections[g_take.sec], wprec_take_seconds(g_take.k));
+    } else {
+        sb_puts(&r->data, "null");
+    }
+    for (int s = 0; s < REC_SECTIONS; s++) {
+        Rec rec;
+        wprec_load(e->id, s, &rec);
+        sb_printf(&r->data, ",\"%s\":", k_recSections[s]);
+        rec_json(&r->data, e, s, &rec);
+        if (rec.n)
+            say(r, L"%-7hs %.1f s, %d track%ls, speed %.2gx, smoothing %d%%%ls\n", k_recSections[s], (double)rec.n / REC_RATE,
+                rec.count, rec.count == 1 ? L"" : L"s", rec.speed, rec.smooth, rec.paused > 0 ? L", paused" : L"");
+        else
+            say(r, L"%-7hs no recording\n", k_recSections[s]);
+        wprec_free(&rec);
+    }
+    sb_puts(&r->data, ",\"presets\":[");
+    for (int p = 0; p < RP_COUNT; p++) {
+        sb_puts(&r->data, p ? ",{\"name\":" : "{\"name\":");
+        jstr(&r->data, k_recPresetNames[p]);
+        sb_printf(&r->data, ",\"times\":%d,\"shape\":[", wprec_preset_reps(p));
+        for (int i = 0; i < 48; i++) sb_printf(&r->data, i ? ",%.3f" : "%.3f", wprec_preset_at(p, i / 47.0f, 7u));
+        sb_puts(&r->data, "]}");
+    }
+    sb_puts(&r->data, "]}");
+}
+
+static const wchar_t *const k_coolLevels[] = { L"Can't run", L"Very hard", L"Slow", L"OK", L"Good", L"Very good" };
+
+static double cool_seconds(const WallpaperEntry *e)
+{
+    int cool = (e->flags & WPFLAG_DEPTH) != 0;
+    if (cool ? !(e->flags & WPFLAG_DEPTHVIDEO) : e->type != WP_VIDEO) return 0.0;
+    double s = depth_video_seconds(cool ? e->thumb : e->path);
+    return s > 0 ? s : 30.0;                         /* length unknown: rate it as a typical loop */
+}
+
+/* cool [on [model] | off | cancel]: Make wallpaper cooler (interactive depth) for the wallpaper on screen. */
+static void cmd_cool(Reply *r, const Req *q)
+{
+    const MonitorInfo *mon;
+    WallpaperEntry *e = target_wallpaper(r, q, &mon);
+    if (!e) return;
+    const wchar_t *op = q->argc > 1 ? q->argv[1] : L"";
+    int can = depth_can_cool(e) || (e->flags & WPFLAG_DEPTH);
+    if (str_ieq(op, L"cancel")) {
+        depth_cancel();
+    } else if (str_ieq(op, L"off")) {
+        depth_revert(e->id);
+    } else if (str_ieq(op, L"on")) {
+        if (!can) { fail(r, L"Make wallpaper cooler works on pictures and local videos."); return; }
+        if (q->argc > 2) {
+            int m = depth_model_find(q->argv[2]);
+            DepthEstimate est;
+            if (m < 0) { fail(r, L"Unknown model \"%ls\".", q->argv[2]); return; }
+            depth_estimate(m, cool_seconds(e), &est);
+            if (est.level == 0) { fail(r, L"%ls needs more memory than this PC has.", depth_model(m)->name); return; }
+            if (depth_model(m)->user && !depth_model_ready(m)) {
+                fail(r, L"%ls needs your own .onnx file: screenplus sharp <file.onnx>", depth_model(m)->name);
+                return;
+            }
+            str_copy(g_app.cfg.s.depthModel, SP_COUNTOF(g_app.cfg.s.depthModel), depth_model(m)->key);
+            app_save_config();
+        }
+        e->flags &= ~WPFLAG_NOCOOL;
+        if (!depth_start(e->id)) { fail(r, L"Busy with another wallpaper."); return; }
+    } else if (op[0] && !str_ieq(op, L"show")) {
+        fail(r, L"Usage: screenplus cool [on [model] | off | cancel] [--display N]");
+        return;
+    }
+    DepthState st;
+    depth_get(&st);
+    int cool = (e->flags & WPFLAG_DEPTH) != 0, mine = !st.id[0] || str_ieq(st.id, e->id);
+    int busy = st.busy && mine, failed = !st.busy && st.failed && st.text[0] && mine;
+    int n = depth_model_count(), chosen = SP_MAX(0, depth_model_find(g_app.cfg.s.depthModel)), used = depth_entry_model(e);
+    double secs = cool_seconds(e);
+    if (secs > 0 && depth_model(chosen)->splat) chosen = 0;   /* what a video really gets */
+    say(r, L"%ls: %ls%ls\n", e->name, !can ? L"can't be made cooler" : cool ? L"interactive depth is on" : L"plain",
+        busy ? L" (working)" : L"");
+    if (st.text[0] && mine) say(r, L"%ls\n", st.text);
+    sb_printf(&r->data, "{\"can\":%s,\"cool\":%s,\"busy\":%s,\"otherBusy\":%s,\"failed\":%s,\"percent\":%d,\"mouse\":%s,"
+                        "\"ready\":%s,\"video\":%s,\"text\":",
+              can ? "true" : "false", cool ? "true" : "false", busy ? "true" : "false", st.busy && !mine ? "true" : "false",
+              failed ? "true" : "false", busy ? st.percent : -1, g_app.cfg.s.htmlMouse ? "true" : "false",
+              depth_ready() ? "true" : "false", secs > 0 ? "true" : "false");
+    jstr(&r->data, mine ? st.text : L"");
+    sb_puts(&r->data, ",\"model\":");
+    jstr(&r->data, depth_model(chosen)->key);
+    sb_puts(&r->data, ",\"models\":[");
+    for (int i = 0; i < n; i++) {
+        const DepthModel *m = depth_model(i);
+        DepthEstimate est;
+        depth_estimate(i, secs, &est);
+        if (i) sb_puts(&r->data, ",");
+        sb_puts(&r->data, "{\"key\":");
+        jstr(&r->data, m->key);
+        sb_puts(&r->data, ",\"name\":");
+        jstr(&r->data, m->name);
+        sb_puts(&r->data, ",\"desc\":");
+        jstr(&r->data, m->desc);
+        sb_printf(&r->data, ",\"ready\":%s,\"used\":%s,\"user\":%s,\"off\":%s,\"level\":%d,\"seconds\":%.1f,\"size\":%lld,\"rating\":",
+                  depth_model_ready(i) ? "true" : "false", i == used ? "true" : "false", m->user ? "true" : "false",
+                  m->splat && secs > 0 ? "true" : "false", est.level, est.seconds, (long long)(m->size + m->dataSize));
+        jstr(&r->data, k_coolLevels[SP_CLAMP(est.level, 0, 5)]);
+        sb_puts(&r->data, "}");
+    }
+    sb_puts(&r->data, "]}");
+}
+
 static void cmd_look(Reply *r, const Req *q)
 {
     const MonitorInfo *mon;
@@ -1059,6 +1490,7 @@ static void cmd_look(Reply *r, const Req *q)
         a = adjust_defaults();
         wpapi_save_adjust(e->id, &a);
         customise_changed();
+        take_note_look(e, &a);
         say(r, L"Look reset to neutral.\n\n");
         look_print(r, e, &a);
         return;
@@ -1114,6 +1546,7 @@ static void cmd_look(Reply *r, const Req *q)
     wpapi_save_adjust(e->id, &a);
     customise_changed();
     wpapi_load_adjust(e->id, &a);
+    take_note_look(e, &a);
     look_print(r, e, &a);
     if (gammaOnWeb) say(r, L"Note: gamma has no effect on web wallpapers.\n");
 }
@@ -1139,7 +1572,9 @@ static void cmd_upscale(Reply *r, const Req *q)
         wpapi_save_upscale(e->id, m);
         customise_changed();
     }
-    say(r, L"Upscaling: %ls\n", names[wpapi_load_upscale(e->id)]);
+    int up = wpapi_load_upscale(e->id);
+    say(r, L"Upscaling: %ls\n", names[up]);
+    sb_printf(&r->data, "{\"upscale\":\"%s\",\"smooth\":%s}", (const char *[]){ "off", "smooth", "sharp" }[up], e->type == WP_IMAGE ? "false" : "true");
 }
 
 /* layout [<preset> | custom x y w h] [border <fill> [#RRGGBB]] | reset: where the picture sits and what fills the rest */
@@ -1147,6 +1582,31 @@ static int named(const wchar_t *w, const char *a)             /* ASCII names, an
 {
     while (*w && *a && towlower(*w) == (wint_t)tolower((unsigned char)*a)) { w++; a++; }
     return !*w && !*a;
+}
+
+/* The display's and the picture's width / height, for drawing the layout (a stream: 16:9). */
+/* The display (span: every display) and the picture, in pixels, for the layout's rect. */
+static void layout_sizes(const WallpaperEntry *e, const MonitorInfo *mon, int out[4])
+{
+    RECT b = mon ? mon->rect : g_app.monCount ? g_app.mons[0].rect : (RECT){ 0, 0, 1920, 1080 };
+    if (!mon && g_app.monCount && g_app.cfg.s.displayMode == DM_SPAN)
+        for (int i = 1; i < g_app.monCount; i++) {
+            const RECT *m = &g_app.mons[i].rect;
+            b.left = SP_MIN(b.left, m->left);
+            b.top = SP_MIN(b.top, m->top);
+            b.right = SP_MAX(b.right, m->right);
+            b.bottom = SP_MAX(b.bottom, m->bottom);
+        }
+    int sw = 0, sh = 0;
+    out[0] = SP_MAX((int)(b.right - b.left), 1);
+    out[1] = SP_MAX((int)(b.bottom - b.top), 1);
+#ifdef _WIN32
+    if (!thumbs_media_size(e, &sw, &sh)) sw = sh = 0;
+#else
+    (void)e;                                         /* the Linux service has no thumbnailer: 16:9 */
+#endif
+    out[2] = sw > 0 && sh > 0 ? sw : 1920;
+    out[3] = sw > 0 && sh > 0 ? sh : 1080;
 }
 
 static void cmd_layout(Reply *r, const Req *q)
@@ -1193,12 +1653,22 @@ static void cmd_layout(Reply *r, const Req *q)
         wpapi_save_layout(e->id, &l);
         customise_changed();
     }
+    int px[4];
+    float rc[4];
+    layout_sizes(e, mon, px);
+    layout_rect(&l, px[2], px[3], px[0], px[1], rc);
     say(r, L"Layout: %hs", k_layoutNames[l.mode]);
     if (l.mode == LAYOUT_CUSTOM)
         say(r, L" %.1f %.1f %.1f %.1f", l.rect[0] * 100.0, l.rect[1] * 100.0, l.rect[2] * 100.0, l.rect[3] * 100.0);
     say(r, L"\nBorder: %hs", k_lfillNames[l.fill]);
     if (l.fill == LFILL_COLOR) say(r, L" #%06X", (unsigned)l.color);
     say(r, L"\n");
+    sb_printf(&r->data, "{\"layout\":\"%s\",\"border\":\"%s\",\"color\":\"#%06X\",\"page\":%s,"
+                        "\"x\":%.2f,\"y\":%.2f,\"w\":%.2f,\"h\":%.2f,\"display\":%.4f,\"picture\":%.4f,"
+                        "\"rect\":[%.5f,%.5f,%.5f,%.5f],\"displayW\":%d,\"displayH\":%d,\"pictureW\":%d,\"pictureH\":%d}",
+              k_layoutNames[l.mode], k_lfillNames[l.fill], (unsigned)l.color & 0xFFFFFF, page ? "true" : "false",
+              l.rect[0] * 100.0, l.rect[1] * 100.0, l.rect[2] * 100.0, l.rect[3] * 100.0, (double)px[0] / px[1],
+              page ? (double)px[0] / px[1] : (double)px[2] / px[3], rc[0], rc[1], rc[2], rc[3], px[0], px[1], px[2], px[3]);
 }
 
 /* ------------------------------------------------------------------ wallpaper properties */
@@ -1459,6 +1929,7 @@ static void cmd_props(Reply *r, const Req *q)
                 json_free(cp->value);
                 cp->value = v;
                 v = NULL;
+                take_note_prop(e, cp);
                 wchar_t key[96], shown[256];
                 MultiByteToWideChar(CP_UTF8, 0, cp->name, -1, key, SP_COUNTOF(key));
                 prop_value_text(cp, shown, SP_COUNTOF(shown));
@@ -1525,6 +1996,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"auto_recover",        offsetof(Settings, autoRecover),       SK_BOOL,  L"Restart failed renderers automatically" },
     { L"paused",              offsetof(Settings, paused),            SK_BOOL,  L"Wallpapers paused" },
     { L"bare_ui",             offsetof(Settings, bareUi),            SK_BOOL,  L"Open the Bare window (beta) instead of the classic one" },
+    { L"ui_sounds",           offsetof(Settings, uiSounds),          SK_BOOL,  L"Sounds for presses in the Bare window" },
     { L"html_mouse",          offsetof(Settings, htmlMouse),         SK_BOOL,  L"Mouse input for web wallpapers" },
     { L"html_audio",          offsetof(Settings, htmlAudio),         SK_BOOL,  L"System audio spectrum for web wallpapers" },
     { L"web_fps",             offsetof(Settings, webFps),            SK_FPS,   L"Frame-rate limit for web wallpapers: 30, 60 or off" },
@@ -1940,6 +2412,10 @@ static void run(Reply *r, const Req *q)
         cmd_store(r, q);
     } else if (str_ieq(c, L"look") || str_ieq(c, L"grade")) {
         cmd_look(r, q);
+    } else if (str_ieq(c, L"record") || str_ieq(c, L"rec")) {
+        cmd_record(r, q);
+    } else if (str_ieq(c, L"cool") || str_ieq(c, L"cooler")) {
+        cmd_cool(r, q);
     } else if (str_ieq(c, L"upscale")) {
         cmd_upscale(r, q);
     } else if (str_ieq(c, L"layout")) {

@@ -101,6 +101,7 @@ typedef struct Settings {
     int       autoRecover;
     int       paused;         /* user pause, persisted */
     int       bareUi;         /* the Bare window (beta) instead of the classic one, when it ships */
+    int       uiSounds;       /* the Bare window plays sounds for presses */
     int       htmlMouse;      /* forward desktop mouse input to HTML wallpapers */
     int       htmlAudio;      /* system-audio spectrum for audio-reactive wallpapers */
     int       webFps;         /* frame-rate cap for HTML wallpapers: 30, 60 or 0 (the display's rate) */

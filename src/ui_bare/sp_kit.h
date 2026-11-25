@@ -63,7 +63,12 @@ extern SpTheme sp;
 #define SPI_CLOCK     "\xEE\xA0\xA3"   /* E823 */
 #define SPI_SPEED     "\xEE\xB1\x8A"   /* EC4A */
 #define SPI_DOT       "dot"          /* sp_chip: a small glowing dot */
+#define SPI_RECORD    "\xEE\x9E\xA8"   /* E7A8 */
+#define SPI_STOP      "\xEE\x9C\x9A"   /* E71A */
+#define SPI_GRAPH     "\xEE\xA7\x92"   /* E9D2 */
 #define SPI_INFO      "\xEE\xA5\x86"   /* E946 */
+#define SPI_UNDO      "\xEE\x9E\xA7"   /* E7A7 */
+#define SPI_REDO      "\xEE\x9E\xA6"   /* E7A6 */
 
 BareFont sp_icon_font(void);
 void     sp_icon(const char *glyph, float size, BareColor color);
@@ -93,6 +98,10 @@ bool sp_toggle(BareId id, bool on);
 int  sp_choices(BareId id, const char *const *labels, int count, int selected, bool track, float height);
 /* A slider whose knob becomes a lens while dragged. Returns 1 while moving, 2 on release. */
 int  sp_slider(BareId id, float *value, float lo, float hi, float width);
+/* A hue / saturation wheel (h 0..360, s 0..1). Returns 1 while dragged, 2 on release. */
+int  sp_wheel(BareId id, float size, float *hue, float *sat);
+void sp_hsv_rgb(float h, float s, float v, int *r, int *g, int *b);
+void sp_rgb_hsv(int r, int g, int b, float *h, float *s, float *v);
 
 /* Pages slide and fade in when `since` (seconds) is small. */
 float sp_enter(double since);
@@ -100,3 +109,11 @@ float sp_enter(double since);
 void sp_theme_set(bool dark, BareColor accent, int motion_level);
 BareColor sp_mix(BareColor a, BareColor b, float t);
 BareColor sp_alpha(BareColor c, int a);
+
+/* Sounds for presses, synthesised once: water droplets, glass taps, two-note chimes for recording. */
+typedef enum SpSound {
+    SP_SOUND_TAP, SP_SOUND_SELECT, SP_SOUND_ON, SP_SOUND_OFF, SP_SOUND_PAGE,
+    SP_SOUND_RECORD, SP_SOUND_STOP, SP_SOUND_DELETE, SP_SOUND_COUNT
+} SpSound;
+extern bool sp_sounds;    /* the ui_sounds setting */
+void sp_sound(SpSound s);

@@ -173,6 +173,19 @@ void      wprec_take_note(RecTake *k, const char *key, int kind, int style, doub
 double    wprec_take_seconds(const RecTake *k);
 BOOL      wprec_take_finish(RecTake *k, Rec *out);           /* frees k; FALSE: nothing changed */
 
+/* Editing: the graph presets (a shape repeated reps times over the loop), strokes drawn over a track. */
+enum { RP_SINE, RP_TRIANGLE, RP_SAW_UP, RP_SAW_DOWN, RP_SQUARE, RP_PULSE, RP_STEPS, RP_BOUNCE,
+       RP_BREATHE, RP_HEARTBEAT, RP_EASE, RP_SPIKE, RP_WANDER, RP_RANDOM, RP_COUNT };
+#define RP_MAX_REPS 20
+extern const wchar_t *const k_recPresetNames[RP_COUNT];
+int       wprec_preset_reps(int p);                          /* <data>/graph-presets.txt */
+void      wprec_preset_reps_set(int p, int n);
+float     wprec_preset_at(int p, float f, unsigned seed);    /* 0..1 at f (0..1 through the loop) */
+void      wprec_set(RecTrack *t, int k, float v);            /* sample k to height v (0..1) */
+float     wprec_norm(const RecTrack *t, float v, int ch);    /* a sample's height 0..1 (colours: channel ch, 0 blue) */
+BOOL      wprec_apply_preset(Rec *rec, int ti, int p, unsigned seed);
+BOOL      wprec_draw(Rec *rec, int ti, float x0, float y0, float x1, float y1);
+
 /* Live values (engine processes only): playback's look and properties, used instead of the stored ones by
  * wpapi_load_adjust and wpapi_properties_js. Both NULL: back to the stored values. */
 void      wpapi_live_set(const wchar_t *wallpaperId, const WallpaperAdjust *adj, const JVal *props);

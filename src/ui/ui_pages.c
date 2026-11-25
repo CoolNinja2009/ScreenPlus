@@ -171,15 +171,20 @@ void pages_rebuild_view(void)
 /* ================================================================ sidebar */
 
 /* The Screen+ mark (an accent tile with a monitor) at any size: s = 1 is the sidebar's 30 DIPs. */
-static void draw_mark(Ui *u, float x, float y, float s)
+/* The logo: branding/icon.svg (the app icon) at `size` px, the same in every window. */
+static void draw_mark(Ui *u, float x, float y, float size)
 {
-    Theme *t = &u->t;
-    ui_rrect(rectf(x, y, 30 * s, 30 * s), 9 * s, t->accent);
-    ui_rrect_stroke(rectf(x + 7 * s, y + 8 * s, 16 * s, 12 * s), 3 * s, 1.6f * s, t->onAccent);
-    ui_line(x + 15 * s, y + 10 * s, x + 15 * s, y + 18 * s, 1.4f * s, t->onAccent);
-    ui_line(x + 11 * s, y + 14 * s, x + 19 * s, y + 14 * s, 1.4f * s, t->onAccent);
-    ui_line(x + 15 * s, y + 20 * s, x + 15 * s, y + 23.5f * s, 1.6f * s, t->onAccent);
-    ui_line(x + 11 * s, y + 24 * s, x + 19 * s, y + 24 * s, 1.6f * s, t->onAccent);
+    D2D1_COLOR_F blue = u->t.accent, white = col(0xFFFFFF, 1.0f);   /* the icon's blue, or the accent chosen */
+    blue.a = 1.0f;
+    float k = size / 472.0f;                                    /* the icon's square is 472 units */
+    static const float parts[][5] = {                           /* x y w h radius */
+        { 0, 0, 472, 472, 118 }, { 76, 94, 320, 242, 58 }, { 112, 130, 248, 170, 34 },
+        { 220, 141, 32, 148, 16 }, { 162, 199, 148, 32, 16 },  /* the plus */
+        { 198, 317, 38, 75, 19 }, { 139, 360, 194, 38, 19 },   /* the stand */
+    };
+    for (int i = 0; i < (int)SP_COUNTOF(parts); i++)
+        ui_rrect(rectf(x + parts[i][0] * k, y + parts[i][1] * k, parts[i][2] * k, parts[i][3] * k), parts[i][4] * k,
+                 i == 0 || i == 2 ? blue : white);
 }
 
 static void draw_sidebar(Ui *u)
@@ -189,24 +194,7 @@ static void draw_sidebar(Ui *u)
     ui_line(SIDEBAR_W - 0.5f, 0, SIDEBAR_W - 0.5f, u->h, 1.0f, t->separator);
 
     /* brand */
-    D2D1_RECT_F mark = rectf(24, 22, 30, 30);
-    ui_rrect(mark, 9, t->accent);
-    float brandP = u->brandAt > 0 && u->motion == 0 ?
-                   SP_CLAMP((float)((time_ms() - u->brandAt) / 260.0), 0.0f, 1.0f) : 1.0f;
-    if (brandP >= 1.0f) ui_rrect_stroke(rectf(31, 30, 16, 12), 3, 1.6f, t->onAccent);
-    else {
-        ui_line(33, 30, 33 + 12 * brandP, 30, 1.6f, t->onAccent);
-        ui_line(47, 32, 47, 32 + 8 * brandP, 1.6f, t->onAccent);
-        ui_line(45, 42, 45 - 12 * brandP, 42, 1.6f, t->onAccent);
-        ui_line(31, 40, 31, 40 - 8 * brandP, 1.6f, t->onAccent);
-    }
-    float standP = u->brandAt > 0 && u->motion == 0 ?
-                   SP_CLAMP((float)((time_ms() - u->brandAt - 260.0) / 180.0), 0.0f, 1.0f) : 1.0f;
-    ui_line(39, 32, 39, 32 + 8 * brandP, 1.4f, t->onAccent);
-    ui_line(35, 36, 35 + 8 * brandP, 36, 1.4f, t->onAccent);
-    ui_line(39, 42, 39, 42 + 3.5f * standP, 1.6f, t->onAccent);
-    ui_line(35, 46, 35 + 8 * standP, 46, 1.6f, t->onAccent);
-    if (u->brandAt > 0 && time_ms() - u->brandAt < 580.0 && u->motion == 0) ui_animate();
+    draw_mark(u, 24, 22, 30);
     ui_text(L"Screen+", u->fBrand, rectf(64, 22, 150, 30), t->text);
 
     static const wchar_t *labels[] = { L"Library", L"Displays", L"Customise", L"Store", L"Settings" };
@@ -1924,7 +1912,7 @@ static void draw_settings(Ui *u, float cx, float cw)
         wchar_t hex[16];
         str_printf(hex, SP_COUNTOF(hex), L"#%06X", s->accentColor & 0xFFFFFF);
         ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        row_label(u, x, y, w - 150, L"Accent colour", L"Changes highlights throughout Screen+");
+        row_label(u, x, y, w - 150, L"Accent colour", NULL);
         D2D1_RECT_F swatch = rectf(x + w - 132, y + 14, 114, 34);
         ui_rrect(swatch, 8, t->field);
         ui_rrect(rectf(swatch.left + 7, swatch.top + 6, 22, 22), 6, col(s->accentColor, 1));
@@ -2199,7 +2187,7 @@ static void draw_settings(Ui *u, float cx, float cw)
     if (sf_want(u, L"Screen+ " SP_VERSION_W, L"version third-party notices licenses")) {
         y = sf_place(u, x, y);
         ui_glass(rectf(x, y, w, 132), 14, 0, 0);
-        draw_mark(u, x + 20, y + 20, 1.6f);
+        draw_mark(u, x + 20, y + 20, 48);
         ui_text(L"Screen+", u->fHeading, rectf(x + 82, y + 18, w - 100, 26), t->text);
         wchar_t ver[64];
 #ifdef _WIN32
@@ -2302,6 +2290,11 @@ static WallpaperEntry *customise_entry(void)
     return config_find(&g_app.cfg, app_wallpaper_for(target_id()));
 }
 
+/* The graph presets and their maths live in wallpaper_api.c (wprec_preset_*), shared with the CLI. */
+#define k_presetNames   k_recPresetNames
+#define preset_reps     wprec_preset_reps
+#define preset_reps_set wprec_preset_reps_set
+#define preset_at       wprec_preset_at
 static void rec_stop(void);
 static void rec_drop_take(void);
 static void rec_reload(void);
@@ -2772,16 +2765,7 @@ int pages_is_drag(int kind)
 }
 
 /* A drawn or preset sample: v is 0..1 up the graph, stored as the track's value (rounded to its step or choice). */
-static void rec_set(RecTrack *t, int k, float v)
-{
-    if (t->kind == RT_NUM) {
-        double val = t->lo + v * (t->hi - t->lo), step = t->step > 0 ? t->step : 1.0;
-        t->v[k] = (float)(round(val / step) * step);
-    } else {
-        int levels = t->kind == RT_CHOICE && t->opts ? SP_MAX(t->opts->n - 1, 1) : 1;
-        t->v[k] = t->kind == RT_BOOL ? (v >= 0.5f) : (float)lroundf(v * levels);
-    }
-}
+#define rec_set wprec_set
 
 /* The graph view: speed and smoothing, and drawing over a track (the stroke sets every sample it passes). */
 static void rec_drag(int kind, int data, D2D1_RECT_F r, float x, float y, int commit)
@@ -3001,7 +2985,6 @@ static int parse_number(const wchar_t *s, double *v)
     return end && end != s && !*end;
 }
 
-static void preset_reps_set(int p, int n);
 
 /* Applies what was typed; anything that isn't a number (or colour) leaves the value as it was. */
 static void edit_commit(int id)
@@ -3463,14 +3446,7 @@ static void rec_value_text(const RecTrack *tk, int n, double pos, wchar_t *out, 
     }
 }
 
-/* 0..1 for the graph: numbers on their range, choices by index, a colour channel (ch 0 blue .. 2 red) of 255. */
-static float rec_norm(const RecTrack *tk, float v, int ch)
-{
-    if (tk->kind == RT_COLOR) return (float)(((uint32_t)v >> (ch * 8)) & 255) / 255.0f;
-    if (tk->kind == RT_BOOL) return v;
-    if (tk->kind == RT_CHOICE) return tk->opts && tk->opts->n > 1 ? v / (float)(tk->opts->n - 1) : 0.5f;
-    return (float)((v - tk->lo) / SP_MAX(tk->hi - tk->lo, 1e-9));
-}
+#define rec_norm wprec_norm
 
 static float draw_rec_graphs(Ui *u, float x, float y, float w, int sec)
 {
@@ -3550,130 +3526,10 @@ static float draw_rec_graphs(Ui *u, float x, float y, float w, int sec)
 /* ---- graph presets: right-click a track's graph for a shape that fills its loop (LFO shapes and easing curves).
  * They become the recording's samples, so Speed and Smooth work on them as on anything recorded. */
 
-enum { RP_SINE, RP_TRIANGLE, RP_SAW_UP, RP_SAW_DOWN, RP_SQUARE, RP_PULSE, RP_STEPS, RP_BOUNCE,
-       RP_BREATHE, RP_HEARTBEAT, RP_EASE, RP_SPIKE, RP_WANDER, RP_RANDOM, RP_COUNT };
-#define RP_MAX_REPS 20
-static const wchar_t *const k_presetNames[RP_COUNT] = {
-    L"Sine", L"Triangle", L"Ramp up", L"Ramp down", L"Square", L"Pulse", L"Steps", L"Bounce",
-    L"Breathe", L"Heartbeat", L"Ease in-out", L"Spike", L"Wander", L"Random" };
-static int g_presetReps[RP_COUNT];                   /* how many times each shape repeats in the loop; 0: not read yet */
-
-/* The repeat counts live in <data>/graph-presets.txt, one number per preset, so the last ones chosen come back. */
-static void preset_reps_file(wchar_t *out, size_t cap) { path_join(out, cap, paths_root(), L"graph-presets.txt"); }
-
-static int preset_reps(int p)
-{
-    if (!g_presetReps[0]) {
-        for (int i = 0; i < RP_COUNT; i++) g_presetReps[i] = 1;
-        wchar_t path[SP_MAX_PATH];
-        preset_reps_file(path, SP_COUNTOF(path));
-        FILE *f = _wfopen(path, L"r");
-        if (f) {
-            for (int i = 0, v; i < RP_COUNT && fscanf(f, "%d", &v) == 1; i++) g_presetReps[i] = SP_CLAMP(v, 1, RP_MAX_REPS);
-            fclose(f);
-        }
-    }
-    return g_presetReps[p];
-}
-
-static void preset_reps_set(int p, int n)
-{
-    if (p < 0 || p >= RP_COUNT) return;
-    preset_reps(p);
-    g_presetReps[p] = SP_CLAMP(n, 1, RP_MAX_REPS);
-    wchar_t path[SP_MAX_PATH];
-    preset_reps_file(path, SP_COUNTOF(path));
-    FILE *f = _wfopen(path, L"w");
-    if (!f) return;
-    for (int i = 0; i < RP_COUNT; i++) fprintf(f, "%d%c", g_presetReps[i], i + 1 < RP_COUNT ? ' ' : '\n');
-    fclose(f);
-}
-
-static float preset_hash(unsigned seed, int i)
-{
-    unsigned h = seed * 2654435761u ^ (unsigned)i * 2246822519u;
-    h ^= h >> 15; h *= 2246822519u; h ^= h >> 13; h *= 3266489917u; h ^= h >> 16;
-    return (float)(h & 0xFFFFFF) / 16777215.0f;
-}
-
-/* Periodic value noise: cells points round the loop, smoothly joined, so the end meets the start. */
-static float preset_noise(unsigned seed, float f, int cells)
-{
-    float x = f * (float)cells, s = x - floorf(x);
-    int i = (int)floorf(x) % cells;
-    s = s * s * (3.0f - 2.0f * s);
-    return preset_hash(seed, i) + (preset_hash(seed, (i + 1) % cells) - preset_hash(seed, i)) * s;
-}
-
-static float preset_bump(float f, float c, float w)
-{
-    float d = (f - c) / w;
-    return expf(-d * d);
-}
-
-/* A preset's height (0..1) at phase f (0..1 through the loop). */
-static float preset_eval(int p, float f, unsigned seed)
-{
-    const float tau = 6.2831853f;
-    float s;
-    switch (p) {
-    case RP_SINE:      return 0.5f + 0.5f * sinf(tau * f);
-    case RP_TRIANGLE:  return 1.0f - fabsf(2.0f * f - 1.0f);
-    case RP_SAW_UP:    return f;
-    case RP_SAW_DOWN:  return 1.0f - f;
-    case RP_SQUARE:    return f < 0.5f ? 1.0f : 0.0f;
-    case RP_PULSE:     return f < 0.2f ? 1.0f : 0.0f;
-    case RP_STEPS:     return SP_MIN(floorf(f * 4.0f), 3.0f) / 3.0f;
-    case RP_BOUNCE:    return fabsf(sinf(tau * f));
-    case RP_BREATHE:   return (expf(sinf(tau * f - 1.5707963f)) - 0.36787944f) / 2.35040239f;   /* the "breathing light" curve */
-    case RP_HEARTBEAT: return SP_MIN(0.12f + 0.88f * preset_bump(f, 0.14f, 0.035f) + 0.6f * preset_bump(f, 0.3f, 0.04f), 1.0f);
-    case RP_EASE:                                    /* ease up, hold, ease down, hold */
-        s = f < 0.25f ? f / 0.25f : f < 0.5f ? 1.0f : f < 0.75f ? 1.0f - (f - 0.5f) / 0.25f : 0.0f;
-        return s * s * (3.0f - 2.0f * s);
-    case RP_SPIKE:     return f < 0.04f ? f / 0.04f : expf(-(f - 0.04f) * 7.0f);
-    case RP_WANDER:    return 0.72f * preset_noise(seed, f, 5) + 0.28f * preset_noise(seed + 1, f, 13);
-    case RP_RANDOM:    return preset_hash(seed, SP_MIN((int)(f * 8.0f), 7));
-    default:           return 0.5f;
-    }
-}
-
-/* preset_eval repeated reps times across the loop. */
-static float preset_at(int p, float f, unsigned seed)
-{
-    float x = f * (float)preset_reps(p);
-    return SP_CLAMP(preset_eval(p, x - floorf(x), seed), 0.0f, 1.0f);
-}
-
-/* Fill the whole loop of a track with preset p. Numbers keep the band they were recorded over (a track that hardly
- * moved gets a quarter of its range either side of its value); on/off and choices use every level. */
+/* Fill the whole loop of a track with preset p (wprec_apply_preset) and save it. */
 static void rec_apply_preset(int sec, int ti, int p)
 {
-    Rec *rec = &cus.rec[sec];
-    if (!rec->n || ti < 0 || ti >= rec->count || rec->t[ti].kind == RT_COLOR || p < 0 || p >= RP_COUNT) return;
-    RecTrack *t = &rec->t[ti];
-    float lo = 0.0f, hi = 1.0f;
-    if (t->kind == RT_NUM) {
-        float mn = 1.0f, mx = 0.0f;
-        for (int k = 0; k < rec->n; k++) {
-            float v = SP_CLAMP(rec_norm(t, t->v[k], 0), 0.0f, 1.0f);
-            mn = SP_MIN(mn, v);
-            mx = SP_MAX(mx, v);
-        }
-        if (mx - mn >= 0.02f) {
-            lo = mn;
-            hi = mx;
-        } else {
-            lo = mn - 0.25f;
-            hi = mn + 0.25f;
-            if (lo < 0.0f) { hi -= lo; lo = 0.0f; }
-            if (hi > 1.0f) { lo -= hi - 1.0f; hi = 1.0f; }
-        }
-    }
-    unsigned seed = (unsigned)time_ms() | 1u;        /* Wander and Random: a new one each time */
-    for (int k = 0; k < rec->n; k++)
-        rec_set(t, k, lo + (hi - lo) * preset_at(p, (float)k / (float)rec->n, seed));
-    wprec_prepare(rec);
-    rec_save_edit(sec);
+    if (wprec_apply_preset(&cus.rec[sec], ti, p, (unsigned)time_ms() | 1u)) rec_save_edit(sec);
 }
 
 static void rec_presets_open(int data)

@@ -1,0 +1,2 @@
+// The app icon on the Bare window's exe: Explorer, the taskbar and SDL's window class use it.
+1 ICON "../../resources/app.ico"

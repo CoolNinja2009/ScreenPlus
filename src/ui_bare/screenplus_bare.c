@@ -4,6 +4,7 @@
  * desktop behind it (bare_window_backdrop), and the sidebar, the page and
  * every control are glass that refracts it. Selections are glass drops that
  * glide (sp_kit.c). Data is the service's JSON; actions are service commands. */
+#include "sp_shaders.h"
 #include "screenplus_bare.h"
 #include "sp_kit.h"
 #include <ctype.h>
@@ -260,13 +261,31 @@ static void divider(void) {
                               .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO, \
                               .shadow = { 0, 6, 24, 0, BARE_RGBA(0, 0, 0, sp.dark ? 50 : 22) })
 
+/* ---- the logo: branding/icon.svg (the app icon), drawn at any size ------------------- */
+
+static void logo(float size) {
+    const BareColor blue = sp.accent;                          /* the icon's blue, or the accent chosen */
+    float k = size / 472.0f;                                    /* the icon's square is 472 units */
+    #define LOGO_PART(x_, y_, w_, h_, r_, c_)         bare_box(.position = BARE_ABSOLUTE, .x = (x_) * k, .y = (y_) * k, .width = (w_) * k, .height = (h_) * k,                  .radius = (r_) * k, .color = (c_), .passthrough = true)
+    bare_stack(.width = size, .height = size, .shrink = BARE_ZERO, .radius = 118 * k,
+               .shadow = size > 30 ? (BareShadow){ 0, size * 0.08f, size * 0.4f, 0, sp_alpha(sp.accent, 90) } : (BareShadow){ 0 }) {
+        LOGO_PART(0, 0, 472, 472, 118, blue);
+        LOGO_PART(76, 94, 320, 242, 58, BARE_WHITE);
+        LOGO_PART(112, 130, 248, 170, 34, blue);
+        LOGO_PART(220, 141, 32, 148, 16, BARE_WHITE);          /* the plus */
+        LOGO_PART(162, 199, 148, 32, 16, BARE_WHITE);
+        LOGO_PART(198, 317, 38, 75, 19, BARE_WHITE);           /* the stand */
+        LOGO_PART(139, 360, 194, 38, 19, BARE_WHITE);
+    }
+    #undef LOGO_PART
+}
+
 /* ---- title bar and sidebar --------------------------------------------------- */
 
 static void title_bar(void) {
     bare_row(.width = BARE_GROW, .height = 46, .align = BARE_CENTER, .pad = { 0, 6, 0, 18 }, .gap = 10,
              .window_drag = true) {
-        bare_box(.width = 22, .height = 22, .radius = 6, .color = sp.accent,
-                 .shadow = { 0, 0, 10, 0, sp_alpha(sp.accent, 120) });
+        logo(22);
         bare_text("Screen+", .size = 15, .weight = BARE_MEDIUM, .color = sp.ink, .nowrap = true,
                   .shadow = { 0, 1, 6, 0, sp.dark ? BARE_RGBA(0, 0, 0, 140) : BARE_RGBA(255, 255, 255, 200) });
         bare_box(.width = BARE_GROW);
@@ -286,11 +305,7 @@ static void sidebar(SpView *v, const SpModel *m) {
                 .glass = sp_glass_panel(), .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO,
                 .shadow = { 0, 18, 48, -6, BARE_RGBA(0, 0, 0, sp.dark ? 90 : 40) }) {
         bare_row(.height = 84, .align = BARE_CENTER, .gap = 14, .pad = { 0, 0, 10, 8 }) {
-            bare_stack(.width = 48, .height = 48, .radius = 14, .align = BARE_CENTER, .justify = BARE_CENTER,
-                       .glass = sp_glass_accent(), .border = 1, .border_color = sp_alpha(BARE_WHITE, 120),
-                       .shadow = { 0, 4, 20, 0, sp_alpha(sp.accent, 120) }) {
-                sp_icon(SPI_DISPLAY, 24, sp.on_accent);
-            }
+            logo(48);
             bare_text("Screen+", .size = 25, .weight = BARE_SEMIBOLD, .color = sp.ink, .nowrap = true);
         }
         /* The nav: a glass drop under the current page glides between items. */
@@ -327,7 +342,7 @@ static void sidebar(SpView *v, const SpModel *m) {
                     sp_icon(icons[i], 21, c);
                     bare_text(names[i], .size = 18, .weight = on ? BARE_SEMIBOLD : BARE_MEDIUM, .color = c,
                               .nowrap = true, .animate = sp_fade());
-                    if (st.clicked && !on) { v->page = (SpPage)i; v->page_time = bare_time(); v->popover = 0; }
+                    if (st.clicked && !on) { v->page = (SpPage)i; v->page_time = bare_time(); v->popover = 0; sp_sound(SP_SOUND_PAGE); }
                 }
             }
         }
@@ -690,60 +705,1302 @@ static void displays(SpView *v, const SpModel *m) {
     }
 }
 
-/* ---- Customise ---------------------------------------------------------------------- */
 
-static void customise(SpView *v, const SpModel *m) {
+static const BareColor accents[] = { { 0, 215, 5, 255 }, { 10, 132, 255, 255 }, { 94, 92, 230, 255 }, { 191, 90, 242, 255 },
+                                     { 255, 55, 95, 255 }, { 255, 159, 10, 255 }, { 255, 214, 10, 255 }, { 100, 210, 255, 255 } };
+
+/* ---- Customise ---------------------------------------------------------------------- */
+/* Every Customise command goes to the wallpaper on the chosen display (`--display N`), as the classic window's
+ * display picker does. Recordings: `record` commands; the service notes the look / volume / props commands sent
+ * while a take runs, so the sliders send at 30 Hz then. Played values come from the recording's samples, their
+ * playhead moves on from the position the last answer gave. */
+
+enum { REC_SEC_LOOK, REC_SEC_PROPS, REC_SEC_VOLUME };
+static const char *const k_rec_sections[] = { "look", "props", "volume" };
+
+static void crun(const SpView *v, const SpModel *m, const char *const *argv) {
+    const char *all[16];
+    int n = 0;
+    while (argv[n] && n < 12) { all[n] = argv[n]; n++; }
+    char num[16];
+    if (v->target_display) {
+        snprintf(num, sizeof num, "%d", v->target_display);
+        all[n++] = "--display";
+        all[n++] = num;
+    }
+    all[n] = NULL;
+    if (m->run) m->run(m->user, all);
+}
+#define CRUN(...) crun(v, m, (const char *[]){ __VA_ARGS__, NULL })
+
+static const JVal *recording_of(const SpModel *m, int sec) {
+    const JVal *r = json_get(m->record, k_rec_sections[sec]);
+    return r && r->t == J_OBJ ? r : NULL;
+}
+
+/* The section being recorded: -1 none. */
+static int recording_section(const SpModel *m) {
+    const char *s = json_str(json_get(json_get(m->record, "recording"), "section"), "");
+    for (int i = 0; i < 3; i++) if (!strcmp(s, k_rec_sections[i])) return i;
+    return -1;
+}
+
+/* The playhead, 0..1 through the loop. */
+static float rec_position(const SpModel *m, const JVal *r) {
+    double pos = json_num(json_get(r, "position"), 0);
+    if (!json_bool(json_get(r, "paused"), 0)) {
+        double n = json_num(json_get(r, "samples"), 1), rate = json_num(json_get(r, "rate"), 30);
+        pos += (bare_time() - m->record_time) * json_num(json_get(r, "speed"), 1) * rate / (n > 0 ? n : 1);
+    }
+    pos -= floor(pos);
+    return (float)pos;
+}
+
+static const JVal *rec_track_of(const JVal *r, const char *key) {
+    const JVal *ts = json_get(r, "tracks");
+    for (int i = 0; ts && ts->t == J_ARR && i < ts->n; i++)
+        if (!strcmp(json_str(json_get(&ts->kids[i], "key"), ""), key)) return &ts->kids[i];
+    return NULL;
+}
+
+/* A track's height (0..1) or colour at f. */
+static float track_height(const JVal *t, float f) {
+    const JVal *vals = json_get(t, "values");
+    if (!vals || vals->t != J_ARR || !vals->n) return 0;
+    int i = (int)(f * vals->n);
+    if (i >= vals->n) i = vals->n - 1;
+    return (float)json_num(&vals->kids[i], 0);
+}
+
+/* While a section's recording plays (not paused, not being re-recorded), its controls show the played value. */
+static bool played_value(const SpModel *m, int sec, const char *key, float *out) {
+    const JVal *r = recording_of(m, sec);
+    if (!r || json_bool(json_get(r, "paused"), 0) || recording_section(m) == sec) return false;
+    const JVal *t = rec_track_of(r, key);
+    if (!t || !strcmp(json_str(json_get(t, "kind"), ""), "colour")) return false;
+    float lo = (float)json_num(json_get(t, "lo"), 0), hi = (float)json_num(json_get(t, "hi"), 1);
+    if (!strcmp(json_str(json_get(t, "kind"), ""), "bool")) lo = 0, hi = 1;
+    *out = lo + track_height(t, rec_position(m, r)) * (hi - lo);
+    bare_wake_in(1.0f / 30.0f);
+    return true;
+}
+
+/* A slider that sends `cmd... value` while dragged (8 times a second, 30 while recording) and on release.
+ * slot: which of v->drag_look holds it while held. */
+static void live_slider(SpView *v, const SpModel *m, BareId id, int slot, float value, float lo, float hi, float width,
+                        const char *a0, const char *a1, const char *a2, const char *a3) {
+    float val = v->dragging_look == slot + 1 ? v->drag_look[slot] : value;
+    int r = sp_slider(id, &val, lo, hi, width);
+    if (r) {
+        v->dragging_look = r == 1 ? slot + 1 : 0;
+        v->drag_look[slot] = val;
+        double now = bare_time(), every = recording_section(m) >= 0 ? 1.0 / 30.0 : 0.12;
+        if (r == 2 || now - v->look_sent > every) {
+            char num[16];
+            snprintf(num, sizeof num, "%d", (int)lroundf(val));
+            if (!strcmp(a0, "volume")) RUN(m, a0, a1, num);          /* by wallpaper id, not display */
+            else if (a3) CRUN(a0, a1, a2, a3, num);
+            else if (a2) CRUN(a0, a1, a2, num);
+            else CRUN(a0, a1, num);
+            v->look_sent = now;
+        }
+    }
+}
+
+/* The value a live slider shows: the dragged one while held. */
+static float slider_value(const SpView *v, int slot, float value) {
+    return v->dragging_look == slot + 1 ? v->drag_look[slot] : value;
+}
+
+static BareColor hex_color(const char *hex) {
+    unsigned c = hex && hex[0] == 0x23 ? (unsigned)strtoul(hex + 1, NULL, 16) : 0;
+    return BARE_RGB((c >> 16) & 255, (c >> 8) & 255, c & 255);
+}
+
+/* A colour: the palette's dots, the colour itself (click: a hue / saturation wheel and a brightness slider
+ * open under the row's controls). Returns a new #RRGGBB (throttled while dragging), else NULL. `bright`: offer
+ * the brightness slider (the tint has its own). */
+static const char *colour_control(SpView *v, BareId id, const char *current, bool bright) {
+    static char picked[16];
+    const char *out = NULL;
+    BareColor cur = hex_color(current);
+    bool open = v->wheel_open == id;
+    bare_column(.gap = 14, .align = BARE_END, .shrink = BARE_ZERO) {
+        bare_row(.gap = 10, .align = BARE_CENTER) {
+            for (int i = 0; i < 8; i++) {
+                BareColor c = accents[i];
+                bool on = c.r == cur.r && c.g == cur.g && c.b == cur.b;
+                BareState s = bare_box(.id = id + 1 + (BareId)i, .width = 28, .height = 28, .radius = 14, .color = c,
+                                       .border = on ? 3.0f : 1.0f, .border_color = on ? BARE_WHITE : BARE_RGBA(255, 255, 255, 80),
+                                       .shadow = on ? (BareShadow){ 0, 0, 14, 0, sp_alpha(c, 180) } : (BareShadow){ 0 },
+                                       .hover = { .scale = 1.18f }, .press = { .scale = 0.9f }, .cursor = BARE_CURSOR_HAND,
+                                       .animate = sp_spring());
+                if (s.clicked && !on) {
+                    snprintf(picked, sizeof picked, "#%02X%02X%02X", c.r, c.g, c.b);
+                    out = picked;
+                }
+            }
+            /* the colour itself: opens the wheel */
+            BareState sw = { 0 };
+            bare_row(.id = id + 20, .height = 34, .radius = 17, .pad = { 0, 12, 0, 6 }, .gap = 8,
+                                    .align = BARE_CENTER, .glass = sp_glass_control(), .border = 1,
+                                    .border_color = open ? sp.accent : sp.hair, .cursor = BARE_CURSOR_HAND,
+                                    .hover = { .scale = 1.03f }, .animate = sp_spring()) {
+                sw = bare_this();
+                bare_box(.width = 24, .height = 24, .radius = 12, .color = cur, .border = 1,
+                         .border_color = BARE_RGBA(255, 255, 255, 120), .passthrough = true);
+                bare_text(current && *current ? current : "#000000", .size = 14.5f, .weight = BARE_MEDIUM, .color = sp.ink,
+                          .nowrap = true);
+            }
+            if (sw.clicked) {
+                v->wheel_open = open ? 0 : id;
+                sp_rgb_hsv(cur.r, cur.g, cur.b, &v->wheel_h, &v->wheel_s, &v->wheel_v);
+                if (!bright) v->wheel_v = 1;
+            }
+        }
+        if (open) {
+            bare_row(.gap = 22, .align = BARE_CENTER) {
+                if (v->wheel_drag != id) {
+                    float vv;
+                    sp_rgb_hsv(cur.r, cur.g, cur.b, &v->wheel_h, &v->wheel_s, &vv);
+                    if (bright) v->wheel_v = vv;
+                }
+                int r = sp_wheel(id + 30, 150, &v->wheel_h, &v->wheel_s);
+                int rv = 0;
+                if (bright) {
+                    bare_column(.gap = 6) {
+                        sp_label("Brightness", 14.5f, sp.dim, BARE_MEDIUM);
+                        float pct = v->wheel_v * 100;
+                        rv = sp_slider(id + 31, &pct, 0, 100, 200);
+                        if (rv) v->wheel_v = pct / 100;
+                    }
+                }
+                int any = r ? r : rv;
+                v->wheel_drag = any == 1 ? id : 0;
+                double now = bare_time();
+                if (any == 2 || (any == 1 && now - v->wheel_sent > 0.12)) {
+                    int rr, gg, bb;
+                    sp_hsv_rgb(v->wheel_h, v->wheel_s, bright ? v->wheel_v : 1.0f, &rr, &gg, &bb);
+                    snprintf(picked, sizeof picked, "#%02X%02X%02X", rr, gg, bb);
+                    out = picked;
+                    v->wheel_sent = now;
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/* A slider's value as text; click it to type one. Returns true with *typed (kept within lo..hi) when one was
+ * entered: Enter or clicking away takes it, Escape doesn't. */
+static bool value_field(SpView *v, BareId id, const char *shown, float val, float lo, float hi, float *typed) {
+    static const BareBox field = { .color = { 255, 255, 255, 0 }, .border = BARE_ZERO, .height = 26,
+                                   .pad = { 1, 0, 1, 0 }, .cursor = BARE_CURSOR_TEXT };
+    bool done = false;
+    if (v->value_edit == id) {
+        bare_row(.width = 76, .height = 34, .radius = 10, .pad = { 0, 8, 0, 8 }, .align = BARE_CENTER,
+                 .glass = sp_glass_control(), .border = 1, .border_color = sp.accent, .shrink = BARE_ZERO) {
+            BareState s = bare_input(v->value_text, sizeof v->value_text, .id = id + 7, .style = &field, .width = BARE_GROW,
+                                     .size = 16, .color = sp.ink, .caret = sp.accent, .selection = sp_alpha(sp.accent, 90));
+            if (s.focused) v->value_focused = true;
+            if (s.focused && bare_key_pressed(BARE_KEY_ESCAPE)) {
+                v->value_edit = 0;
+                bare_focus(0);
+            } else if (s.submitted || (v->value_focused && !s.focused)) {
+                char *end;
+                float f = strtof(v->value_text, &end);
+                if (end != v->value_text) {
+                    *typed = f < lo ? lo : f > hi ? hi : f;
+                    done = true;
+                }
+                v->value_edit = 0;
+                if (s.focused) bare_focus(0);
+            }
+        }
+        return done;
+    }
+    BareState s = { 0 };
+    bare_row(.id = id, .width = 76, .height = 34, .radius = 10, .pad = { 0, 8, 0, 8 }, .align = BARE_CENTER,
+             .justify = BARE_END, .cursor = BARE_CURSOR_TEXT, .hover = { .color = sp_alpha(sp.ink, 16) },
+             .shrink = BARE_ZERO) {
+        s = bare_this();
+        sp_label(shown, 17, sp.ink, BARE_MEDIUM);
+    }
+    if (s.clicked) {
+        v->value_edit = id;
+        v->value_focused = false;
+        if (fabsf(val - roundf(val)) < 0.001f) snprintf(v->value_text, sizeof v->value_text, "%d", (int)lroundf(val));
+        else snprintf(v->value_text, sizeof v->value_text, "%.2f", val);
+        bare_focus(id + 7);
+        bare_edit(id + 7, BARE_EDIT_SELECT_ALL);
+    }
+    return false;
+}
+
+/* value_field for a live slider: a typed value is sent as `cmd... value`. */
+static void live_value(SpView *v, const SpModel *m, BareId id, const char *fmt, int slot, float value, float lo, float hi,
+                       const char *a0, const char *a1, const char *a2, const char *a3) {
+    char t[24], num[24];
+    float shown = slider_value(v, slot, value), typed;
+    snprintf(t, sizeof t, fmt, (int)lroundf(shown));
+    if (!value_field(v, id, t, shown, lo, hi, &typed)) return;
+    snprintf(num, sizeof num, "%d", (int)lroundf(typed));
+    if (!strcmp(a0, "volume")) RUN(m, a0, a1, num);
+    else if (a3) CRUN(a0, a1, a2, a3, num);
+    else if (a2) CRUN(a0, a1, a2, num);
+    else CRUN(a0, a1, num);
+}
+
+/* ---- recordings ---------------------------------------------------------------------- */
+
+static void small_icon_button(BareId id, const char *icon, BareColor c, bool *clicked) {
+    BareState s = { 0 };
+    bare_stack(.id = id, .width = 40, .height = 40, .radius = 20, .align = BARE_CENTER,
+                             .justify = BARE_CENTER, .glass = sp_glass_control(), .border = 1, .border_color = sp.hair,
+                             .cursor = BARE_CURSOR_HAND, .hover = { .scale = 1.08f }, .press = { .scale = 0.92f },
+                             .animate = sp_spring()) {
+        s = bare_this();
+        sp_icon(icon, 17, c);
+    }
+    *clicked = s.clicked;
+}
+
+/* A section's title with its record controls: record; while recording, the clock and stop; with a recording,
+ * pause / play, the graphs and delete. */
+static void rec_bar(SpView *v, const SpModel *m, int sec, const char *title) {
+    const JVal *r = recording_of(m, sec);
+    int now_rec = recording_section(m);
+    BareColor red = BARE_RGB(255, 69, 58);
+    bare_row(.width = BARE_GROW, .height = 48, .align = BARE_CENTER, .gap = 8, .shrink = BARE_ZERO) {
+        section(title);
+        bare_box(.width = BARE_GROW);
+        bool click = false;
+        if (now_rec == sec) {
+            /* recording: the clock and a big red Stop (no return in here: the row must close) */
+            double secs = json_num(json_get(json_get(m->record, "recording"), "seconds"), 0) + (bare_time() - m->record_time);
+            char t[24];
+            snprintf(t, sizeof t, "%d:%02d", (int)secs / 60, (int)secs % 60);
+            float pulse = sp.motion > 0 ? 0.55f + 0.45f * (0.5f + 0.5f * sinf((float)bare_time() * 5.0f)) : 1.0f;
+            BareState st = { 0 };
+            bare_row(.id = IDI("rec.stop", sec), .height = 42, .radius = 21, .pad = { 0, 18, 0, 14 }, .gap = 10,
+                     .align = BARE_CENTER, .color = red, .shrink = BARE_ZERO, .cursor = BARE_CURSOR_HAND,
+                     .shadow = { 0, 4, 18, 0, sp_alpha(red, (int)(150 * pulse)) },
+                     .hover = { .scale = 1.05f }, .press = { .scale = 0.95f }, .animate = sp_spring()) {
+                st = bare_this();
+                bare_box(.width = 12, .height = 12, .radius = 3, .color = BARE_WHITE, .passthrough = true);
+                bare_text("Stop", .size = 15.5f, .weight = BARE_SEMIBOLD, .color = BARE_WHITE, .nowrap = true);
+                bare_text(t, .size = 15.5f, .weight = BARE_MEDIUM, .color = BARE_RGBA(255, 255, 255, 210), .nowrap = true);
+            }
+            bare_wake_in(0.25f);
+            if (st.clicked) {
+                sp_sound(SP_SOUND_STOP);
+                CRUN("record", k_rec_sections[sec], "stop");
+            }
+        } else {
+            if (r) {
+                bool paused = json_bool(json_get(r, "paused"), 0);
+                small_icon_button(IDI("rec.pause", sec), paused ? SPI_PLAY : SPI_PAUSE, paused ? sp.accent : sp.ink, &click);
+                if (click) CRUN("record", k_rec_sections[sec], paused ? "play" : "pause");
+                small_icon_button(IDI("rec.graphs", sec), SPI_GRAPH, v->graphs[sec] ? sp.accent : sp.ink, &click);
+                if (click) v->graphs[sec] = !v->graphs[sec];
+                small_icon_button(IDI("rec.del", sec), SPI_DELETE, sp.ink, &click);
+                if (click) {
+                    sp_sound(SP_SOUND_DELETE);
+                    CRUN("record", k_rec_sections[sec], "delete");
+                    v->graphs[sec] = false;
+                }
+            }
+            /* record: a red dot (another section recording: wait for it) */
+            BareState s = { 0 };
+            bare_stack(.id = IDI("rec.start", sec), .width = 40, .height = 40, .radius = 20, .align = BARE_CENTER,
+                       .justify = BARE_CENTER, .glass = sp_glass_control(), .border = 1, .border_color = sp.hair,
+                       .opacity = now_rec >= 0 ? 0.4f : 1.0f,
+                       .cursor = now_rec >= 0 ? BARE_CURSOR_NOT_ALLOWED : BARE_CURSOR_HAND, .hover = { .scale = 1.08f },
+                       .press = { .scale = 0.92f }, .animate = sp_spring()) {
+                s = bare_this();
+                bare_box(.width = 14, .height = 14, .radius = 7, .color = red, .shadow = { 0, 0, 8, 0, sp_alpha(red, 140) },
+                         .passthrough = true);
+            }
+            if (s.clicked && now_rec < 0) {
+                sp_sound(SP_SOUND_RECORD);
+                CRUN("record", k_rec_sections[sec], "start");
+            }
+        }
+    }
+}
+
+/* ---- graphs: shaders/graph.glsl draws each into a canvas the size of its box, in screen pixels ---------------- */
+
+typedef struct GraphParams {
+    float size[4], c0[4], c1[4], bg[4], misc[4];   /* see graph.glsl */
+    float v[240];
+} GraphParams;
+
+typedef struct GraphCanvas { int key; BareImage image; int w, h; float lw, lh; double used; } GraphCanvas;
+static GraphCanvas g_graphs[64];
+
+/* Graph `key`'s canvas, sized to its box as laid out last frame (no image before that). */
+static GraphCanvas *graph_canvas(int key) {
+    GraphCanvas *c = NULL, *oldest = &g_graphs[0];
+    for (int i = 0; i < 64 && !c; i++) {
+        if (g_graphs[i].key == key) c = &g_graphs[i];
+        else if (g_graphs[i].used < oldest->used) oldest = &g_graphs[i];
+    }
+    if (!c) {
+        c = oldest;
+        if (c->image) bare_image_free(c->image);
+        *c = (GraphCanvas){ .key = key };
+    }
+    c->used = bare_time();
+    float sc = bare_pixel_scale();
+    int w = (int)ceilf(c->lw * sc), h = (int)ceilf(c->lh * sc);
+    if (w > 0 && h > 0 && (!c->image || w != c->w || h != c->h)) {
+        if (c->image) bare_image_free(c->image);
+        c->image = bare_canvas(.width = w, .height = h);
+        c->w = w;
+        c->h = h;
+    }
+    return c;
+}
+
+/* Draws gp into c, for the box laid out at r (a new size shows from the next frame). */
+static void graph_render(GraphCanvas *c, GraphParams *gp, BareRect r) {
+    static BareShader shader;
+    if (r.w != c->lw || r.h != c->lh) {
+        c->lw = r.w;
+        c->lh = r.h;
+        bare_wake();
+    }
+    if (!c->image) return;
+    if (!shader) shader = bare_shader(&graph_shader);
+    gp->size[0] = (float)c->w;
+    gp->size[1] = (float)c->h;
+    gp->size[3] = bare_pixel_scale();
+    bare_pass(.target = c->image, .shader = shader, BARE_PARAMS(*gp));
+}
+
+static void rgba4(float out[4], BareColor c, float a) {
+    out[0] = c.r / 255.0f;
+    out[1] = c.g / 255.0f;
+    out[2] = c.b / 255.0f;
+    out[3] = a;
+}
+
+/* The graphs' colours: the accent at the left, turning a third of the way round the wheel by the right. */
+static void graph_colours(GraphParams *gp, float mode, float play) {
+    float h, s, val;
+    int r, g, b;
+    sp_rgb_hsv(sp.accent.r, sp.accent.g, sp.accent.b, &h, &s, &val);
+    sp_hsv_rgb(fmodf(h + 105.0f, 360.0f), s < 0.6f ? 0.6f : s, val < 0.85f ? 0.85f : val, &r, &g, &b);
+    rgba4(gp->c0, sp.accent, mode);
+    rgba4(gp->c1, BARE_RGB(r, g, b), play);
+}
+
+/* The pen's stroke from (x0, y0) to (x1, y1) into the drawn heights. */
+static void pen_line(SpView *v, float x0, float y0, float x1, float y1) {
+    int n = v->draw_n;
+    if (n <= 0) return;
+    if (x1 < x0) {
+        float t = x0; x0 = x1; x1 = t;
+        t = y0; y0 = y1; y1 = t;
+    }
+    int a = (int)floorf(x0 * n), b = (int)floorf(x1 * n);
+    a = a < 0 ? 0 : a >= n ? n - 1 : a;
+    b = b < 0 ? 0 : b >= n ? n - 1 : b;
+    for (int i = a; i <= b; i++) {
+        float f = x1 - x0 > 1e-6f ? ((i + 0.5f) / n - x0) / (x1 - x0) : 1.0f;
+        f = f < 0 ? 0 : f > 1 ? 1 : f;
+        v->draw_vals[i] = y0 + (y1 - y0) * f;
+    }
+}
+
+static void send_stroke(SpView *v, const SpModel *m, int sec, int ti, float x1, float y1) {
+    char tn[16], a[4][16];
+    snprintf(tn, sizeof tn, "%d", ti + 1);
+    snprintf(a[0], 16, "%.4f", v->draw_x);
+    snprintf(a[1], 16, "%.4f", v->draw_y);
+    snprintf(a[2], 16, "%.4f", x1);
+    snprintf(a[3], 16, "%.4f", y1);
+    CRUN("record", k_rec_sections[sec], "draw", tn, a[0], a[1], a[2], a[3]);
+    v->draw_x = x1;
+    v->draw_y = y1;
+    v->draw_sent = bare_time();
+}
+
+/* One track's graph: its curve (colours: a strip), the playhead and the value under the pointer. Drawing over it
+ * rewrites the loop: the curve follows the pen at once, the strokes go to the service as they're drawn. */
+static void track_graph(SpView *v, const SpModel *m, int sec, int ti, const JVal *t, float pos) {
+    const JVal *vals = json_get(t, "values");
+    int n = vals && vals->t == J_ARR ? vals->n : 0;
+    bool colour = !strcmp(json_str(json_get(t, "kind"), ""), "colour");
+    bool flag = !strcmp(json_str(json_get(t, "kind"), ""), "bool");
+    if (n > (colour ? 60 : 240)) n = colour ? 60 : 240;
+    if (!n) return;
+    int key = 1 + sec * 64 + ti;
+    const float H = colour ? 40.0f : 132.0f, INSET = 10;
+    float lo = flag ? 0 : (float)json_num(json_get(t, "lo"), 0), hi = flag ? 1 : (float)json_num(json_get(t, "hi"), 1);
+    GraphParams gp = { 0 };
+    graph_colours(&gp, colour ? 1.0f : 0.0f, pos);
+    rgba4(gp.bg, sp.dark ? BARE_RGB(10, 12, 22) : BARE_RGB(248, 249, 253), sp.dark ? 0.62f : 0.8f);
+    gp.size[2] = (float)n;
+    gp.misc[0] = -1;
+    gp.misc[1] = sp.dark ? 0.055f : -0.06f;
+    gp.misc[2] = 2.5f;
+    gp.misc[3] = INSET;
+    /* the drawn heights stay until a copy from the service arrives that was made after the pen came up */
+    if (v->draw_key == key && v->draw_track != key && m->record_time > v->draw_release + 0.4) v->draw_key = 0;
+    bool drawn = v->draw_key == key && v->draw_n == n;
+    GraphCanvas *c = graph_canvas(key);
+    BareState st = { 0 };
+    bare_stack(.id = IDI("rec.graph", key), .width = BARE_GROW, .height = H, .radius = colour ? 12.0f : 16.0f, .clip = true,
+               .image = c->image, .border = 1, .border_color = sp.hair,
+               .cursor = colour ? BARE_CURSOR_DEFAULT : BARE_CURSOR_CROSSHAIR) {
+        st = bare_this();
+        BareVec2 p = bare_mouse();
+        float fx = st.rect.w > 0 ? (p.x - st.rect.x) / st.rect.w : 0;
+        float fy = st.rect.h > 2 * INSET ? 1.0f - (p.y - st.rect.y - INSET) / (st.rect.h - 2 * INSET) : 0;
+        fx = fx < 0 ? 0 : fx > 1 ? 1 : fx;
+        fy = fy < 0 ? 0 : fy > 1 ? 1 : fy;
+        if (!colour && st.pressed && st.rect.w > 0) {
+            if (v->draw_track != key) {                    /* the pen goes down */
+                if (!drawn) {
+                    for (int i = 0; i < n; i++) v->draw_vals[i] = (float)json_num(&vals->kids[i], 0);
+                    v->draw_n = n;
+                }
+                v->draw_track = v->draw_key = key;
+                v->draw_x = v->pen_x = fx;
+                v->draw_y = v->pen_y = fy;
+                v->draw_sent = 0;
+                drawn = true;
+            }
+            pen_line(v, v->pen_x, v->pen_y, fx, fy);
+            v->pen_x = fx;
+            v->pen_y = fy;
+            if (bare_time() - v->draw_sent > 1.0 / 30.0 && (fx != v->draw_x || fy != v->draw_y))
+                send_stroke(v, m, sec, ti, fx, fy);
+        } else if (v->draw_track == key) {                 /* the pen comes up */
+            if (!v->draw_sent || v->pen_x != v->draw_x || v->pen_y != v->draw_y) send_stroke(v, m, sec, ti, v->pen_x, v->pen_y);
+            v->draw_track = 0;
+            v->draw_release = bare_time();
+        }
+        if (colour) {
+            for (int i = 0; i < n; i++) rgba4(gp.v + i * 4, hex_color(json_str(&vals->kids[i], "#000000")), 1);
+        } else if (drawn) {
+            memcpy(gp.v, v->draw_vals, sizeof(float) * (size_t)n);
+        } else {
+            for (int i = 0; i < n; i++) gp.v[i] = (float)json_num(&vals->kids[i], 0);
+        }
+        /* the value under the pointer */
+        if (!colour && (st.hovered || st.pressed) && st.rect.w > 0) {
+            float at = fx * n - 0.5f;
+            int i0 = (int)floorf(at);
+            float f = at - (float)i0, h0 = gp.v[i0 < 0 ? 0 : i0 >= n ? n - 1 : i0], h1 = gp.v[i0 + 1 < 0 ? 0 : i0 + 1 >= n ? n - 1 : i0 + 1];
+            float h = st.pressed ? fy : h0 + (h1 - h0) * f, val = lo + h * (hi - lo);
+            char txt[24];
+            if (flag) snprintf(txt, sizeof txt, "%s", h >= 0.5f ? "On" : "Off");
+            else if (hi - lo > 20) snprintf(txt, sizeof txt, "%d", (int)lroundf(val));
+            else snprintf(txt, sizeof txt, "%.2f", val);
+            gp.misc[0] = fx;
+            float x = fx * st.rect.w + 12, y = (1 - h) * (st.rect.h - 2 * INSET) + INSET - 34;
+            if (x > st.rect.w - 70) x = fx * st.rect.w - 70;
+            if (y < 4) y = (1 - h) * (st.rect.h - 2 * INSET) + INSET + 10;
+            bare_row(.position = BARE_ABSOLUTE, .x = x, .y = y, .height = 24, .pad = { 0, 9, 0, 9 }, .radius = 12,
+                     .align = BARE_CENTER, .color = sp.dark ? BARE_RGBA(16, 18, 28, 225) : BARE_RGBA(255, 255, 255, 240),
+                     .border = 1, .border_color = sp.hair, .passthrough = true) {
+                bare_text(txt, .size = 13, .weight = BARE_SEMIBOLD, .color = sp.ink, .nowrap = true);
+            }
+        }
+    }
+    graph_render(c, &gp, st.rect);
+}
+
+/* A preset's shape, small, for its tile. */
+static void preset_shape(int i, const JVal *shape) {
+    int sn = shape && shape->t == J_ARR ? shape->n : 0;
+    if (sn > 240) sn = 240;
+    GraphCanvas *c = graph_canvas(4096 + i);
+    BareState s = bare_box(.width = BARE_GROW, .height = 42, .radius = 8, .image = c->image, .passthrough = true);
+    GraphParams gp = { 0 };
+    graph_colours(&gp, 0, -1);
+    gp.size[2] = (float)(sn ? sn : 1);
+    gp.misc[0] = -1;
+    gp.misc[2] = 2;
+    gp.misc[3] = 5;
+    for (int k = 0; k < sn; k++) gp.v[k] = (float)json_num(&shape->kids[k], 0);
+    graph_render(c, &gp, s.rect);
+}
+
+/* The preset shapes for one track: a click fills its loop with that shape, repeated `times`. */
+static void preset_strip(SpView *v, const SpModel *m, int sec, int ti) {
+    const JVal *ps = json_get(m->record, "presets");
+    int n = ps && ps->t == J_ARR ? ps->n : 0;
+    if (v->preset_times < 1) v->preset_times = 1;
+    bare_column(.width = BARE_GROW, .gap = 10, .pad = { 4, 0, 6, 0 }) {
+        bare_row(.gap = 10, .align = BARE_CENTER) {
+            sp_label("Repeat", 15, sp.dim, BARE_MEDIUM);
+            if (sp_button(IDI("rec.times.minus", sec * 64 + ti), NULL, "\xE2\x88\x92", SP_BTN_GLASS).clicked && v->preset_times > 1)
+                v->preset_times--;
+            char t[16];
+            snprintf(t, sizeof t, "\xC3\x97%d", v->preset_times);
+            bare_row(.width = 44, .justify = BARE_CENTER) { sp_label(t, 16, sp.ink, BARE_SEMIBOLD); }
+            if (sp_button(IDI("rec.times.plus", sec * 64 + ti), NULL, "+", SP_BTN_GLASS).clicked && v->preset_times < 20)
+                v->preset_times++;
+        }
+        for (int row = 0; row * 7 < n; row++) {
+            bare_row(.width = BARE_GROW, .gap = 8) {
+                for (int i = row * 7; i < n && i < row * 7 + 7; i++) {
+                    const JVal *p = &ps->kids[i];
+                    const JVal *shape = json_get(p, "shape");
+                    BareState s = { 0 };
+                    bare_column(.id = IDI("rec.preset", (sec * 64 + ti) * 32 + i), .width = BARE_GROW, .height = 76,
+                                              .radius = 12, .padding = 8, .gap = 4, .glass = sp_glass_control(), .border = 1,
+                                              .border_color = sp.hair, .cursor = BARE_CURSOR_HAND,
+                                              .hover = { .scale = 1.04f }, .press = { .scale = 0.96f }, .animate = sp_spring()) {
+                        s = bare_this();
+                        preset_shape(i, shape);
+                        bare_text(json_str(json_get(p, "name"), ""), .size = 12.5f, .color = sp.dim, .nowrap = true,
+                                  .ellipsis = true);
+                    }
+                    if (s.clicked) {
+                        char tn[16], times[16];
+                        snprintf(tn, sizeof tn, "%d", ti + 1);
+                        snprintf(times, sizeof times, "%d", v->preset_times);
+                        CRUN("record", k_rec_sections[sec], "preset", tn, json_str(json_get(p, "name"), ""), times);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static const char *track_label(const JVal *t) {
+    static const struct { const char *key, *name; } names[] = {
+        { "brightness", "Brightness" }, { "contrast", "Contrast" }, { "saturation", "Saturation" }, { "hue", "Hue" },
+        { "gamma", "Gamma" }, { "tint", "Tint colour" }, { "tint-strength", "Tint strength" },
+        { "tint-brightness", "Tint brightness" }, { "volume", "Volume" } };
+    const char *l = json_str(json_get(t, "label"), "");
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) if (!strcmp(l, names[i].key)) return names[i].name;
+    return *l ? l : json_str(json_get(t, "key"), "");
+}
+
+/* The graph view of a section's recording: speed, smoothing, then each track. */
+static void rec_graphs(SpView *v, const SpModel *m, int sec) {
+    const JVal *r = recording_of(m, sec);
+    if (!r || !v->graphs[sec]) return;
+    const JVal *ts = json_get(r, "tracks");
+    float pos = rec_position(m, r);
+    if (!json_bool(json_get(r, "paused"), 0)) bare_wake_in(1.0f / 60.0f);
+    CARD(IDI("rec.card", sec)) {
+        /* speed: 0.25x..4x on a log scale; smoothing 0..100 */
+        for (int k = 0; k < 2; k++) {
+            if (k) divider();
+            int slot = 1 + sec * 2 + k;
+            float now = k ? (float)json_num(json_get(r, "smooth"), 0)
+                          : (float)(log(json_num(json_get(r, "speed"), 1) / 0.25) / log(16.0));
+            float val = v->rec_slider == slot ? v->rec_value : now;
+            ROW(IDI("rec.set", slot), k ? SPI_HEAL : SPI_SPEED, k ? "Smoothing" : "Speed", NULL) {
+                char t[24];
+                if (k) snprintf(t, sizeof t, "%d%%", (int)lroundf(val));
+                else snprintf(t, sizeof t, "%.2f\xC3\x97", 0.25 * pow(16.0, val));
+                float shown = k ? val : (float)(0.25 * pow(16.0, val)), typed;
+                if (value_field(v, IDI("rec.val", slot), t, shown, k ? 0.0f : 0.25f, k ? 100.0f : 4.0f, &typed)) {
+                    char num[24];
+                    snprintf(num, sizeof num, k ? "%.0f" : "%.2f", typed);
+                    CRUN("record", k_rec_sections[sec], k ? "smooth" : "speed", num);
+                }
+                int res = sp_slider(IDI("rec.slider", slot), &val, 0, k ? 100.0f : 1.0f, 380);
+                if (res == 1) { v->rec_slider = slot; v->rec_value = val; }
+                if (res == 2) {
+                    char num[24];
+                    if (k) snprintf(num, sizeof num, "%d", (int)lroundf(val));
+                    else snprintf(num, sizeof num, "%.2f", round(0.25 * pow(16.0, val) * 20.0) / 20.0);
+                    CRUN("record", k_rec_sections[sec], k ? "smooth" : "speed", num);
+                    v->rec_slider = 0;
+                }
+            }
+        }
+        for (int i = 0; ts && ts->t == J_ARR && i < ts->n; i++) {
+            const JVal *t = &ts->kids[i];
+            bool colour = !strcmp(json_str(json_get(t, "kind"), ""), "colour");
+            int key = 1 + sec * 64 + i;
+            divider();
+            bare_column(.width = BARE_GROW, .pad = { 12, 22, 14, 22 }, .gap = 8) {
+                bare_row(.width = BARE_GROW, .align = BARE_CENTER, .gap = 10) {
+                    sp_label(track_label(t), 17, sp.ink, BARE_MEDIUM);
+                    bare_box(.width = BARE_GROW);
+                    if (!colour && sp_button(IDI("rec.presets", key), SPI_TILES, "Presets",
+                                             v->presets_for == key ? SP_BTN_PRIMARY : SP_BTN_GLASS).clicked)
+                        v->presets_for = v->presets_for == key ? 0 : key;
+                }
+                track_graph(v, m, sec, i, t, pos);
+                if (v->presets_for == key) preset_strip(v, m, sec, i);
+            }
+        }
+    }
+}
+
+/* ---- sections -------------------------------------------------------------------------- */
+
+static void customise_look(SpView *v, const SpModel *m) {
     static const char *keys[] = { "brightness", "contrast", "saturation", "hue", "gamma" };
     static const char *names[] = { "Brightness", "Contrast", "Saturation", "Hue", "Gamma" };
     static const char *icons[] = { SPI_SPEED, SPI_PALETTE, SPI_DROPPER, SPI_BRUSH, SPI_EYE };
     static const float lo[] = { -100, -100, -100, -180, -100 }, hi[] = { 100, 100, 100, 180, 100 };
-    const JVal *w = active_wallpaper(m, v->target_display);
-    bare_row(.width = BARE_GROW, .height = 84, .align = BARE_CENTER, .gap = 14, .shrink = BARE_ZERO) {
-        page_title("Customise", w ? json_str(json_get(w, "name"), "") : "Nothing on screen");
-        bare_box(.width = BARE_GROW);
-        if (m->look && sp_button(ID("cus.reset"), SPI_REFRESH, "Reset look", SP_BTN_GLASS).clicked)
-            RUN(m, "look", "reset");
-    }
-    bare_column(.width = BARE_GROW, .height = BARE_GROW, .gap = 18, .scroll = BARE_SCROLL_Y, .pad = { 4, 6, 24, 6 }) {
-        bare_row(.width = BARE_GROW, .height = 280, .radius = 32, .padding = 18, .gap = 26, .glass = sp_glass_card(),
-                 .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO) {
-            bare_box(.width = 435, .height = 244, .radius = 22, .image = wallpaper_picture(m, w, true),
-                     .color = BARE_RGBA(0, 0, 0, 80), .shrink = BARE_ZERO, .shadow = { 0, 8, 26, 0, BARE_RGBA(0, 0, 0, 90) });
-            bare_column(.width = BARE_GROW, .gap = 10, .pad = { 12, 0, 0, 0 }) {
-                section("Live preview");
-                bare_text("Changes show on the desktop as you drag. The look is kept per wallpaper.",
-                          .size = 16, .color = sp.dim);
-                bare_text("More controls (author properties, layout, upscaling, recordings) are in the classic window for now.",
-                          .size = 14.5f, .color = sp.dim);
-                if (sp_button(ID("cus.classic"), SPI_OPEN, "Open the classic Customise", SP_BTN_GLASS).clicked)
-                    RUN(m, "ui", "classic");
+    static const char *tkeys[] = { "tintStrength", "tintBrightness" }, *targs[] = { "tint-strength", "tint-brightness" };
+    static const char *trec[] = { "tintLift", "tintBrightness" };
+    static const char *tnames[] = { "Strength", "Brightness" };
+    bool web = !strcmp(json_str(json_get(json_get(m->look, "wallpaper"), "type"), ""), "html");
+    CARD(ID("cus.card")) {
+        for (int i = 0; i < 5; i++) {
+            if (web && i == 4) continue;                       /* CSS has no gamma */
+            if (i) divider();
+            ROW(IDI("cus.row", i), icons[i], names[i], NULL) {
+                float now = (float)json_num(json_get(m->look, keys[i]), 0);
+                played_value(m, REC_SEC_LOOK, keys[i], &now);
+                live_value(v, m, IDI("cus.val", i), "%+d", i, now, lo[i], hi[i], "look", "set", keys[i], NULL);
+                live_slider(v, m, IDI("cus.slider", i), i, now, lo[i], hi[i], 380, "look", "set", keys[i], NULL);
             }
         }
-        section("Colour grading");
-        if (!m->look) {
-            sp_label("Apply a wallpaper to adjust its look.", 17, sp.dim, BARE_REGULAR);
-        } else {
-            CARD(ID("cus.card")) {
-                for (int i = 0; i < 5; i++) {
-                    if (i) divider();
-                    float val = v->dragging_look == i + 1 ? v->drag_look[i] : (float)json_num(json_get(m->look, keys[i]), 0);
-                    ROW(IDI("cus.row", i), icons[i], names[i], NULL) {
-                        char t[16];
-                        snprintf(t, sizeof t, "%+d", (int)lroundf(val));
-                        bare_row(.width = 60, .justify = BARE_END) { sp_label(t, 17, sp.ink, BARE_MEDIUM); }
-                        int r = sp_slider(IDI("cus.slider", i), &val, lo[i], hi[i], 380);
-                        if (r) {
-                            v->dragging_look = r == 1 ? i + 1 : 0;
-                            v->drag_look[i] = val;
-                            double now = bare_time();
-                            if (r == 2 || now - v->look_sent > 0.12) {
-                                char num[16];
-                                snprintf(num, sizeof num, "%d", (int)lroundf(val));
-                                RUN(m, "look", "set", keys[i], num);
-                                v->look_sent = now;
-                            }
+        divider();
+        /* tint: the wheel (hue, saturation) beside strength and brightness */
+        const char *tint = json_str(json_get(m->look, "tint"), "#000000");
+        BareColor tc = hex_color(tint);
+        bare_row(.width = BARE_GROW, .pad = { 16, 22, 18, 22 }, .gap = 30, .align = BARE_CENTER) {
+            float h = v->wheel_h, s = v->wheel_s, vv;
+            if (v->wheel_drag != ID("cus.tint")) sp_rgb_hsv(tc.r, tc.g, tc.b, &h, &s, &vv);
+            int r = sp_wheel(ID("cus.tint.wheel"), 170, &h, &s);
+            if (r) {
+                v->wheel_h = h;
+                v->wheel_s = s;
+                v->wheel_drag = r == 1 ? ID("cus.tint") : 0;
+                double now = bare_time(), every = recording_section(m) >= 0 ? 1.0 / 30.0 : 0.12;
+                if (r == 2 || now - v->wheel_sent > every) {
+                    int rr, gg, bb;
+                    char hex[16];
+                    sp_hsv_rgb(h, s, 1.0f, &rr, &gg, &bb);
+                    snprintf(hex, sizeof hex, "#%02X%02X%02X", rr, gg, bb);
+                    CRUN("look", "set", "tint", hex);
+                    v->wheel_sent = now;
+                }
+            }
+            bare_column(.width = BARE_GROW, .gap = 14) {
+                bare_row(.gap = 12, .align = BARE_CENTER) {
+                    sp_icon(SPI_BRUSH, 20, sp.ink);
+                    sp_label("Tint", 18, sp.ink, BARE_MEDIUM);
+                    bare_box(.width = 22, .height = 22, .radius = 11, .color = tc, .border = 1,
+                             .border_color = BARE_RGBA(255, 255, 255, 120));
+                    sp_label(tint, 15, sp.dim, BARE_MEDIUM);
+                }
+                for (int i = 0; i < 2; i++) {
+                    bare_row(.width = BARE_GROW, .gap = 12, .align = BARE_CENTER) {
+                        bare_row(.width = 110) { sp_label(tnames[i], 16, sp.dim, BARE_MEDIUM); }
+                        float now = (float)json_num(json_get(m->look, tkeys[i]), 0);
+                        played_value(m, REC_SEC_LOOK, trec[i], &now);
+                        live_value(v, m, IDI("cus.tval", i), "%d%%", 5 + i, now, 0, 100, "look", "set", targs[i], NULL);
+                        live_slider(v, m, IDI("cus.tslider", i), 5 + i, now, 0, 100, 300, "look", "set", targs[i], NULL);
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void picture_rect(const char *mode, float da, float pa, float out[4]) {
+    float w = 1, h = 1;
+    if (!strcmp(mode, "fill")) { if (pa > da) w = pa / da; else h = da / pa; }
+    else if (!strcmp(mode, "fit") || !strcmp(mode, "original")) { if (pa > da) h = da / pa; else w = pa / da; }
+    else if (!strcmp(mode, "fit-width")) h = da / pa;
+    else if (!strcmp(mode, "fit-height")) w = pa / da;
+    out[0] = (1 - w) / 2; out[1] = (1 - h) / 2; out[2] = w; out[3] = h;
+}
+
+/* Where the picture sits now (display fractions), as the service works it out. */
+static void layout_now(const SpModel *m, float out[4]) {
+    const JVal *r = json_get(m->layout, "rect");
+    if (r && r->t == J_ARR && r->n == 4) {
+        for (int k = 0; k < 4; k++) out[k] = (float)json_num(&r->kids[k], k < 2 ? 0 : 1);
+        return;
+    }
+    picture_rect(json_str(json_get(m->layout, "layout"), "fill"), (float)json_num(json_get(m->layout, "display"), 16.0 / 9.0),
+                 (float)json_num(json_get(m->layout, "picture"), 16.0 / 9.0), out);
+}
+
+static void layout_send(SpView *v, const SpModel *m, const char *mode, const float r[4]) {
+    if (strcmp(mode, "custom")) {
+        CRUN("layout", mode);
+        return;
+    }
+    char a[4][16];
+    for (int k = 0; k < 4; k++) snprintf(a[k], 16, "%.3f", r[k] * 100);
+    CRUN("layout", "custom", a[0], a[1], a[2], a[3]);
+}
+
+/* Undo / redo keep every settled layout (not each step of a drag), per wallpaper. */
+static void layout_push(SpView *v, const char *mode, const float r[4]) {
+    int at = v->layout_hist_at;
+    if (v->layout_hist_n && !strcmp(v->layout_hist_mode[at], mode) &&
+        (strcmp(mode, "custom") || !memcmp(v->layout_hist[at], r, sizeof v->layout_hist[0])))
+        return;
+    int n = v->layout_hist_n ? at + 1 : 0;
+    if (n == 40) {
+        memmove(v->layout_hist, v->layout_hist + 1, sizeof v->layout_hist[0] * 39);
+        memmove(v->layout_hist_mode, v->layout_hist_mode + 1, sizeof v->layout_hist_mode[0] * 39);
+        n--;
+    }
+    memcpy(v->layout_hist[n], r, sizeof v->layout_hist[0]);
+    snprintf(v->layout_hist_mode[n], sizeof v->layout_hist_mode[0], "%s", mode);
+    v->layout_hist_n = n + 1;
+    v->layout_hist_at = n;
+}
+
+static void layout_step(SpView *v, const SpModel *m, int step) {
+    int at = v->layout_hist_at + step;
+    if (at < 0 || at >= v->layout_hist_n) return;
+    v->layout_hist_at = at;
+    memcpy(v->layout_rect, v->layout_hist[at], sizeof v->layout_rect);
+    v->layout_hold = bare_time() + 1.5;
+    layout_send(v, m, v->layout_hist_mode[at], v->layout_hist[at]);
+}
+
+static float lay_snap(float x, float d) {
+    static const float k[] = { 0.0f, 0.5f, 1.0f };
+    for (int i = 0; i < 3; i++) if (fabsf(x - k[i]) < d) return k[i];
+    return x;
+}
+
+/* A drag from layout_start by (dx, dy) display fractions. op 0 moves (edges and centre snap); else its bits are the
+ * edges that move (1 left, 2 right, 4 top, 8 bottom). Shift: no snapping, and a resize keeps the shape. */
+static void layout_drag_by(SpView *v, int op, float dx, float dy, float sx, float sy, bool shift) {
+    const float *s = v->layout_start;
+    float L = s[0], T = s[1], R = s[0] + s[2], B = s[1] + s[3];
+    if (!op) {
+        float w = s[2], h = s[3];
+        L = s[0] + dx;
+        T = s[1] + dy;
+        if (!shift) {
+            float a = lay_snap(L, sx), b = lay_snap(L + w, sx) - w, c = lay_snap(L + w * 0.5f, sx) - w * 0.5f;
+            L = a != L ? a : b != L ? b : c;
+            a = lay_snap(T, sy), b = lay_snap(T + h, sy) - h, c = lay_snap(T + h * 0.5f, sy) - h * 0.5f;
+            T = a != T ? a : b != T ? b : c;
+        }
+        R = L + w;
+        B = T + h;
+    } else {
+        if (op & 1) L = shift ? L + dx : lay_snap(L + dx, sx);
+        if (op & 2) R = shift ? R + dx : lay_snap(R + dx, sx);
+        if (op & 4) T = shift ? T + dy : lay_snap(T + dy, sy);
+        if (op & 8) B = shift ? B + dy : lay_snap(B + dy, sy);
+        const float mn = 0.02f;
+        if (R - L < mn) { if (op & 1) L = R - mn; else R = L + mn; }
+        if (B - T < mn) { if (op & 4) T = B - mn; else B = T + mn; }
+        if (shift && s[2] > 0 && s[3] > 0) {
+            float a = s[3] / s[2], w = R - L, h = B - T;
+            if ((op & 3) && (op & 12)) {
+                float k = fmaxf(w / s[2], h / s[3]);
+                w = s[2] * k;
+                h = s[3] * k;
+                if (op & 1) L = R - w; else R = L + w;
+                if (op & 4) T = B - h; else B = T + h;
+            } else if (op & 3) {
+                float cy = s[1] + s[3] * 0.5f;
+                h = w * a;
+                T = cy - h * 0.5f;
+                B = T + h;
+            } else {
+                float cx = s[0] + s[2] * 0.5f;
+                w = h / a;
+                L = cx - w * 0.5f;
+                R = L + w;
+            }
+        }
+    }
+    v->layout_rect[0] = L;
+    v->layout_rect[1] = T;
+    v->layout_rect[2] = R - L;
+    v->layout_rect[3] = B - T;
+}
+
+/* The layout editor: the display and the whole picture (zoomed out when the picture runs past the display, what
+ * falls off it faint), held still while a drag lasts. Drag the picture to move it, its edges and corners to size it
+ * (snapping to the display's edges and middle; Shift: free, and keeping its shape). Undo / redo: Ctrl+Z / Ctrl+Y. */
+static void layout_editor(SpView *v, const SpModel *m, const JVal *w, bool page) {
+    static float area_w = 640;
+    const char *id = json_str(json_get(json_get(m->look, "wallpaper"), "id"), "");
+    const char *mode = json_str(json_get(m->layout, "layout"), "fill");
+    const char *border = json_str(json_get(m->layout, "border"), "black");
+    float now[4], r[4];
+    layout_now(m, now);
+    if (strcmp(v->layout_for, id)) {                           /* another wallpaper: its history starts here */
+        snprintf(v->layout_for, sizeof v->layout_for, "%s", id);
+        v->layout_hist_n = 0;
+        v->layout_drag = 0;
+        v->layout_hold = 0;
+        layout_push(v, mode, now);
+    }
+    if (v->layout_drag) {
+        memcpy(r, v->layout_rect, sizeof r);
+    } else if (v->layout_hold > bare_time()) {
+        float d = 0;
+        for (int k = 0; k < 4; k++) d += fabsf(now[k] - v->layout_rect[k]);
+        if (d < 0.004f) v->layout_hold = 0;
+        memcpy(r, v->layout_hold ? v->layout_rect : now, sizeof r);
+    } else {
+        memcpy(r, now, sizeof r);
+    }
+    float dw = (float)json_num(json_get(m->layout, "displayW"), 1920), dh = (float)json_num(json_get(m->layout, "displayH"), 0);
+    if (dh <= 0) dh = dw / (float)json_num(json_get(m->layout, "display"), 16.0 / 9.0);
+    if (!v->layout_drag) {
+        v->layout_view[0] = fmaxf(fminf(0.0f, r[0]), -3.0f);
+        v->layout_view[1] = fmaxf(fminf(0.0f, r[1]), -3.0f);
+        v->layout_view[2] = fminf(fmaxf(1.0f, r[0] + r[2]), 4.0f);
+        v->layout_view[3] = fminf(fmaxf(1.0f, r[1] + r[3]), 4.0f);
+    }
+    const float *vb = v->layout_view, pad = 14;
+    float AH = fminf(300.0f, area_w * dh / dw);
+    float S = fminf((area_w - 2 * pad) / ((vb[2] - vb[0]) * dw), (AH - 2 * pad) / ((vb[3] - vb[1]) * dh));
+    float cw = dw * S, ch = dh * S;
+    float ox = (area_w - (vb[2] - vb[0]) * cw) * 0.5f - vb[0] * cw, oy = (AH - (vb[3] - vb[1]) * ch) * 0.5f - vb[1] * ch;
+    BareRect pic = { ox + r[0] * cw, oy + r[1] * ch, r[2] * cw, r[3] * ch };
+    BareImage img = wallpaper_picture(m, w, true);
+    BareColor fill = !strcmp(border, "color") ? hex_color(json_str(json_get(m->layout, "color"), "#000000")) : BARE_RGB(0, 0, 0);
+    static const int ops[3][3] = { { 5, 4, 6 }, { 1, 0, 2 }, { 9, 8, 10 } };
+    BareState ps = { 0 }, hs[3][3] = { { { 0 } } };
+    bare_column(.width = BARE_GROW, .pad = { 4, 22, 10, 22 }, .gap = 8) {
+        bare_stack(.id = ID("lay.area"), .width = BARE_GROW, .height = AH, .radius = 14, .clip = true,
+                   .color = sp.dark ? BARE_RGBA(0, 0, 0, 70) : BARE_RGBA(0, 0, 0, 18)) {
+            BareState area = bare_this();
+            if (area.rect.w > 0 && fabsf(area.rect.w - area_w) > 0.5f) { area_w = area.rect.w; bare_wake(); }
+            /* what falls off the display, faint */
+            bare_box(.position = BARE_ABSOLUTE, .x = pic.x, .y = pic.y, .width = pic.w, .height = pic.h, .image = img,
+                     .opacity = 0.28f, .passthrough = true);
+            /* the display: its border, then the picture */
+            bare_stack(.position = BARE_ABSOLUTE, .x = ox, .y = oy, .width = cw, .height = ch, .clip = true, .color = fill,
+                       .passthrough = true) {
+                if (!page && (!strcmp(border, "blur") || !strcmp(border, "mirror") || !strcmp(border, "edges"))) {
+                    float cover[4];
+                    picture_rect("fill", dw / dh, (float)json_num(json_get(m->layout, "picture"), 16.0 / 9.0), cover);
+                    bare_box(.position = BARE_ABSOLUTE, .x = cover[0] * cw, .y = cover[1] * ch, .width = cover[2] * cw,
+                             .height = cover[3] * ch, .image = img, .opacity = !strcmp(border, "blur") ? 0.3f : 0.5f,
+                             .passthrough = true);
+                }
+                bare_box(.position = BARE_ABSOLUTE, .x = pic.x - ox, .y = pic.y - oy, .width = pic.w, .height = pic.h,
+                         .image = img, .color = img ? BARE_WHITE : sp.hair, .passthrough = true);
+            }
+            bare_box(.position = BARE_ABSOLUTE, .x = ox, .y = oy, .width = cw, .height = ch, .border = 1,
+                     .border_color = BARE_RGBA(255, 255, 255, 140), .passthrough = true);
+            /* the picture: drag to move */
+            bool hot = v->layout_drag == 1;
+            ps = bare_box(.id = ID("lay.pic"), .position = BARE_ABSOLUTE, .x = pic.x, .y = pic.y, .width = pic.w,
+                          .height = pic.h, .border = 1.5f, .border_color = sp_alpha(sp.accent, hot ? 255 : 190),
+                          .hover = { .border_color = sp.accent }, .cursor = BARE_CURSOR_MOVE);
+            /* its edges, then its corners (on top) */
+            float hx[3] = { pic.x, pic.x + pic.w * 0.5f, pic.x + pic.w }, hy[3] = { pic.y, pic.y + pic.h * 0.5f, pic.y + pic.h };
+            for (int pass = 0; pass < 2; pass++)
+                for (int j = 0; j < 3; j++)
+                    for (int i = 0; i < 3; i++) {
+                        int op = ops[j][i], corner = (op & 3) && (op & 12);
+                        if (!op || corner != pass) continue;
+                        BareId hid = IDI("lay.h", op);
+                        if (corner) {
+                            hs[j][i] = bare_box(.id = hid, .position = BARE_ABSOLUTE, .x = hx[i] - 6, .y = hy[j] - 6,
+                                                .width = 12, .height = 12, .radius = 3, .color = BARE_WHITE, .border = 1.5f,
+                                                .border_color = sp.accent, .hover = { .scale = 1.3f },
+                                                .cursor = op == 5 || op == 10 ? BARE_CURSOR_RESIZE_NWSE : BARE_CURSOR_RESIZE_NESW);
+                            continue;
+                        }
+                        bool side = (op & 3) != 0;                 /* left or right edge */
+                        bare_stack(.id = hid, .position = BARE_ABSOLUTE,
+                                              .x = side ? hx[i] - 5 : pic.x + 8, .y = side ? pic.y + 8 : hy[j] - 5,
+                                              .width = side ? 10 : fmaxf(pic.w - 16, 1), .height = side ? fmaxf(pic.h - 16, 1) : 10,
+                                              .align = BARE_CENTER, .justify = BARE_CENTER,
+                                              .cursor = side ? BARE_CURSOR_RESIZE_EW : BARE_CURSOR_RESIZE_NS) {
+                            hs[j][i] = bare_this();
+                            if ((side ? pic.h : pic.w) > 40)
+                                bare_box(.width = side ? 8.0f : 16.0f, .height = side ? 16.0f : 8.0f, .radius = 3, .color = BARE_WHITE,
+                                         .border = 1.5f, .border_color = sp.accent, .passthrough = true);
                         }
                     }
+        }
+        /* the drag */
+        int op = ps.pressed ? 0 : -1;
+        for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) if (hs[j][i].pressed) op = ops[j][i];
+        if (op >= 0 && !v->layout_drag) {
+            v->layout_drag = op + 1;
+            memcpy(v->layout_start, r, sizeof r);
+            memcpy(v->layout_rect, r, sizeof r);
+            v->layout_grab = bare_mouse();
+        }
+        if (op >= 0 && v->layout_drag == op + 1) {
+            BareVec2 p = bare_mouse();
+            float before[4];
+            memcpy(before, v->layout_rect, sizeof before);
+            layout_drag_by(v, op, (p.x - v->layout_grab.x) / cw, (p.y - v->layout_grab.y) / ch, 8 / cw, 8 / ch,
+                           bare_key_down(BARE_KEY_SHIFT));
+            if (memcmp(before, v->layout_rect, sizeof before) && bare_time() - v->layout_sent > 0.1) {
+                layout_send(v, m, "custom", v->layout_rect);
+                v->layout_sent = bare_time();
+            }
+        } else if (v->layout_drag) {
+            if (memcmp(v->layout_start, v->layout_rect, sizeof v->layout_start)) {
+                layout_send(v, m, "custom", v->layout_rect);
+                layout_push(v, "custom", v->layout_rect);
+                v->layout_hold = bare_time() + 1.5;
+            }
+            v->layout_drag = 0;
+        }
+        /* the size it comes out at, undo, redo, reset */
+        bare_row(.width = BARE_GROW, .align = BARE_CENTER, .gap = 8) {
+            char cap[96];
+            snprintf(cap, sizeof cap, "%d \xC3\x97 %d on a %d \xC3\x97 %d display", (int)lroundf(r[2] * dw), (int)lroundf(r[3] * dh),
+                     (int)lroundf(dw), (int)lroundf(dh));
+            sp_label(cap, 15, sp.dim, BARE_REGULAR);
+            bare_box(.width = BARE_GROW);
+            if (sp_button(ID("lay.undo"), SPI_UNDO, NULL, SP_BTN_GLASS).clicked) layout_step(v, m, -1);
+            if (sp_button(ID("lay.redo"), SPI_REDO, NULL, SP_BTN_GLASS).clicked) layout_step(v, m, 1);
+            if (sp_button(ID("lay.reset"), SPI_REFRESH, "Reset", SP_BTN_GLASS).clicked) {
+                float full[4];
+                picture_rect("fill", dw / dh, (float)json_num(json_get(m->layout, "picture"), 16.0 / 9.0), full);
+                layout_send(v, m, "fill", full);
+                layout_push(v, "fill", full);
+            }
+        }
+    }
+    if (!bare_focused() && bare_key_down(BARE_KEY_CTRL)) {
+        bool shift = bare_key_down(BARE_KEY_SHIFT);
+        if (bare_key_pressed(BARE_KEY_Z)) layout_step(v, m, shift ? 1 : -1);
+        else if (bare_key_pressed(BARE_KEY_Y)) layout_step(v, m, 1);
+    }
+}
+
+static void customise_layout(SpView *v, const SpModel *m, const JVal *w) {
+    static const char *modes[] = { "fill", "fit", "fit-width", "fit-height", "stretch", "original" };
+    static const char *mode_names[] = { "Fill", "Fit", "Width", "Height", "Stretch", "Original" };
+    static const char *borders[] = { "black", "blur", "mirror", "edges", "color" };
+    static const char *border_names[] = { "Black", "Blur", "Mirror", "Edges", "Colour" };
+    static const char *page_borders[] = { "black", "color" }, *page_border_names[] = { "Black", "Colour" };
+    bool page = json_bool(json_get(m->layout, "page"), 0);
+    const char *mode = json_str(json_get(m->layout, "layout"), "fill");
+    const char *border = json_str(json_get(m->layout, "border"), "black");
+    CARD(ID("cus.layout")) {
+        if (!page) {
+            int sel = -1;
+            for (int i = 0; i < 6; i++) if (!strcmp(mode, modes[i])) sel = i;
+            ROW(ID("cus.layout.row"), SPI_TILES, "Size", sel < 0 ? "Custom" : NULL) {
+                int c = sp_choices(ID("cus.layout.c"), mode_names, 6, sel, true, 44);
+                if (c >= 0 && c != sel) {
+                    float rc[4];
+                    picture_rect(modes[c], (float)json_num(json_get(m->layout, "display"), 16.0 / 9.0),
+                                 (float)json_num(json_get(m->layout, "picture"), 16.0 / 9.0), rc);
+                    layout_send(v, m, modes[c], rc);
+                    layout_push(v, modes[c], rc);
+                }
+            }
+        }
+        layout_editor(v, m, w, page);
+        divider();
+        const char *const *bv = page ? page_borders : borders, *const *bn = page ? page_border_names : border_names;
+        int nb = page ? 2 : 5, bsel = -1;
+        for (int i = 0; i < nb; i++) if (!strcmp(border, bv[i])) bsel = i;
+        ROW(ID("cus.border.row"), SPI_PICTURE, "Border", NULL) {
+            int c = sp_choices(ID("cus.border.c"), bn, nb, bsel, true, 44);
+            if (c >= 0 && c != bsel) CRUN("layout", "border", bv[c]);
+        }
+        if (!strcmp(border, "color")) {
+            divider();
+            bare_row(.width = BARE_GROW, .pad = { 14, 22, 14, 22 }, .gap = 18, .align = BARE_START) {
+                bare_row(.width = 28, .justify = BARE_CENTER, .shrink = BARE_ZERO, .pad = { 6, 0, 0, 0 }) { sp_icon(SPI_DROPPER, 20, sp.ink); }
+                bare_row(.width = BARE_GROW, .pad = { 6, 0, 0, 0 }) { sp_label("Border colour", 18, sp.ink, BARE_MEDIUM); }
+                const char *hex = colour_control(v, ID("cus.bcolor"), json_str(json_get(m->layout, "color"), "#000000"), true);
+                if (hex) CRUN("layout", "border", "color", hex);
+            }
+        }
+    }
+}
+
+static void customise_upscale(SpView *v, const SpModel *m) {
+    static const char *values[] = { "off", "smooth", "sharp" }, *names[] = { "Off", "Smooth", "Sharp" };
+    static const char *img_values[] = { "off", "sharp" }, *img_names[] = { "Off", "Sharp" };
+    bool smooth = json_bool(json_get(m->upscale, "smooth"), 1);
+    const char *const *vals = smooth ? values : img_values, *const *labels = smooth ? names : img_names;
+    int n = smooth ? 3 : 2, sel = -1;
+    const char *cur = json_str(json_get(m->upscale, "upscale"), "off");
+    for (int i = 0; i < n; i++) if (!strcmp(cur, vals[i])) sel = i;
+    CARD(ID("cus.up")) {
+        ROW(ID("cus.up.row"), SPI_FULL, "Upscaling", NULL) {
+            int c = sp_choices(ID("cus.up.c"), labels, n, sel, true, 44);
+            if (c >= 0 && c != sel) CRUN("upscale", vals[c]);
+        }
+    }
+}
+
+/* Make wallpaper cooler: interactive depth, and the models to make it with. */
+static void customise_cool(SpView *v, const SpModel *m) {
+    const JVal *c = m->cool;
+    bool cool = json_bool(json_get(c, "cool"), 0), busy = json_bool(json_get(c, "busy"), 0);
+    bool video = json_bool(json_get(c, "video"), 0);
+    const char *text = json_str(json_get(c, "text"), "");
+    int pct = (int)json_num(json_get(c, "percent"), -1);
+    CARD(ID("cus.cool")) {
+        ROW(ID("cus.cool.row"), SPI_LAYERS, cool ? "Interactive depth is on" : "Interactive depth", NULL) {
+            const char *label = busy ? "Cancel" : cool ? (video ? "Use plain video" : "Use plain image") : "Make wallpaper cooler";
+            if (sp_button(ID("cus.cool.go"), busy ? SPI_CLOSE : SPI_LAYERS, label, busy || cool ? SP_BTN_GLASS : SP_BTN_PRIMARY).clicked)
+                CRUN("cool", busy ? "cancel" : cool ? "off" : "on");
+        }
+        if (busy) {
+            bare_column(.width = BARE_GROW, .pad = { 0, 22, 16, 68 }, .gap = 8) {
+                if (*text) sp_label(text, 15, sp.dim, BARE_REGULAR);
+                bare_stack(.width = BARE_GROW, .height = 6, .radius = 3, .color = sp.dark ? BARE_RGBA(255, 255, 255, 40) : BARE_RGBA(0, 0, 0, 40)) {
+                    BareState st = bare_this();
+                    float wbar = st.rect.w > 0 ? st.rect.w : 400;
+                    bare_box(.position = BARE_ABSOLUTE, .x = 0, .y = 0, .width = pct >= 0 ? wbar * pct / 100.0f : wbar * 0.3f,
+                             .height = 6, .radius = 3, .color = sp.accent, .animate = sp_spring());
+                }
+            }
+        } else {
+            const char *note = json_bool(json_get(c, "failed"), 0) ? text
+                             : json_bool(json_get(c, "otherBusy"), 0) ? "Busy with another wallpaper."
+                             : cool && !json_bool(json_get(c, "mouse"), 1) ? "Mouse interaction is off in Settings." : "";
+            if (*note) bare_row(.width = BARE_GROW, .pad = { 0, 22, 14, 68 }) { sp_label(note, 15, sp.dim, BARE_REGULAR); }
+        }
+        const JVal *ms = json_get(c, "models");
+        const char *chosen = json_str(json_get(c, "model"), "");
+        for (int i = 0; ms && ms->t == J_ARR && i < ms->n; i++) {
+            const JVal *md = &ms->kids[i];
+            bool off = json_bool(json_get(md, "off"), 0), ready = json_bool(json_get(md, "ready"), 0);
+            bool on = !strcmp(json_str(json_get(md, "key"), ""), chosen);
+            divider();
+            BareState s = { 0 };
+            bare_row(.id = IDI("cus.cool.m", i), .width = BARE_GROW, .height = 70, .pad = { 0, 22, 0, 22 }, .gap = 18,
+                                   .align = BARE_CENTER, .cursor = off ? BARE_CURSOR_DEFAULT : BARE_CURSOR_HAND,
+                                   .hover = { .color = off ? BARE_RGBA(0, 0, 0, 0) : sp.faint }, .opacity = off ? 0.45f : 1.0f) {
+                s = bare_this();
+                bare_row(.width = 28, .justify = BARE_CENTER, .shrink = BARE_ZERO) {
+                    bare_box(.width = 16, .height = 16, .radius = 8, .color = on ? sp.accent : BARE_RGBA(0, 0, 0, 0),
+                             .border = 2, .border_color = on ? sp.accent : sp.dim);
+                }
+                bare_column(.width = BARE_GROW, .gap = 3) {
+                    char name[160];
+                    snprintf(name, sizeof name, "%s%s", json_str(json_get(md, "name"), ""),
+                             json_bool(json_get(md, "used"), 0) ? "  (in use)" : "");
+                    sp_label(name, 17, sp.ink, BARE_MEDIUM);
+                    bare_text(json_str(json_get(md, "desc"), ""), .size = 14, .color = sp.dim, .nowrap = true, .ellipsis = true);
+                }
+                bare_column(.width = 210, .gap = 3, .align = BARE_END, .shrink = BARE_ZERO) {
+                    int level = (int)json_num(json_get(md, "level"), 0);
+                    BareColor lc = level >= 4 ? BARE_RGB(63, 185, 80) : level == 3 ? BARE_RGB(212, 167, 44)
+                                 : level == 2 ? BARE_RGB(232, 131, 58) : BARE_RGB(230, 60, 60);
+                    bare_row(.gap = 4, .align = BARE_CENTER) {
+                        for (int k = 1; k <= 5; k++)
+                            bare_box(.width = 12, .height = 8, .radius = 2, .color = k <= level ? lc : sp_alpha(sp.dim, 60));
+                    }
+                    char st[64];
+                    double mb = json_num(json_get(md, "size"), 0) / 1048576.0;
+                    if (off) snprintf(st, sizeof st, "Pictures only");
+                    else if (json_bool(json_get(md, "user"), 0)) snprintf(st, sizeof st, ready ? "Your file" : "Needs your .onnx");
+                    else if (ready) snprintf(st, sizeof st, "%s \xC2\xB7 Downloaded", json_str(json_get(md, "rating"), ""));
+                    else snprintf(st, sizeof st, "%s \xC2\xB7 %.0f MB", json_str(json_get(md, "rating"), ""), mb);
+                    sp_label(st, 13.5f, sp.dim, BARE_REGULAR);
+                }
+            }
+            if (s.clicked && !off && !busy) CRUN("cool", "on", json_str(json_get(md, "key"), ""));
+        }
+    }
+}
+
+static void customise_sound(SpView *v, const SpModel *m, const JVal *lw) {
+    const JVal *slides = json_get(lw, "slideSeconds");
+    CARD(ID("cus.sound")) {
+        if (slides) {
+            static const char *labels[] = { "3 s", "5 s", "10 s", "15 s", "30 s", "60 s" }, *vals[] = { "3", "5", "10", "15", "30", "60" };
+            int cur = (int)json_num(slides, 10), sel = -1;
+            for (int i = 0; i < 6; i++) if (atoi(vals[i]) == cur) sel = i;
+            ROW(ID("cus.slides.row"), SPI_SLIDES, "Time per slide", NULL) {
+                int c = sp_choices(ID("cus.slides.c"), labels, 6, sel, true, 44);
+                if (c >= 0 && c != sel) RUN(m, "slides", json_str(json_get(lw, "id"), ""), vals[c]);
+            }
+        } else ROW(ID("cus.vol.row"), SPI_VOLUME, "Volume", NULL) {
+            float now = (float)json_num(json_get(lw, "volume"), 100);
+            played_value(m, REC_SEC_VOLUME, "volume", &now);
+            live_value(v, m, ID("cus.vol.val"), "%d%%", 7, now, 0, 100, "volume", json_str(json_get(lw, "id"), ""), NULL, NULL);
+            live_slider(v, m, ID("cus.vol"), 7, now, 0, 100, 380, "volume", json_str(json_get(lw, "id"), ""), NULL, NULL);
+        }
+    }
+}
+
+static void prop_text_field(SpView *v, const SpModel *m, int i, const char *name, const char *shown) {
+    static const BareBox field = { .color = { 255, 255, 255, 0 }, .border = BARE_ZERO, .height = 26,
+                                   .pad = { 1, 4, 1, 0 }, .cursor = BARE_CURSOR_TEXT };
+    static char idle[64][256];                   /* fields not being edited show the saved text */
+    bool editing = v->prop_editing == i + 1;
+    char *buf = editing ? v->prop_text : idle[i & 63];
+    int cap = editing ? (int)sizeof v->prop_text : (int)sizeof idle[0];
+    if (!editing) snprintf(buf, (size_t)cap, "%s", shown);
+    bare_row(.width = 340, .height = 46, .radius = 23, .pad = { 0, 16, 0, 16 }, .align = BARE_CENTER,
+             .glass = sp_glass_control(), .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO) {
+        BareState s = bare_input(buf, cap, .id = IDI("cus.prop.txt", i), .style = &field, .width = BARE_GROW, .size = 16,
+                                 .color = sp.ink, .caret = sp.accent, .selection = sp_alpha(sp.accent, 90));
+        if (!editing && (s.focused || s.changed)) {
+            v->prop_editing = i + 1;
+            snprintf(v->prop_text, sizeof v->prop_text, "%s", buf);
+        } else if (editing && s.submitted) {
+            CRUN("props", "set", name, v->prop_text);
+            v->prop_editing = 0;
+        } else if (editing && !s.focused) {
+            v->prop_editing = 0;
+        }
+    }
+}
+
+static void customise_props(SpView *v, const SpModel *m, const JVal *list) {
+    CARD(ID("cus.props")) {
+        for (int i = 0; i < list->n; i++) {
+            const JVal *p = &list->kids[i];
+            const char *name = json_str(json_get(p, "name"), ""), *label = json_str(json_get(p, "label"), name);
+            const char *type = json_str(json_get(p, "type"), ""), *shown = json_str(json_get(p, "display"), "");
+            const JVal *value = json_get(p, "value");
+            if (!*label) label = name;
+            if (i) divider();
+            if (!strcmp(type, "colour")) {
+                bare_row(.id = IDI("cus.prop", i), .width = BARE_GROW, .pad = { 14, 22, 14, 22 }, .gap = 18, .align = BARE_START) {
+                    bare_row(.width = 28, .justify = BARE_CENTER, .shrink = BARE_ZERO, .pad = { 6, 0, 0, 0 }) { sp_icon(SPI_PALETTE, 20, sp.ink); }
+                    bare_row(.width = BARE_GROW, .pad = { 6, 0, 0, 0 }) { sp_label(label, 18, sp.ink, BARE_MEDIUM); }
+                    const char *hex = colour_control(v, IDI("cus.prop.col", i), shown, true);
+                    if (hex) CRUN("props", "set", name, hex);
+                }
+                continue;
+            }
+            ROW(IDI("cus.prop", i), SPI_SETTINGS, label, NULL) {
+                if (!strcmp(type, "toggle")) {
+                    bool on = json_bool(value, 0);
+                    float pv;
+                    if (played_value(m, REC_SEC_PROPS, name, &pv)) on = pv >= 0.5f;
+                    if (sp_toggle(IDI("cus.prop.tog", i), on)) CRUN("props", "set", name, on ? "off" : "on");
+                } else if (!strcmp(type, "slider")) {
+                    float lo = (float)json_num(json_get(p, "min"), 0), hi = (float)json_num(json_get(p, "max"), 100);
+                    float step = (float)json_num(json_get(p, "step"), 1);
+                    float now = (float)json_num(value, lo);
+                    played_value(m, REC_SEC_PROPS, name, &now);
+                    float val = v->prop_drag == i + 1 ? v->prop_drag_value : now;
+                    char t[32];
+                    float typed;
+                    if (step >= 1) snprintf(t, sizeof t, "%d", (int)lroundf(val));
+                    else snprintf(t, sizeof t, "%.2f", val);
+                    if (value_field(v, IDI("cus.prop.val", i), t, val, lo, hi, &typed)) {
+                        char num[32];
+                        snprintf(num, sizeof num, "%g", step >= 1 ? roundf(typed) : typed);
+                        CRUN("props", "set", name, num);
+                    }
+                    int r = sp_slider(IDI("cus.prop.sl", i), &val, lo, hi, 340);
+                    if (r) {
+                        v->prop_drag = r == 1 ? i + 1 : 0;
+                        v->prop_drag_value = val;
+                        double tnow = bare_time(), every = recording_section(m) >= 0 ? 1.0 / 30.0 : 0.12;
+                        if (r == 2 || tnow - v->look_sent > every) {
+                            char num[32];
+                            snprintf(num, sizeof num, "%g", val);
+                            CRUN("props", "set", name, num);
+                            v->look_sent = tnow;
+                        }
+                    }
+                } else if (!strcmp(type, "choice")) {
+                    const JVal *ch = json_get(p, "choices");
+                    int n = ch && ch->t == J_ARR ? ch->n : 0, sel = -1;
+                    for (int c = 0; c < n; c++) if (!strcmp(json_str(&ch->kids[c], ""), shown)) sel = c;
+                    if (n > 0 && n <= 4) {
+                        const char *labels[4];
+                        for (int c = 0; c < n; c++) labels[c] = json_str(&ch->kids[c], "");
+                        int c = sp_choices(IDI("cus.prop.c", i), labels, n, sel, true, 44);
+                        if (c >= 0 && c != sel) CRUN("props", "set", name, labels[c]);
+                    } else if (n > 0) {   /* many choices: step through them */
+                        if (sel < 0) sel = 0;
+                        if (sp_button(IDI("cus.prop.prev", i), NULL, "\xE2\x80\xB9", SP_BTN_GLASS).clicked)
+                            CRUN("props", "set", name, json_str(&ch->kids[(sel + n - 1) % n], ""));
+                        bare_row(.width = 220, .justify = BARE_CENTER) {
+                            bare_text(shown, .size = 17, .weight = BARE_MEDIUM, .color = sp.ink, .nowrap = true, .ellipsis = true);
+                        }
+                        if (sp_button(IDI("cus.prop.next", i), NULL, "\xE2\x80\xBA", SP_BTN_GLASS).clicked)
+                            CRUN("props", "set", name, json_str(&ch->kids[(sel + 1) % n], ""));
+                    }
+                } else if (!strcmp(type, "text")) {
+                    prop_text_field(v, m, i, name, shown);
+                } else {
+                    bare_text(shown, .size = 16, .color = sp.dim, .nowrap = true, .ellipsis = true);
+                }
+            }
+        }
+    }
+}
+
+static void customise(SpView *v, const SpModel *m) {
+    const JVal *w = active_wallpaper(m, v->target_display);
+    const JVal *lw = json_get(m->look, "wallpaper");
+    const JVal *plist = json_get(m->props, "properties");
+    bool has_props = plist && plist->t == J_ARR && plist->n > 0;
+    const char *type = json_str(json_get(lw, "type"), "");
+    bare_row(.width = BARE_GROW, .height = 84, .align = BARE_CENTER, .gap = 14, .shrink = BARE_ZERO) {
+        page_title("Customise", lw ? json_str(json_get(lw, "name"), "") : "Nothing on screen");
+        bare_box(.width = BARE_GROW);
+        /* which display's wallpaper */
+        const JVal *ds = json_get(m->status, "displays");
+        int n = ds && ds->t == J_ARR ? ds->n : 0;
+        if (n > 1) {
+            const char *labels[9];
+            static char names[8][16];
+            int sel = 0;
+            labels[0] = "All";
+            for (int i = 0; i < n && i < 8; i++) {
+                int idx = (int)json_num(json_get(&ds->kids[i], "index"), i + 1);
+                snprintf(names[i], 16, "Display %d", idx);
+                labels[i + 1] = names[i];
+                if (idx == v->target_display) sel = i + 1;
+            }
+            int c = sp_choices(ID("cus.displays"), labels, n < 8 ? n + 1 : 9, sel, true, 44);
+            if (c == 0) v->target_display = 0;
+            else if (c > 0) v->target_display = (int)json_num(json_get(&ds->kids[c - 1], "index"), c);
+        }
+        if (m->layout && sp_button(ID("cus.layout.reset"), SPI_TILES, "Reset layout", SP_BTN_GLASS).clicked)
+            CRUN("layout", "reset");
+        if (m->look && sp_button(ID("cus.reset"), SPI_REFRESH, "Reset look", SP_BTN_GLASS).clicked)
+            CRUN("look", "reset");
+    }
+    bare_column(.width = BARE_GROW, .height = BARE_GROW, .gap = 14, .scroll = BARE_SCROLL_Y, .pad = { 4, 6, 24, 6 }) {
+        if (!m->look) {
+            sp_label("Apply a wallpaper to customise it.", 17, sp.dim, BARE_REGULAR);
+        } else {
+            bare_row(.width = BARE_GROW, .radius = 32, .padding = 18, .gap = 26, .glass = sp_glass_card(),
+                     .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO, .align = BARE_CENTER) {
+                bare_box(.width = 320, .height = 180, .radius = 22, .image = wallpaper_picture(m, w, true),
+                         .color = BARE_RGBA(0, 0, 0, 80), .shrink = BARE_ZERO, .shadow = { 0, 8, 26, 0, BARE_RGBA(0, 0, 0, 90) });
+                bare_column(.width = BARE_GROW, .gap = 8) {
+                    bare_text(json_str(json_get(lw, "name"), ""), .size = 22, .weight = BARE_SEMIBOLD, .color = sp.ink,
+                              .ellipsis = true, .nowrap = true);
+                    char line[80];
+                    snprintf(line, sizeof line, "%s%s", !strcmp(type, "html") ? "Web page" : !strcmp(type, "video") ? "Video" : "Picture",
+                             v->target_display ? "  \xC2\xB7  this display" : "  \xC2\xB7  all displays");
+                    sp_label(line, 15, sp.dim, BARE_REGULAR);
+                }
+            }
+            if (m->cool && json_bool(json_get(m->cool, "can"), 0)) {
+                section("Make wallpaper cooler");
+                customise_cool(v, m);
+            }
+            rec_bar(v, m, REC_SEC_LOOK, "Colour grading");
+            rec_graphs(v, m, REC_SEC_LOOK);
+            customise_look(v, m);
+            if (m->layout) { section("Layout"); customise_layout(v, m, w); }
+            if (m->upscale) { section("Upscaling"); customise_upscale(v, m); }
+            if (strcmp(type, "image")) {
+                if (json_get(lw, "slideSeconds")) section("Slides");
+                else { rec_bar(v, m, REC_SEC_VOLUME, "Sound"); rec_graphs(v, m, REC_SEC_VOLUME); }
+                customise_sound(v, m, lw);
+            }
+            if (has_props) {
+                rec_bar(v, m, REC_SEC_PROPS, "Wallpaper settings");
+                rec_graphs(v, m, REC_SEC_PROPS);
+                customise_props(v, m, plist);
+                bare_row(.width = BARE_GROW, .justify = BARE_END) {
+                    if (sp_button(ID("cus.props.reset"), SPI_REFRESH, "Reset wallpaper settings", SP_BTN_PLAIN).clicked)
+                        CRUN("props", "reset");
                 }
             }
         }
@@ -839,6 +2096,7 @@ static const SettingRow rows[] = {
     { "General", "launch_to_tray", "Keep the window closed at sign-in", SPI_DOWNLOAD, K_TOGGLE, NULL },
 #endif
     { "General", "bare_ui", "Bare window (beta)", SPI_PALETTE, K_TOGGLE, NULL },
+    { "General", "ui_sounds", "Sounds", SPI_VOLUME, K_TOGGLE, NULL },
     { "Playback", "pause_on_fullscreen", "Pause behind fullscreen apps and games", SPI_FULL, K_TOGGLE, NULL },
     { "Playback", "pause_when_covered", "Stop rendering while windows cover the desktop", SPI_EYE, K_TOGGLE, NULL },
     { "Playback", "suspend_on_lock", "Suspend while the PC is locked", SPI_LOCK, K_TOGGLE, NULL },
@@ -917,8 +2175,6 @@ static void setting_control(const SpModel *m, const SettingRow *r, int i) {
     }
 }
 
-static const BareColor accents[] = { { 0, 215, 5, 255 }, { 10, 132, 255, 255 }, { 94, 92, 230, 255 }, { 191, 90, 242, 255 },
-                                     { 255, 55, 95, 255 }, { 255, 159, 10, 255 }, { 255, 214, 10, 255 }, { 100, 210, 255, 255 } };
 
 static void settings(SpView *v, const SpModel *m) {
     static char search[96];
@@ -945,14 +2201,14 @@ static void settings(SpView *v, const SpModel *m) {
             }
         }
         if (want(search, "Auto update", "General")) CARD(ID("set.update")) {
-            ROW(ID("set.update.row"), SPI_SYNC, "Auto update", "Installs new releases by itself") {
+            ROW(ID("set.update.row"), SPI_SYNC, "Auto update", NULL) {
                 if (sp_button(ID("set.update.check"), SPI_REFRESH, "Check now", SP_BTN_GLASS).clicked) RUN(m, "update", "check");
                 bool on = setting_on(m, "auto_update");
                 if (sp_toggle(ID("set.update.tog"), on)) RUN(m, "settings", "set", "auto_update", on ? "off" : "on");
             }
         }
         if (want(search, "Sample wallpaper updates", "General")) CARD(ID("set.samples")) {
-            ROW(ID("set.samples.row"), SPI_LAYERS, "Sample wallpaper updates", "Checked when you press Check now") {
+            ROW(ID("set.samples.row"), SPI_LAYERS, "Sample wallpaper updates", NULL) {
                 if (sp_button(ID("set.samples.check"), SPI_REFRESH, "Check now", SP_BTN_GLASS).clicked) RUN(m, "samples", "check");
                 bool on = setting_on(m, "auto_update_samples");
                 if (sp_toggle(ID("set.samples.tog"), on)) RUN(m, "settings", "set", "auto_update_samples", on ? "off" : "on");
@@ -971,7 +2227,7 @@ static void settings(SpView *v, const SpModel *m) {
             }
         }
         if (want(search, "Accent colour color", "General")) CARD(ID("set.accent")) {
-            ROW(ID("set.accent.row"), SPI_DROPPER, "Accent colour", "Changes highlights throughout Screen+") {
+            ROW(ID("set.accent.row"), SPI_DROPPER, "Accent colour", NULL) {
                 bare_row(.gap = 10, .align = BARE_CENTER) {
                     for (int i = 0; i < 8; i++) {
                         BareColor c = accents[i];
@@ -1021,7 +2277,7 @@ static void settings(SpView *v, const SpModel *m) {
             CARD(ID("set.about")) {
                 char ver[64];
                 snprintf(ver, sizeof ver, "Screen+ %s  \xC2\xB7  Bare UI beta", json_str(json_get(m->status, "version"), ""));
-                ROW(ID("set.about.row"), SPI_INFO, ver, "The classic window has every option while this one is in beta") {
+                ROW(ID("set.about.row"), SPI_INFO, ver, NULL) {
                     if (sp_button(ID("set.classic"), SPI_OPEN, "Classic window", SP_BTN_GLASS).clicked) RUN(m, "ui", "classic");
                 }
             }
@@ -1157,6 +2413,7 @@ static void follow_window_setting(const SpModel *m) {
 void sp_draw(SpView *v, const SpModel *m) {
     if (!v || !m) return;
     follow_window_setting(m);
+    sp_sounds = !json_get(m->settings, "ui_sounds") || setting_on(m, "ui_sounds");
     BareVec2 win = bare_window_size();
     BareColor base = sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222);
     bare_stack(.id = ID("root"), .width = win.x, .height = win.y, .image = m->backdrop, .color = base,

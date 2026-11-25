@@ -37,7 +37,8 @@ typedef pthread_cond_t Cond;
 #define cond_signal(c) pthread_cond_signal(c)
 #endif
 
-enum { DOC_STATUS, DOC_SETTINGS, DOC_LIST, DOC_LOOK, DOC_STORE, DOC_COUNT };
+enum { DOC_STATUS, DOC_SETTINGS, DOC_LIST, DOC_LOOK, DOC_STORE, DOC_LAYOUT, DOC_UPSCALE, DOC_PROPS, DOC_RECORD, DOC_COOL,
+       DOC_COUNT };
 #define MAX_JOBS 32
 #define MAX_ARGS 12
 
@@ -55,6 +56,7 @@ typedef struct Shared {
     char message[512];
     bool message_new, message_failed;
     int page;                 /* the page on screen (the Store is fetched only while it's shown) */
+    int display;              /* Customise's display (0: all): the customise answers are for its wallpaper */
     bool store_asked;
     bool quit;
 } Shared;
@@ -123,7 +125,19 @@ static float renderer_cpu(DWORD pid) {
 
 static void refresh(bool with_store) {
     static const char *status[] = { "status", NULL }, *settings[] = { "settings", NULL }, *list[] = { "list", NULL },
-                      *look[] = { "look", NULL }, *store[] = { "store", "--previews", NULL };
+                      *store[] = { "store", "--previews", NULL };
+    /* Customise's answers: for the wallpaper on the chosen display */
+    lock(&g.lock);
+    int display = g.display;
+    unlock(&g.lock);
+    char num[16];
+    snprintf(num, sizeof num, "%d", display);
+    const char *look[] = { "look", display ? "--display" : NULL, num, NULL };
+    const char *layout[] = { "layout", display ? "--display" : NULL, num, NULL };
+    const char *upscale[] = { "upscale", display ? "--display" : NULL, num, NULL };
+    const char *props[] = { "props", display ? "--display" : NULL, num, NULL };
+    const char *record[] = { "record", display ? "--display" : NULL, num, NULL };
+    const char *cool[] = { "cool", display ? "--display" : NULL, num, NULL };
     JVal *st = take_data(sp_request(status));
     bool up = st != NULL;
     float cpu = -1;
@@ -140,6 +154,11 @@ static void refresh(bool with_store) {
         publish(DOC_SETTINGS, take_data(sp_request(settings)));
         publish(DOC_LIST, take_data(sp_request(list)));
         publish(DOC_LOOK, take_data(sp_request(look)));
+        publish(DOC_LAYOUT, take_data(sp_request(layout)));
+        publish(DOC_UPSCALE, take_data(sp_request(upscale)));
+        publish(DOC_PROPS, take_data(sp_request(props)));
+        publish(DOC_RECORD, take_data(sp_request(record)));
+        publish(DOC_COOL, take_data(sp_request(cool)));
         if (with_store) publish(DOC_STORE, take_data(sp_request(store)));
     }
     lock(&g.lock);
@@ -228,7 +247,7 @@ static void *worker(void *arg) {
         }
         if (clock_now() >= next || asked) {
             refresh(store);
-            next = clock_now() + (store ? 1.0 : 2.0);
+            next = clock_now() + (store || g.page == SP_CUSTOMISE ? 1.0 : 2.0);
         }
         lock(&g.lock);
         if (!g.quit && !g.job_count && !g.store_asked) {
@@ -323,6 +342,7 @@ static void take_updates(Live *app) {
         if (g.have[i]) {
             json_free(app->docs[i]);
             app->docs[i] = g.fresh[i];
+            if (i == DOC_RECORD) app->model.record_time = bare_time();
             g.fresh[i] = NULL;
             g.have[i] = false;
         }
@@ -340,11 +360,21 @@ static void take_updates(Live *app) {
         if (app->view.page == SP_STORE) { g.store_asked = true; cond_signal(&g.wake); }
         g.page = (int)app->view.page;
     }
+    if (g.display != app->view.target_display) {
+        g.display = app->view.target_display;
+        g.store_asked = true;                        /* a refresh now, for that display's wallpaper */
+        cond_signal(&g.wake);
+    }
     unlock(&g.lock);
     app->model.status = app->docs[DOC_STATUS];
     app->model.settings = app->docs[DOC_SETTINGS];
     app->model.list = app->docs[DOC_LIST];
     app->model.look = app->docs[DOC_LOOK];
+    app->model.layout = app->docs[DOC_LAYOUT];
+    app->model.upscale = app->docs[DOC_UPSCALE];
+    app->model.props = app->docs[DOC_PROPS];
+    app->model.record = app->docs[DOC_RECORD];
+    app->model.cool = app->docs[DOC_COOL];
     app->model.store = app->docs[DOC_STORE];
 }
 

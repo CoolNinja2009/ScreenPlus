@@ -215,6 +215,7 @@ BareState sp_button(BareId id, const char *icon, const char *label, int kind) {
         if (!icon_only) sp_label(label, 17, fg, BARE_MEDIUM);
     }
     m->pressed = st.pressed;
+    if (st.clicked && kind != SP_BTN_CHROME) sp_sound(SP_SOUND_TAP);
     return st;
 }
 
@@ -260,6 +261,7 @@ bool sp_toggle(BareId id, bool on) {
                  .shadow = { 0, 2, held ? 14.0f : 6.0f, 0, BARE_RGBA(0, 0, 0, held ? 50 : 70) },
                  .passthrough = true, .animate = sp_liquid());
     }
+    if (clicked) sp_sound(on ? SP_SOUND_OFF : SP_SOUND_ON);
     return clicked;
 }
 
@@ -310,6 +312,7 @@ int sp_choices(BareId id, const char *const *labels, int count, int selected, bo
     }
     m->n = count;
     if (moving) bare_wake_in(0.0f);
+    if (clicked >= 0 && clicked != selected) sp_sound(SP_SOUND_SELECT);
     return clicked;
 }
 
@@ -349,4 +352,152 @@ int sp_slider(BareId id, float *value, float lo, float hi, float width) {
                  .passthrough = true, .animate = held ? BARE_SPRING(0.18f, 0.9f) : sp_liquid());
     }
     return result;
+}
+
+/* ---- colour ---------------------------------------------------------------- */
+
+void sp_hsv_rgb(float h, float s, float v, int *r, int *g, int *b) {
+    h = fmodf(h, 360.0f);
+    if (h < 0) h += 360.0f;
+    float c = v * s, x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f)), m = v - c, rf, gf, bf;
+    int i = (int)(h / 60.0f);
+    switch (i) {
+    case 0:  rf = c; gf = x; bf = 0; break;
+    case 1:  rf = x; gf = c; bf = 0; break;
+    case 2:  rf = 0; gf = c; bf = x; break;
+    case 3:  rf = 0; gf = x; bf = c; break;
+    case 4:  rf = x; gf = 0; bf = c; break;
+    default: rf = c; gf = 0; bf = x; break;
+    }
+    *r = (int)lroundf((rf + m) * 255.0f);
+    *g = (int)lroundf((gf + m) * 255.0f);
+    *b = (int)lroundf((bf + m) * 255.0f);
+}
+
+void sp_rgb_hsv(int r, int g, int b, float *h, float *s, float *v) {
+    float rf = r / 255.0f, gf = g / 255.0f, bf = b / 255.0f;
+    float mx = fmaxf(rf, fmaxf(gf, bf)), mn = fminf(rf, fminf(gf, bf)), d = mx - mn;
+    *v = mx;
+    *s = mx > 0 ? d / mx : 0;
+    if (d <= 0) *h = 0;
+    else if (mx == rf) *h = 60.0f * fmodf((gf - bf) / d, 6.0f);
+    else if (mx == gf) *h = 60.0f * ((bf - rf) / d + 2.0f);
+    else *h = 60.0f * ((rf - gf) / d + 4.0f);
+    if (*h < 0) *h += 360.0f;
+}
+
+/* The wheel's picture: hue round the circle (red at 3 o'clock, as the classic window), white in the middle. */
+static BareImage wheel_image(void) {
+    static BareImage img;
+    if (img) return img;
+    enum { N = 256 };
+    unsigned char *px = malloc(N * N * 4);
+    if (!px) return 0;
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++) {
+            float dx = (x + 0.5f - N / 2.0f) / (N / 2.0f), dy = (y + 0.5f - N / 2.0f) / (N / 2.0f);
+            float d = sqrtf(dx * dx + dy * dy);
+            int r, g, b;
+            sp_hsv_rgb(atan2f(dy, dx) * 57.29578f, fminf(d, 1.0f), 1.0f, &r, &g, &b);
+            float a = fminf(fmaxf((1.0f - d) * N / 2.0f + 0.5f, 0.0f), 1.0f);   /* a soft edge */
+            unsigned char *p = px + (y * N + x) * 4;
+            p[0] = (unsigned char)r; p[1] = (unsigned char)g; p[2] = (unsigned char)b; p[3] = (unsigned char)(a * 255);
+        }
+    img = bare_image_from_pixels(N, N, px);
+    free(px);
+    return img;
+}
+
+int sp_wheel(BareId id, float size, float *hue, float *sat) {
+    Memo *m = memo(id);
+    int result = 0;
+    bare_stack(.id = id, .width = size, .height = size, .radius = size / 2, .cursor = BARE_CURSOR_HAND,
+               .shrink = BARE_ZERO, .shadow = { 0, 6, 22, 0, BARE_RGBA(0, 0, 0, 70) }) {
+        BareState st = bare_this();
+        if (st.pressed && st.rect.w > 0) {
+            BareVec2 p = bare_mouse();
+            float dx = (p.x - st.rect.x) / (st.rect.w / 2) - 1.0f, dy = (p.y - st.rect.y) / (st.rect.h / 2) - 1.0f;
+            float h = atan2f(dy, dx) * 57.29578f;
+            *hue = h < 0 ? h + 360.0f : h;
+            *sat = fminf(sqrtf(dx * dx + dy * dy), 1.0f);
+            result = 1;
+        } else if (m->pressed) {
+            result = 2;
+        }
+        bool held = st.pressed;
+        m->pressed = st.pressed;
+        bare_box(.width = size, .height = size, .radius = size / 2, .image = wheel_image(), .passthrough = true);
+        float a = *hue / 57.29578f, rad = *sat * (size / 2 - 2);
+        float k = held ? 30.0f : 22.0f;
+        int r, g, b;
+        sp_hsv_rgb(*hue, *sat, 1.0f, &r, &g, &b);
+        bare_box(.id = sub(id, 1), .position = BARE_ABSOLUTE, .x = size / 2 + cosf(a) * rad - k / 2,
+                 .y = size / 2 + sinf(a) * rad - k / 2, .width = k, .height = k, .radius = k / 2,
+                 .color = BARE_RGB(r, g, b), .border = 3, .border_color = BARE_WHITE,
+                 .shadow = { 0, 2, 10, 0, BARE_RGBA(0, 0, 0, 110) }, .passthrough = true,
+                 .animate = held ? BARE_INSTANT : sp_spring());
+    }
+    return result;
+}
+
+/* ---- sounds ------------------------------------------------------------------------- */
+
+bool sp_sounds = true;
+
+#define SND_RATE 48000
+#define SND_MAX  (SND_RATE / 2)
+
+/* A droplet into out (added): a sine whose pitch glides from f0 to f1 over the first 30 ms (water's "plip"), a
+ * glassy second partial, a 2 ms attack and an exponential decay. */
+static void droplet(float *out, int at, float f0, float f1, float decay, float gain) {
+    double ph = 0, ph2 = 0;
+    for (int i = at; i < SND_MAX; i++) {
+        float t = (float)(i - at) / SND_RATE;
+        float env = fminf(t / 0.002f, 1.0f) * expf(-t / decay) * gain;
+        if (env < 1e-4f && t > 0.01f) break;
+        float f = f0 * powf(f1 / f0, fminf(t / 0.03f, 1.0f));
+        ph += 6.2831853 * f / SND_RATE;
+        ph2 += 6.2831853 * f * 2.76 / SND_RATE;
+        out[i] += env * ((float)sin(ph) + 0.12f * expf(-t / (decay * 0.4f)) * (float)sin(ph2));
+    }
+}
+
+/* A mallet note: a sine, a quick bright partial, a longer decay. */
+static void note(float *out, int at, float f, float gain) {
+    double ph = 0, ph2 = 0;
+    for (int i = at; i < SND_MAX; i++) {
+        float t = (float)(i - at) / SND_RATE;
+        float env = fminf(t / 0.003f, 1.0f) * expf(-t / 0.16f) * gain;
+        if (env < 1e-4f && t > 0.01f) break;
+        ph += 6.2831853 * f / SND_RATE;
+        ph2 += 6.2831853 * f * 4.0 / SND_RATE;
+        out[i] += env * ((float)sin(ph) + 0.25f * expf(-t / 0.02f) * (float)sin(ph2));
+    }
+}
+
+void sp_sound(SpSound s) {
+    static BareSound made[SP_SOUND_COUNT];
+    static bool tried[SP_SOUND_COUNT];
+    if (!sp_sounds || s < 0 || s >= SP_SOUND_COUNT) return;
+    if (!tried[s]) {
+        static float buf[SND_MAX];
+        int ms = SND_RATE / 1000;
+        memset(buf, 0, sizeof buf);
+        switch (s) {
+        case SP_SOUND_TAP:    droplet(buf, 0, 900, 1700, 0.035f, 0.5f); break;
+        case SP_SOUND_SELECT: droplet(buf, 0, 1300, 2100, 0.028f, 0.42f); break;
+        case SP_SOUND_ON:     droplet(buf, 0, 700, 1400, 0.045f, 0.45f); droplet(buf, 45 * ms, 1100, 2200, 0.04f, 0.35f); break;
+        case SP_SOUND_OFF:    droplet(buf, 0, 1500, 750, 0.05f, 0.45f); break;
+        case SP_SOUND_PAGE:   droplet(buf, 0, 480, 950, 0.06f, 0.5f); break;
+        case SP_SOUND_RECORD: note(buf, 0, 659.3f, 0.4f); note(buf, 90 * ms, 987.8f, 0.4f); break;
+        case SP_SOUND_STOP:   note(buf, 0, 987.8f, 0.4f); note(buf, 90 * ms, 659.3f, 0.4f); break;
+        case SP_SOUND_DELETE: droplet(buf, 0, 340, 160, 0.08f, 0.6f); break;
+        default: break;
+        }
+        int n = SND_MAX;
+        while (n > 1 && fabsf(buf[n - 1]) < 1e-4f) n--;
+        made[s] = bare_sound(buf, n, 1, SND_RATE);
+        tried[s] = true;
+    }
+    bare_sound_play(made[s], 0.35f);
 }

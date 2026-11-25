@@ -15,6 +15,12 @@ typedef struct SpModel {
     const JVal *settings;   /* settings: key -> value */
     const JVal *list;       /* list: [{number, onScreen, wallpaper{...}}] */
     const JVal *look;       /* look: brightness ... (NULL: nothing to adjust) */
+    const JVal *layout;     /* layout: layout, border, color, page */
+    const JVal *upscale;    /* upscale: upscale, smooth (NULL: not for this wallpaper) */
+    const JVal *props;      /* props: properties[] (NULL: a plain file) */
+    const JVal *record;     /* record: the take, look/props/volume recordings, presets */
+    const JVal *cool;       /* cool: Make wallpaper cooler's state and models */
+    double record_time;     /* bare_time() when record arrived (playheads move on from its positions) */
     const JVal *store;      /* store: {loading, failed, error, items[]} */
     bool connected;         /* the service answered the last refresh */
     bool busy;              /* commands are still running */
@@ -47,7 +53,42 @@ typedef struct SpView {
     int rename_frames;      /* frames since that began (focus lands a frame later) */
     char rename[128];
     BareVec2 popover_at;
-    float drag_look[5];     /* Customise sliders while dragged */
+    float drag_look[8];     /* Customise sliders while dragged: 5 look, tint strength, tint brightness, volume */
+    int prop_drag;          /* 1 + the property slider being dragged */
+    float prop_drag_value;
+    int prop_editing;       /* 1 + the text property being edited */
+    char prop_text[256];
+    bool graphs[3];         /* a section's recording graphs are open (look, props, volume) */
+    int presets_for;        /* 1 + section * 64 + track: its preset strip is open */
+    int preset_times;       /* how many times a preset repeats over the loop */
+    BareId wheel_open;      /* the colour control whose wheel is open */
+    BareId wheel_drag;      /* the wheel being dragged */
+    float wheel_h, wheel_s, wheel_v;
+    double wheel_sent;
+    int draw_track;         /* 1 + section * 64 + track being drawn over */
+    float draw_x, draw_y;   /* where the last sent stroke ended */
+    float pen_x, pen_y;     /* where the pen was last frame */
+    double draw_sent;
+    int draw_key;           /* the track the drawn heights are for (0: none) */
+    int draw_n;
+    float draw_vals[240];   /* the track as drawn, shown until the service's copy has caught up */
+    double draw_release;    /* when the pen came up */
+    BareId value_edit;      /* the value being typed (0: none) */
+    char value_text[32];
+    int rec_slider;         /* 1 + section * 2 + (0 speed, 1 smoothing) while dragged */
+    float rec_value;
+    int layout_drag;        /* 1 + the drag: 0 move, else edge bits (1 left, 2 right, 4 top, 8 bottom) */
+    float layout_rect[4];   /* while dragged: x y w h, display fractions */
+    float layout_start[4];  /* the rect when the drag began */
+    float layout_view[4];   /* the editor's view (display fractions), held still while dragging */
+    BareVec2 layout_grab;   /* where the drag began (window) */
+    double layout_sent;
+    double layout_hold;     /* show layout_rect until then, or until the service reports it */
+    bool value_focused;     /* the typed value's field has had the focus */
+    char layout_for[64];    /* the wallpaper the history is for */
+    float layout_hist[40][4];   /* undo / redo: each settled layout (mode, and the rect when custom) */
+    char layout_hist_mode[40][12];
+    int layout_hist_n, layout_hist_at;
     int dragging_look;      /* slider being dragged + 1 */
     double look_sent;
 } SpView;

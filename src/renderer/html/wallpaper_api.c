@@ -1376,3 +1376,163 @@ static int live_adjust(const wchar_t *id, WallpaperAdjust *out)
     out->used = adjust_active(out);
     return 1;
 }
+
+/* ---- recordings: graph editing and presets (the classic window, the Bare window through the CLI) */
+
+void wprec_set(RecTrack *t, int k, float v)
+{
+    if (t->kind == RT_NUM) {
+        double val = t->lo + v * (t->hi - t->lo), step = t->step > 0 ? t->step : 1.0;
+        t->v[k] = (float)(round(val / step) * step);
+    } else {
+        int levels = t->kind == RT_CHOICE && t->opts ? SP_MAX(t->opts->n - 1, 1) : 1;
+        t->v[k] = t->kind == RT_BOOL ? (v >= 0.5f) : (float)lroundf(v * levels);
+    }
+}
+
+/* 0..1 for the graph: numbers on their range, choices by index, a colour channel (ch 0 blue .. 2 red) of 255. */
+float wprec_norm(const RecTrack *tk, float v, int ch)
+{
+    if (tk->kind == RT_COLOR) return (float)(((uint32_t)v >> (ch * 8)) & 255) / 255.0f;
+    if (tk->kind == RT_BOOL) return v;
+    if (tk->kind == RT_CHOICE) return tk->opts && tk->opts->n > 1 ? v / (float)(tk->opts->n - 1) : 0.5f;
+    return (float)((v - tk->lo) / SP_MAX(tk->hi - tk->lo, 1e-9));
+}
+
+const wchar_t *const k_recPresetNames[RP_COUNT] = {
+    L"Sine", L"Triangle", L"Ramp up", L"Ramp down", L"Square", L"Pulse", L"Steps", L"Bounce",
+    L"Breathe", L"Heartbeat", L"Ease in-out", L"Spike", L"Wander", L"Random" };
+static int g_presetReps[RP_COUNT];                   /* how many times each shape repeats in the loop; 0: not read yet */
+
+/* The repeat counts live in <data>/graph-presets.txt, one number per preset, so the last ones chosen come back. */
+static void preset_reps_file(wchar_t *out, size_t cap) { path_join(out, cap, paths_root(), L"graph-presets.txt"); }
+
+int wprec_preset_reps(int p)
+{
+    if (!g_presetReps[0]) {
+        for (int i = 0; i < RP_COUNT; i++) g_presetReps[i] = 1;
+        wchar_t path[SP_MAX_PATH];
+        preset_reps_file(path, SP_COUNTOF(path));
+        FILE *f = _wfopen(path, L"r");
+        if (f) {
+            for (int i = 0, v; i < RP_COUNT && fscanf(f, "%d", &v) == 1; i++) g_presetReps[i] = SP_CLAMP(v, 1, RP_MAX_REPS);
+            fclose(f);
+        }
+    }
+    return g_presetReps[p];
+}
+
+void wprec_preset_reps_set(int p, int n)
+{
+    if (p < 0 || p >= RP_COUNT) return;
+    wprec_preset_reps(p);
+    g_presetReps[p] = SP_CLAMP(n, 1, RP_MAX_REPS);
+    wchar_t path[SP_MAX_PATH];
+    preset_reps_file(path, SP_COUNTOF(path));
+    FILE *f = _wfopen(path, L"w");
+    if (!f) return;
+    for (int i = 0; i < RP_COUNT; i++) fprintf(f, "%d%c", g_presetReps[i], i + 1 < RP_COUNT ? ' ' : '\n');
+    fclose(f);
+}
+
+static float preset_hash(unsigned seed, int i)
+{
+    unsigned h = seed * 2654435761u ^ (unsigned)i * 2246822519u;
+    h ^= h >> 15; h *= 2246822519u; h ^= h >> 13; h *= 3266489917u; h ^= h >> 16;
+    return (float)(h & 0xFFFFFF) / 16777215.0f;
+}
+
+/* Periodic value noise: cells points round the loop, smoothly joined, so the end meets the start. */
+static float preset_noise(unsigned seed, float f, int cells)
+{
+    float x = f * (float)cells, s = x - floorf(x);
+    int i = (int)floorf(x) % cells;
+    s = s * s * (3.0f - 2.0f * s);
+    return preset_hash(seed, i) + (preset_hash(seed, (i + 1) % cells) - preset_hash(seed, i)) * s;
+}
+
+static float preset_bump(float f, float c, float w)
+{
+    float d = (f - c) / w;
+    return expf(-d * d);
+}
+
+/* A preset's height (0..1) at phase f (0..1 through the loop). */
+static float preset_eval(int p, float f, unsigned seed)
+{
+    const float tau = 6.2831853f;
+    float s;
+    switch (p) {
+    case RP_SINE:      return 0.5f + 0.5f * sinf(tau * f);
+    case RP_TRIANGLE:  return 1.0f - fabsf(2.0f * f - 1.0f);
+    case RP_SAW_UP:    return f;
+    case RP_SAW_DOWN:  return 1.0f - f;
+    case RP_SQUARE:    return f < 0.5f ? 1.0f : 0.0f;
+    case RP_PULSE:     return f < 0.2f ? 1.0f : 0.0f;
+    case RP_STEPS:     return SP_MIN(floorf(f * 4.0f), 3.0f) / 3.0f;
+    case RP_BOUNCE:    return fabsf(sinf(tau * f));
+    case RP_BREATHE:   return (expf(sinf(tau * f - 1.5707963f)) - 0.36787944f) / 2.35040239f;   /* the "breathing light" curve */
+    case RP_HEARTBEAT: return SP_MIN(0.12f + 0.88f * preset_bump(f, 0.14f, 0.035f) + 0.6f * preset_bump(f, 0.3f, 0.04f), 1.0f);
+    case RP_EASE:                                    /* ease up, hold, ease down, hold */
+        s = f < 0.25f ? f / 0.25f : f < 0.5f ? 1.0f : f < 0.75f ? 1.0f - (f - 0.5f) / 0.25f : 0.0f;
+        return s * s * (3.0f - 2.0f * s);
+    case RP_SPIKE:     return f < 0.04f ? f / 0.04f : expf(-(f - 0.04f) * 7.0f);
+    case RP_WANDER:    return 0.72f * preset_noise(seed, f, 5) + 0.28f * preset_noise(seed + 1, f, 13);
+    case RP_RANDOM:    return preset_hash(seed, SP_MIN((int)(f * 8.0f), 7));
+    default:           return 0.5f;
+    }
+}
+
+/* preset_eval repeated reps times across the loop. */
+float wprec_preset_at(int p, float f, unsigned seed)
+{
+    float x = f * (float)wprec_preset_reps(p);
+    return SP_CLAMP(preset_eval(p, x - floorf(x), seed), 0.0f, 1.0f);
+}
+
+/* Fill the whole loop of a track with preset p. Numbers keep the band they were recorded over (a track that hardly
+ * moved gets a quarter of its range either side of its value); on/off and choices use every level. */
+BOOL wprec_apply_preset(Rec *rec, int ti, int p, unsigned seed)
+{
+    if (!rec->n || ti < 0 || ti >= rec->count || rec->t[ti].kind == RT_COLOR || p < 0 || p >= RP_COUNT) return FALSE;
+    RecTrack *t = &rec->t[ti];
+    float lo = 0.0f, hi = 1.0f;
+    if (t->kind == RT_NUM) {
+        float mn = 1.0f, mx = 0.0f;
+        for (int k = 0; k < rec->n; k++) {
+            float v = SP_CLAMP(wprec_norm(t, t->v[k], 0), 0.0f, 1.0f);
+            mn = SP_MIN(mn, v);
+            mx = SP_MAX(mx, v);
+        }
+        if (mx - mn >= 0.02f) {
+            lo = mn;
+            hi = mx;
+        } else {
+            lo = mn - 0.25f;
+            hi = mn + 0.25f;
+            if (lo < 0.0f) { hi -= lo; lo = 0.0f; }
+            if (hi > 1.0f) { lo -= hi - 1.0f; hi = 1.0f; }
+        }
+    }
+    for (int k = 0; k < rec->n; k++)
+        wprec_set(t, k, lo + (hi - lo) * wprec_preset_at(p, (float)k / (float)rec->n, seed));
+    wprec_prepare(rec);
+    return TRUE;
+}
+
+/* A stroke over a track's graph from (x0, y0) to (x1, y1): x through the loop, y the height, both 0..1. */
+BOOL wprec_draw(Rec *rec, int ti, float x0, float y0, float x1, float y1)
+{
+    if (!rec->n || ti < 0 || ti >= rec->count || rec->t[ti].kind == RT_COLOR) return FALSE;
+    RecTrack *t = &rec->t[ti];
+    x0 = SP_CLAMP(x0, 0.0f, 1.0f); x1 = SP_CLAMP(x1, 0.0f, 1.0f);
+    y0 = SP_CLAMP(y0, 0.0f, 1.0f); y1 = SP_CLAMP(y1, 0.0f, 1.0f);
+    int a = SP_CLAMP((int)(x0 * rec->n), 0, rec->n - 1), b = SP_CLAMP((int)(x1 * rec->n), 0, rec->n - 1);
+    int lo = SP_MIN(a, b), hi = SP_MAX(a, b);
+    for (int k = lo; k <= hi; k++) {
+        float f = b != a ? (float)(k - a) / (float)(b - a) : 1.0f;
+        wprec_set(t, k, y0 + (y1 - y0) * f);
+    }
+    wprec_prepare(rec);
+    return TRUE;
+}

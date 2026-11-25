@@ -171,6 +171,26 @@ Page custom OptionsPage OptionsLeave
       IntOp $1 $1 + 1
     ${LoopUntil} $1 >= 40
   ${EndIf}
+  ; the Bare window is its own process, which --exit doesn't close: ask it to close, then end it
+  ${If} ${FileExists} "$INSTDIR\screenplus-bare-ui.exe"
+    nsExec::Exec 'taskkill /IM screenplus-bare-ui.exe'
+    Pop $0
+    StrCpy $1 0
+    ${Do}
+      ClearErrors
+      FileOpen $2 "$INSTDIR\screenplus-bare-ui.exe" a
+      ${IfNot} ${Errors}
+        FileClose $2
+        ${Break}
+      ${EndIf}
+      ${If} $1 = 12
+        nsExec::Exec 'taskkill /F /IM screenplus-bare-ui.exe'
+        Pop $0
+      ${EndIf}
+      Sleep 250
+      IntOp $1 $1 + 1
+    ${LoopUntil} $1 >= 40
+  ${EndIf}
 !macroend
 
 ; Looks for an installed copy: the uninstall entry (also written by the 1.0.0 setup), the
