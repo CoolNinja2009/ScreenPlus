@@ -26,7 +26,9 @@ set "CFG=%~1"
 if "%CFG%"=="" set "CFG=Release"
 set "VERARG="
 if not "%~2"=="" set "VERARG=-DSCREENPLUS_VERSION=%~2"
-cmake -S "%ROOT%." -B "%ROOT%build" -G Ninja -DCMAKE_BUILD_TYPE=%CFG% %VERARG% || exit /b 1
+rem a third argument, quoted, goes to CMake as it is (CI: "-DSCREENPLUS_BARE_UI=ON")
+set "EXTRA=%~3"
+cmake -S "%ROOT%." -B "%ROOT%build" -G Ninja -DCMAKE_BUILD_TYPE=%CFG% %VERARG% %EXTRA% || exit /b 1
 cmake --build "%ROOT%build" || exit /b 1
 echo.
 echo Built %ROOT%build\ScreenPlus.exe

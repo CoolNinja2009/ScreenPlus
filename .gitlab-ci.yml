@@ -162,6 +162,7 @@ ubuntu-newest:
     - screenplus version | grep -F "$VERSION"
     - screenplus help > /dev/null
     - if ldd /usr/lib/screenplus/screenplus-ui.so /usr/lib/screenplus/screenplus-engine /usr/lib/screenplus/screenplus-depth.so | grep 'not found'; then exit 1; fi
+    - if [ -f /usr/lib/screenplus/screenplus-bare-ui ] && ldd /usr/lib/screenplus/screenplus-bare-ui | grep 'not found'; then exit 1; fi
 
 # The tarball's install.sh on bare images: it must install what each distribution lacks (scripts/gitlab-install-test.sh)
 install-test:

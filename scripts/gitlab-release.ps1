@@ -106,7 +106,8 @@ if ($hit) {
 }
 
 # ---- app and installer
-Invoke-Native 'Build' { cmd.exe /c "build.cmd Release $ver" }
+# with the Bare window (src/ui_bare fetches Bare from GitHub); the setup carries it, off until Settings turns it on
+Invoke-Native 'Build' { cmd.exe /c "build.cmd Release $ver `"-DSCREENPLUS_BARE_UI=ON`"" }
 
 # ---- package
 $setup = "build\ScreenPlus-Setup-$ver.exe"

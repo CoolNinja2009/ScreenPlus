@@ -42,7 +42,9 @@ own_libs() {
 }
 build_app() {
     rm -rf build-linux
-    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSCREENPLUS_VERSION="$VERSION" &&
+    # the Bare window too: src/ui_bare fetches Bare from GitHub
+    cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DSCREENPLUS_VERSION="$VERSION" \
+        -DSCREENPLUS_BARE_UI=ON &&
         cmake --build build-linux &&
         build-linux/src/linux/screenplus version &&
         build-linux/src/linux/screenplus help > /dev/null
