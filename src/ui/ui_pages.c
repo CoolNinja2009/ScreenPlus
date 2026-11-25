@@ -1863,6 +1863,12 @@ static void draw_settings(Ui *u, float cx, float cw)
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 3);
 #endif
     }
+    if (app_has_bare_ui()) {
+        int idx[] = { TOG_BARE_UI };
+        const wchar_t *l[] = { L"Bare window (beta)" };
+        int v[] = { s->bareUi };
+        y = toggle_group(u, x, y, w, idx, l, NULL, v, 1);
+    }
     if (sf_want(u, L"Auto update", L"version")) {
         y = sf_place(u, x, y);
         UpdateState us;
@@ -4637,6 +4643,12 @@ static void toggle_setting(int idx)
     case TOG_SLIDESHOW:  s->slideshow = !s->slideshow; rotate_changed(); break;
     case TOG_SHUFFLE:    s->shuffle = !s->shuffle; break;
     case TOG_SCHEDULE:   s->schedule = !s->schedule; rotate_changed(); break;
+    case TOG_BARE_UI:                    /* on: the Bare window takes over from this one */
+        s->bareUi = !s->bareUi;
+        app_save_config();
+        if (s->bareUi && app_open_bare_ui()) PostMessageW(g_ui->hwnd, WM_CLOSE, 0, 0);
+        ui_animate();
+        return;
     case TOG_SCR_ENABLE:
     case TOG_SCR_LOCK: {                 /* Windows settings: not in config.ini */
         ScrState st;

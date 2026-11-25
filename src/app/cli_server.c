@@ -1524,6 +1524,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"night_start",         offsetof(Settings, nightStart),        SK_NUM,   L"Hour the night wallpaper starts, 0-23" },
     { L"auto_recover",        offsetof(Settings, autoRecover),       SK_BOOL,  L"Restart failed renderers automatically" },
     { L"paused",              offsetof(Settings, paused),            SK_BOOL,  L"Wallpapers paused" },
+    { L"bare_ui",             offsetof(Settings, bareUi),            SK_BOOL,  L"Open the Bare window (beta) instead of the classic one" },
     { L"html_mouse",          offsetof(Settings, htmlMouse),         SK_BOOL,  L"Mouse input for web wallpapers" },
     { L"html_audio",          offsetof(Settings, htmlAudio),         SK_BOOL,  L"System audio spectrum for web wallpapers" },
     { L"web_fps",             offsetof(Settings, webFps),            SK_FPS,   L"Frame-rate limit for web wallpapers: 30, 60 or off" },
@@ -1781,8 +1782,13 @@ static void cmd_settings(Reply *r, const Req *q)
             } else if (field == &s->paused) {
                 app_set_paused(on);
             } else {
+                int was = *field;
                 *field = on;
                 app_save_config();
+                if (field == &s->bareUi && on != was) {   /* switched: open that window (the other closes itself) */
+                    if (on) app_open_bare_ui();
+                    else app_show_classic_ui();
+                }
                 if (field == &s->depthAll) depth_auto_all(TRUE);     /* switching it on is the go-ahead to download */
                 if (field == &s->autoUpdate) update_schedule(TRUE);
                 if (field == &s->autoUpdateSamples) samples_schedule(TRUE);

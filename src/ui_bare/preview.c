@@ -33,7 +33,7 @@ typedef struct Setting { const char *key; char value[32]; bool is_bool, is_num; 
 static Setting settings[] = {
     { "start_with_windows", "on", true }, { "launch_to_tray", "off", true }, { "still_wallpaper", "on", true },
     { "pause_on_fullscreen", "on", true }, { "pause_when_covered", "on", true }, { "suspend_on_lock", "on", true },
-    { "pause_on_battery", "off", true }, { "auto_recover", "on", true }, { "audio", "off", true },
+    { "pause_on_battery", "off", true }, { "bare_ui", "on", true }, { "auto_recover", "on", true }, { "audio", "off", true },
     { "volume", "60", false, true }, { "html_mouse", "on", true }, { "html_audio", "on", true }, { "web_fps", "60" },
     { "slideshow", "off", true }, { "slideshow_minutes", "15", false, true }, { "shuffle", "off", true },
     { "schedule", "off", true }, { "lively_auto_import", "on", true }, { "url_import", "on", true },

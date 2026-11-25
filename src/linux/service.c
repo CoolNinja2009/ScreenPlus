@@ -305,15 +305,28 @@ static int ui_load(void)
     return 1;
 }
 
-/* The Bare window, when it was built beside the program (screenplus-bare-ui): a process of its own, which keeps to
- * one window. Everything it does goes through the service's socket, like the CLI. */
-static int show_bare_ui(void)
+/* The Bare window (beta), when it was built beside the program (screenplus-bare-ui) and Settings > Bare window
+ * (bare_ui) chooses it: a process of its own, which keeps to one window. Everything it does goes through the
+ * service's socket, like the CLI. */
+static int bare_ui_path(char *ui, size_t cap)
 {
-    char *dir = sp_path_utf8(paths_exe_dir()), ui[MAX_PATH * 4];
+    char *dir = sp_path_utf8(paths_exe_dir());
     if (!dir) return 0;
-    int n = snprintf(ui, sizeof ui, "%s/screenplus-bare-ui", dir);
+    int n = snprintf(ui, cap, "%s/screenplus-bare-ui", dir);
     free(dir);
-    if (n < 0 || (size_t)n >= sizeof ui || access(ui, X_OK)) return 0;
+    return n > 0 && (size_t)n < cap && !access(ui, X_OK);
+}
+
+int app_has_bare_ui(void)
+{
+    char ui[MAX_PATH * 4];
+    return bare_ui_path(ui, sizeof ui);
+}
+
+int app_open_bare_ui(void)
+{
+    char ui[MAX_PATH * 4];
+    if (!bare_ui_path(ui, sizeof ui)) return 0;
     pid_t child = fork();
     if (child < 0) return 0;
     if (!child) {   /* only async-signal-safe calls from here: the service has threads */
@@ -331,11 +344,11 @@ static int show_bare_ui(void)
 
 void app_show_ui(void)
 {
-    if (show_bare_ui()) return;
+    if (g_app.cfg.s.bareUi && app_open_bare_ui()) return;
     if (ui_load() && g_ui_mod.show) g_ui_mod.show();
 }
 
-/* `screenplus ui classic`: the classic window even when the Bare one is there. */
+/* `screenplus ui classic`: the classic window even when the Bare one is chosen. */
 void app_show_classic_ui(void)
 {
     if (ui_load() && g_ui_mod.show) g_ui_mod.show();

@@ -188,13 +188,24 @@ void app_restart_renderer(void)
     supervisor_restart();
 }
 
-/* Beta: when the Bare window ships beside the app it is the window (tray, plain launch,
- * `show`); `screenplus ui classic` still opens this one. It's its own single-instance
- * process, so a second start only brings it forward. */
-static int show_bare_ui(void)
+/* Beta: the Bare window ships beside the app; Settings > Bare window (bare_ui) makes it the window (tray, plain
+ * launch, `show`). It's its own single-instance process, so a second start only brings it forward. */
+static void bare_ui_path(wchar_t *exe, size_t cap)
+{
+    path_join(exe, cap, paths_exe_dir(), L"screenplus-bare-ui.exe");
+}
+
+int app_has_bare_ui(void)
+{
+    wchar_t exe[SP_MAX_PATH];
+    bare_ui_path(exe, SP_COUNTOF(exe));
+    return file_exists(exe);
+}
+
+int app_open_bare_ui(void)
 {
     wchar_t exe[SP_MAX_PATH], cmd[SP_MAX_PATH + 4];
-    path_join(exe, SP_COUNTOF(exe), paths_exe_dir(), L"screenplus-bare-ui.exe");
+    bare_ui_path(exe, SP_COUNTOF(exe));
     if (!file_exists(exe)) return 0;
     str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\"", exe);
     STARTUPINFOW si = { sizeof si };
@@ -211,7 +222,7 @@ static int show_bare_ui(void)
 
 void app_show_ui(void)
 {
-    if (!show_bare_ui()) ui_show();
+    if (!g_app.cfg.s.bareUi || !app_open_bare_ui()) ui_show();
 }
 
 void app_show_classic_ui(void)

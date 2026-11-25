@@ -87,8 +87,10 @@ void app_set_screensaver(const wchar_t *wallpaperId); /* "": the desktop's defau
 void app_next_wallpaper(void);
 void app_restart_renderer(void);
 void app_exit(void);
-void app_show_ui(void);
-void app_show_classic_ui(void);     /* the built-in window even when the Bare one ships */
+void app_show_ui(void);              /* the classic window, or the Bare one when that's chosen and ships */
+void app_show_classic_ui(void);     /* the built-in window even when the Bare one is chosen */
+int  app_has_bare_ui(void);         /* screenplus-bare-ui ships beside the app */
+int  app_open_bare_ui(void);        /* opens it (its own process, one window); 0 if it can't */
 void app_notice(int kind, const wchar_t *fmt, ...);
 void app_notice_hover(int hot);
 void app_refresh_monitors(void);

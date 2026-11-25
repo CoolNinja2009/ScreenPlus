@@ -838,6 +838,7 @@ static const SettingRow rows[] = {
     { "General", "start_with_linux", "Start when you sign in", SPI_TILES, K_TOGGLE, NULL },
     { "General", "launch_to_tray", "Keep the window closed at sign-in", SPI_DOWNLOAD, K_TOGGLE, NULL },
 #endif
+    { "General", "bare_ui", "Bare window (beta)", SPI_PALETTE, K_TOGGLE, NULL },
     { "Playback", "pause_on_fullscreen", "Pause behind fullscreen apps and games", SPI_FULL, K_TOGGLE, NULL },
     { "Playback", "pause_when_covered", "Stop rendering while windows cover the desktop", SPI_EYE, K_TOGGLE, NULL },
     { "Playback", "suspend_on_lock", "Suspend while the PC is locked", SPI_LOCK, K_TOGGLE, NULL },
@@ -1144,8 +1145,18 @@ static void toast(const SpModel *m) {
 
 /* ---- the window --------------------------------------------------------------------------------- */
 
+/* Settings > Bare window switched off (here or anywhere): the service opens the classic window; this one goes. */
+static void follow_window_setting(const SpModel *m) {
+    static int was = -1;
+    if (!m->settings || !json_get(m->settings, "bare_ui")) return;
+    int on = setting_on(m, "bare_ui");
+    if (was == 1 && !on) bare_window_close();
+    was = on;
+}
+
 void sp_draw(SpView *v, const SpModel *m) {
     if (!v || !m) return;
+    follow_window_setting(m);
     BareVec2 win = bare_window_size();
     BareColor base = sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222);
     bare_stack(.id = ID("root"), .width = win.x, .height = win.y, .image = m->backdrop, .color = base,

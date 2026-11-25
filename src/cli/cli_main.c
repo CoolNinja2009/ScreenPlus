@@ -328,7 +328,7 @@ static const wchar_t k_help[] =
     L"App\n"
     L"  start [--show]                         start Screen+ if it is not running\n"
     L"  show | hide                            open or close the window\n"
-    L"  ui Bare | classic                      the Bare window (beta: the window when installed) or the classic one\n"
+    L"  ui Bare | classic                      the Bare window (beta) or the classic one\n"
     L"  stop                                   quit Screen+\n"
     L"  settings [set <key> <value>]           app settings, e.g. settings set pause_on_battery off\n"
     L"      accent_color #RRGGBB               set the app's accent colour\n"
