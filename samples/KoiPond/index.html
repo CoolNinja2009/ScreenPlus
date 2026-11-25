@@ -718,7 +718,7 @@ function rng(seed) {   // mulberry32: a stable pond layout from load to load
       const hx = Math.cos(k.a), hy = Math.sin(k.a);
       let sx = hx, sy = hy, sm = 1;
       const w = Math.sin(clock * 0.23 + k.seed * 40) * 0.9 + Math.sin(clock * 0.61 + k.seed * 91) * 0.5;
-      sx += -hy * w * 0.9; sy += hx * w * 0.9;
+      sx += -hy * w * 0.45; sy += hx * w * 0.45;
       const m = 0.1 + L * 0.6;
       if (k.x < m) sx += 3 * ((m - k.x) / m) ** 2;
       if (k.x > aspect - m) sx -= 3 * ((k.x - aspect + m) / m) ** 2;
@@ -757,7 +757,8 @@ function rng(seed) {   // mulberry32: a stable pond layout from load to load
       k.burst = Math.max(0, k.burst - dt * 1.4);
       let da = Math.atan2(sy, sx) - k.a;
       da = Math.atan2(Math.sin(da), Math.cos(da));
-      const maxTurn = (1.3 + (sm > 1.5 ? 1.8 : 0)) * dt;
+      // the turning circle stays at least 1.2 body lengths across, so a slow koi doesn't curl up
+      const maxTurn = Math.min(0.8 + (sm > 1.5 ? 1.2 : 0), Math.max(0.2, k.v / (1.2 * L))) * dt;
       const turn = clamp(da, -maxTurn, maxTurn);
       k.a += turn;
       k.turnS += (turn / Math.max(dt, 1e-3) - k.turnS) * Math.min(1, dt * 4);
