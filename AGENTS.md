@@ -70,7 +70,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 - Sample app wallpapers (from now on every new sample): C programs on Bare in Bare's `examples/<dir>/` (`.parent` window
   option, `examples/screenplus/screenplus_wallpaper.h` for the stdin protocol), built with `-DSCREENPLUS_BARE_UI=ON` by
   `screenplus_sample_app` in `src/ui_bare/CMakeLists.txt` and packed by `cmake/pack_spf.cmake` into `build\<Name>.spf`, a
-  release asset on GitHub and GitLab (Windows only). Needs `BARE_COMMIT` to include the sample. So far: Aurora, Singularity, Fluids.
+  release asset on GitHub and GitLab (Windows only). Needs `BARE_COMMIT` to include the sample. So far: Aurora, Singularity, Fluids, Koi Pond.
 - CI signs releases through SignPath Foundation once `SIGNPATH_ORGANIZATION_ID` (variable) and `SIGNPATH_API_TOKEN`
   (secret) exist: exes first, setup rebuilt with makensis around them, then setup. Setup is in `.signpath/`.
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use

@@ -6,7 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 # Bare: a checkout beside this one (Projects/Bare), else Bare at BARE_COMMIT from GitHub (CI). Move BARE_COMMIT on
 # when Screen+ needs newer Bare.
-set(BARE_COMMIT f083f6297bac1149f29311c2dfef8692c5a02d10)
+set(BARE_COMMIT 4836b2bdf6a2de08c4a40be80aebe3f979ab05b5)
 set(BARE_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../Bare" CACHE PATH "Bare source checkout")
 set(BARE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BARE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -74,7 +74,11 @@ if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     else()
         set(_bare_root "${BARE_SOURCE_DIR}")
     endif()
-    function(screenplus_sample_app name dir)
+    function(screenplus_sample_app name dir)   # [title]: the library's, when it isn't the file name
+        set(title "${name}")
+        if(ARGC GREATER 2)
+            set(title "${ARGV2}")
+        endif()
         set(src "${_bare_root}/examples/${dir}")
         add_executable(sample-${dir} WIN32 "${src}/${dir}.c")
         target_link_libraries(sample-${dir} PRIVATE bare)
@@ -89,7 +93,7 @@ if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
             target_link_options(sample-${dir} PRIVATE -mwindows)
         endif()
         add_custom_command(TARGET sample-${dir} POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" "-DNAME=${name}" "-DEXE=$<TARGET_FILE:sample-${dir}>"
+            COMMAND "${CMAKE_COMMAND}" "-DNAME=${name}" "-DTITLE=${title}" "-DEXE=$<TARGET_FILE:sample-${dir}>"
                     "-DPROPS=${src}/LivelyProperties.json" "-DPREVIEW=${src}/preview.jpg" "-DOUT=${CMAKE_BINARY_DIR}/${name}.spf"
                     -P "${CMAKE_SOURCE_DIR}/cmake/pack_spf.cmake"
             VERBATIM)
@@ -97,6 +101,7 @@ if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     screenplus_sample_app(Aurora aurora)
     screenplus_sample_app(Singularity singularity)
     screenplus_sample_app(Fluids fluid)
+    screenplus_sample_app(KoiPond koi "Koi Pond")
 endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)
