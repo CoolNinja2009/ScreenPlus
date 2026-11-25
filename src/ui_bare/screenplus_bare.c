@@ -99,7 +99,7 @@ static const char *file_name(const char *path) {
 }
 
 /* Pictures are kept at these sizes (pixels, cropped to 16:9); moving ones keep PIC_FRAMES frames. */
-enum { PIC_W = 384, PIC_H = 216, PIC_BIG_W = 640, PIC_BIG_H = 360, PIC_FRAMES = 30 };
+enum { PIC_W = 320, PIC_H = 180, PIC_BIG_W = 640, PIC_BIG_H = 360, PIC_FRAMES = 24 };
 
 static bool has_ext(const char *path, const char *const *exts) {
     const char *dot = strrchr(path, '.');

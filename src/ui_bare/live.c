@@ -385,6 +385,24 @@ static void frame(void *user) {
     app->model.backdrop = bare_window_backdrop();
     bare_background(sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222));
     sp_draw(&app->view, &app->model);
+    /* SP_FRAME_LOG=<file>: frames drawn per second, every 5 s (what keeps the window awake) */
+    static const char *frame_log;
+    static bool looked;
+    static double since;
+    static int frames;
+    if (!looked) { frame_log = getenv("SP_FRAME_LOG"); looked = true; since = bare_time(); }
+    if (frame_log) {
+        frames++;
+        if (bare_time() - since >= 5) {
+            FILE *f = fopen(frame_log, "a");
+            if (f) {
+                fprintf(f, "%.1f fps\n", frames / (bare_time() - since));
+                fclose(f);
+            }
+            frames = 0;
+            since = bare_time();
+        }
+    }
 }
 
 #ifdef _WIN32

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-set(SCREENPLUS_VERSION "2.6.0" CACHE STRING "Screen+ version (major.minor.patch[-prerelease]); release builds pass the tag")
+set(SCREENPLUS_VERSION "2.7.0" CACHE STRING "Screen+ version (major.minor.patch[-prerelease]); release builds pass the tag")
 if(NOT SCREENPLUS_VERSION MATCHES "^([0-9]+)\\.([0-9]+)\\.([0-9]+)(-[0-9A-Za-z.-]+)?$")
     message(FATAL_ERROR "SCREENPLUS_VERSION must be major.minor.patch with an optional prerelease suffix")
 endif()

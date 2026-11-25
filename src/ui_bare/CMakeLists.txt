@@ -6,7 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 # Bare: a checkout beside this one (Projects/Bare), else Bare at BARE_COMMIT from GitHub (CI). Move BARE_COMMIT on
 # when Screen+ needs newer Bare.
-set(BARE_COMMIT e7fd6b276a6c3011b3feee5027dcfb3227cf1961)
+set(BARE_COMMIT e8ee0153bc76ae2e3aa8aeade5d9ccb96d8bdf25)
 set(BARE_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../Bare" CACHE PATH "Bare source checkout")
 set(BARE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BARE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
