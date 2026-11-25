@@ -302,6 +302,8 @@ static const wchar_t k_help[] =
     L"  remove <wallpaper>                     remove from the library (the file stays)\n"
     L"  move <wallpaper> <place>               reorder the library (1 = first; first, last)\n"
     L"  favourite <wallpaper> [on|off|toggle]  star a wallpaper\n"
+    L"  rename <wallpaper> <new name>          change a wallpaper's name in the library\n"
+    L"  preview <wallpaper>                    record a page's preview picture if it has none\n"
     L"  collection [list]                      collections and how many wallpapers each holds\n"
     L"  collection add|remove <name> <wallpaper>...   put wallpapers in a collection or take them out\n"
     L"  collection play <name | favourites> [every <minutes>]   a slideshow of just that collection\n"

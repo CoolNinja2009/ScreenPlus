@@ -25,7 +25,8 @@ typedef struct SpModel {
     bool message_failed;
     /* Callbacks into the host. */
     void *user;
-    BareImage (*thumbnail)(void *user, const char *path);   /* cached; 0 while it loads */
+    /* Pictures come from bare_picture; a host with pictures of its own (the sample data) answers instead. */
+    BareImage (*picture)(void *user, const char *path, int width, int height);
     void (*run)(void *user, const char *const *argv);       /* a service command (NULL-terminated, copied) */
     void (*open_path)(void *user, const char *path);        /* shows a file in the file manager */
 } SpModel;
@@ -41,6 +42,9 @@ typedef struct SpView {
     char link[1024];        /* the link popover's text */
     int popover;            /* 0 none, 1 link, 2 sort, 3 card menu, 4 language */
     int menu_card;          /* the card the menu is for (list index) */
+    int renaming;           /* 1 + the card whose name is being edited (0: none) */
+    int rename_frames;      /* frames since that began (focus lands a frame later) */
+    char rename[128];
     BareVec2 popover_at;
     float drag_look[5];     /* Customise sliders while dragged */
     int dragging_look;      /* slider being dragged + 1 */

@@ -12,6 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#define SP_SLASH '\\'
+#else
+#define SP_SLASH '/'
+#endif
 #define ID(s)      bare_id(s)
 #define IDI(s, i)  bare_id_index((s), (uint32_t)(i))
 
@@ -92,13 +97,87 @@ static const char *file_name(const char *path) {
     return s ? s + 1 : path;
 }
 
-/* The picture for a wallpaper: its thumbnail, an image wallpaper's own file. */
-static BareImage wallpaper_picture(const SpModel *m, const JVal *w) {
-    if (!w || !m->thumbnail) return 0;
-    const char *thumb = json_str(json_get(w, "thumbnail"), "");
-    const char *type = json_str(json_get(w, "type"), "");
-    if (!*thumb && !strcmp(type, "image")) thumb = json_str(json_get(w, "path"), "");
-    return *thumb ? m->thumbnail(m->user, thumb) : 0;
+/* Pictures are kept at these sizes (pixels, cropped to 16:9); moving ones keep PIC_FRAMES frames. */
+enum { PIC_W = 384, PIC_H = 216, PIC_BIG_W = 640, PIC_BIG_H = 360, PIC_FRAMES = 30 };
+
+static bool has_ext(const char *path, const char *const *exts) {
+    const char *dot = strrchr(path, '.');
+    if (!dot || strchr(dot, '/') || strchr(dot, '\\')) return false;
+    for (; *exts; exts++) {
+        const char *a = dot, *b = *exts;
+        while (*a && *b && tolower((unsigned char)*a) == *b) a++, b++;
+        if (!*a && !*b) return true;
+    }
+    return false;
+}
+
+static const char *const k_still_ext[] = { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tga", ".tif", ".tiff",
+                                           ".heic", ".avif", ".jxr", NULL };
+static const char *const k_gif_ext[] = { ".gif", NULL };
+
+/* A picture file at card or big size: 0 while it loads; *failed once it can't be read. */
+static BareImage picture_file(const SpModel *m, const char *path, bool big, bool *failed) {
+    int w = big ? PIC_BIG_W : PIC_W, h = big ? PIC_BIG_H : PIC_H;
+    *failed = false;
+    if (!*path) { *failed = true; return 0; }
+    if (m->picture) return m->picture(m->user, path, w, h);
+    BarePictureOptions o = { .width = w, .height = h, .frames = PIC_FRAMES };
+    BareImage img = bare_picture_(path, o);
+    if (!img) *failed = bare_picture_failed(path, o);
+    return img;
+}
+
+/* The picture for a wallpaper, moving when it can: an image's or video's own file; for a page, its package's
+ * preview GIF or the one Screen+ recorded. Its still thumbnail shows while that loads, or if nothing moves. */
+static BareImage wallpaper_picture(const SpModel *m, const JVal *w, bool big) {
+    if (!w) return 0;
+    const char *id = json_str(json_get(w, "id"), ""), *path = json_str(json_get(w, "path"), "");
+    const char *thumb = json_str(json_get(w, "thumbnail"), ""), *type = json_str(json_get(w, "type"), "");
+    const char *previews = json_str(json_get(m->status, "previews"), "");
+    bool failed;
+    if (m->picture) return picture_file(m, thumb, big, &failed);
+    bool url = !strncmp(path, "http://", 7) || !strncmp(path, "https://", 8);
+    char cand[7][1100];
+    int n = 0;
+    if (!url && (!strcmp(type, "image") || !strcmp(type, "video"))) {
+        snprintf(cand[n++], sizeof cand[0], "%s", path);
+    } else {
+        if (has_ext(thumb, k_gif_ext)) snprintf(cand[n++], sizeof cand[0], "%s", thumb);
+        const char *slash = strrchr(path, '\\'), *fwd = strrchr(path, '/');
+        if (fwd > slash) slash = fwd;
+        if (!url && slash) {
+            int dir = (int)(slash - path + 1);
+            snprintf(cand[n++], sizeof cand[0], "%.*slively_p.gif", dir, path);
+            snprintf(cand[n++], sizeof cand[0], "%.*spreview.gif", dir, path);
+        }
+        if (*previews && *id) snprintf(cand[n++], sizeof cand[0], "%s%c%s.gif", previews, SP_SLASH, id);
+    }
+    if (has_ext(thumb, k_still_ext)) snprintf(cand[n++], sizeof cand[0], "%s", thumb);
+    if (*previews && *id && strcmp(type, "image") && strcmp(type, "video"))
+        snprintf(cand[n++], sizeof cand[0], "%s%c%s.jpg", previews, SP_SLASH, id);
+    /* the first that loads; while one loads, the ones after it get their chance */
+    bool none = true;
+    for (int i = 0; i < n; i++) {
+        BareImage img = picture_file(m, cand[i], big, &failed);
+        if (img) return img;
+        if (!failed) none = false;
+    }
+    /* a page with no picture at all: the service records one (once; the pictures are tried again meanwhile) */
+    static BareId asked[256];
+    static int asked_count;
+    if (none && *previews && *id && !url && strcmp(type, "image") && strcmp(type, "video") && asked_count < 256) {
+        BareId h = bare_id(id);
+        for (int i = 0; i < asked_count; i++) if (asked[i] == h) return 0;
+        asked[asked_count++] = h;
+        RUN(m, "preview", id);
+    }
+    return 0;
+}
+
+/* Whether a box drawn last frame at `r` is on screen (not yet drawn: no). */
+static bool on_screen(BareRect r) {
+    BareVec2 s = bare_window_size();
+    return r.w > 0 && r.h > 0 && r.y < s.y && r.y + r.h > 0 && r.x < s.x && r.x + r.w > 0;
 }
 
 /* Collections named in the library, in first-seen order. */
@@ -294,7 +373,7 @@ static void hero(SpView *v, const SpModel *m) {
     bare_row(.id = ID("hero"), .width = BARE_GROW, .height = 312, .radius = 32, .padding = 20, .gap = 30,
              .glass = sp_glass_card(), .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO,
              .shadow = { 0, 10, 30, 0, BARE_RGBA(0, 0, 0, sp.dark ? 60 : 25) }) {
-        BareImage pic = wallpaper_picture(m, w);
+        BareImage pic = wallpaper_picture(m, w, true);
         bare_box(.id = IDI("hero.pic", (uint32_t)bare_id(json_str(json_get(w, "id"), ""))), .width = 488, .height = 272,
                  .radius = 22, .image = pic, .color = sp.dark ? BARE_RGBA(0, 0, 0, 70) : BARE_RGBA(0, 0, 0, 25),
                  .border = 1, .border_color = BARE_RGBA(255, 255, 255, 40), .shrink = BARE_ZERO,
@@ -363,7 +442,7 @@ static void wallpaper_card(SpView *v, const SpModel *m, const JVal *item, int in
         BareState st = bare_this();
         float ph = (width - 20) * 9.0f / 16.0f;
         bare_stack(.width = BARE_GROW, .height = ph, .radius = 20, .clip = true) {
-            BareImage pic = wallpaper_picture(m, w);
+            BareImage pic = on_screen(st.rect) ? wallpaper_picture(m, w, false) : 0;
             bare_box(.id = cid + 1, .width = BARE_GROW, .height = ph, .radius = 20, .image = pic,
                      .color = sp.dark ? BARE_RGBA(255, 255, 255, 14) : BARE_RGBA(0, 0, 0, 16),
                      .opacity = pic || missing ? 1.0f : 0.6f, .passthrough = true, .animate = sp_fade());
@@ -398,8 +477,35 @@ static void wallpaper_card(SpView *v, const SpModel *m, const JVal *item, int in
                 bare_text("File missing", .position = BARE_ABSOLUTE, .anchor = BARE_MIDDLE, .size = 15, .color = sp.ink);
         }
         bare_column(.pad = { 10, 10, 8, 10 }, .gap = 3, .width = BARE_GROW) {
-            bare_text(json_str(json_get(w, "name"), "Untitled"), .size = 19, .weight = BARE_SEMIBOLD, .color = sp.ink,
-                      .nowrap = true, .ellipsis = true);
+            const char *name = json_str(json_get(w, "name"), "Untitled");
+            if (v->renaming == index + 1) {
+                /* the name in place: Enter keeps it, Escape or a click elsewhere leaves it as it was */
+                static const BareBox field = { .color = { 255, 255, 255, 0 }, .border = BARE_ZERO, .height = 25,
+                                               .pad = { 0, 4, 0, 0 } };
+                BareId fid = cid + 4;
+                BareState s = bare_input(v->rename, sizeof v->rename, .id = fid, .style = &field, .width = BARE_GROW,
+                                         .size = 19, .color = sp.ink, .caret = sp.accent,
+                                         .selection = sp_alpha(sp.accent, 90));
+                if (v->rename_frames++ == 0) {
+                    bare_focus(fid);
+                    bare_edit(fid, BARE_EDIT_SELECT_ALL);
+                } else if (s.submitted) {
+                    if (v->rename[0] && strcmp(v->rename, name)) RUN(m, "rename", id, v->rename);
+                    v->renaming = 0;
+                } else if (!s.focused) {
+                    v->renaming = 0;
+                }
+                st.clicked = false;
+            } else {
+                BareState ns = bare_text(name, .size = 19, .weight = BARE_SEMIBOLD, .color = sp.ink, .nowrap = true,
+                                         .ellipsis = true);
+                if (ns.clicked) {   /* rename, not apply */
+                    v->renaming = index + 1;
+                    v->rename_frames = 0;
+                    snprintf(v->rename, sizeof v->rename, "%s", name);
+                    st.clicked = false;
+                }
+            }
             char sub[300];
             snprintf(sub, sizeof sub, "%s  \xC2\xB7  %s", type_label(type), file_name(json_str(json_get(w, "path"), "")));
             bare_text(sub, .size = 14.5f, .color = sp.dim, .nowrap = true, .ellipsis = true);
@@ -537,7 +643,7 @@ static void displays(SpView *v, const SpModel *m) {
                            .shadow = { 0, 10, 26, 0, BARE_RGBA(0, 0, 0, 90) },
                            .hover = { .scale = 1.03f }, .cursor = BARE_CURSOR_HAND, .animate = sp_spring()) {
                     if (bare_this().clicked) { v->target_display = (int)json_num(json_get(d, "index"), i + 1); v->page = SP_LIBRARY; v->page_time = bare_time(); }
-                    bare_box(.width = w, .height = h, .image = wallpaper_picture(m, json_get(d, "wallpaper")),
+                    bare_box(.width = w, .height = h, .image = wallpaper_picture(m, json_get(d, "wallpaper"), false),
                              .color = BARE_RGBA(0, 0, 0, 120), .passthrough = true);
                     char num[8];
                     snprintf(num, sizeof num, "%d", (int)json_num(json_get(d, "index"), i + 1));
@@ -556,7 +662,7 @@ static void displays(SpView *v, const SpModel *m) {
             int index = (int)json_num(json_get(d, "index"), i + 1);
             CARD(IDI("disp.card", i)) {
                 bare_row(.width = BARE_GROW, .padding = 18, .gap = 22, .align = BARE_CENTER) {
-                    bare_box(.width = 210, .height = 118, .radius = 16, .image = wallpaper_picture(m, w),
+                    bare_box(.width = 210, .height = 118, .radius = 16, .image = wallpaper_picture(m, w, false),
                              .color = BARE_RGBA(0, 0, 0, 80), .shrink = BARE_ZERO);
                     bare_column(.width = BARE_GROW, .gap = 6) {
                         bare_row(.gap = 10, .align = BARE_CENTER) {
@@ -600,7 +706,7 @@ static void customise(SpView *v, const SpModel *m) {
     bare_column(.width = BARE_GROW, .height = BARE_GROW, .gap = 18, .scroll = BARE_SCROLL_Y, .pad = { 4, 6, 24, 6 }) {
         bare_row(.width = BARE_GROW, .height = 280, .radius = 32, .padding = 18, .gap = 26, .glass = sp_glass_card(),
                  .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO) {
-            bare_box(.width = 435, .height = 244, .radius = 22, .image = wallpaper_picture(m, w),
+            bare_box(.width = 435, .height = 244, .radius = 22, .image = wallpaper_picture(m, w, true),
                      .color = BARE_RGBA(0, 0, 0, 80), .shrink = BARE_ZERO, .shadow = { 0, 8, 26, 0, BARE_RGBA(0, 0, 0, 90) });
             bare_column(.width = BARE_GROW, .gap = 10, .pad = { 12, 0, 0, 0 }) {
                 section("Live preview");
@@ -674,7 +780,8 @@ static void store_page(SpView *v, const SpModel *m) {
                                 .glass = sp_glass_card(), .border = 1, .border_color = sp.hair, .shrink = BARE_ZERO,
                                 .hover = { .scale = 1.0f + 0.02f * sp.motion }, .animate = sp_spring()) {
                         float ph = (cw - 20) * 9.0f / 16.0f;
-                        BareImage pic = *preview && m->thumbnail ? m->thumbnail(m->user, preview) : 0;
+                        bool failed;
+                        BareImage pic = picture_file(m, preview, false, &failed);
                         bare_stack(.width = BARE_GROW, .height = ph, .radius = 18, .clip = true) {
                             bare_box(.width = BARE_GROW, .height = ph, .radius = 18, .image = pic,
                                      .color = sp.dark ? BARE_RGBA(255, 255, 255, 14) : BARE_RGBA(0, 0, 0, 16),

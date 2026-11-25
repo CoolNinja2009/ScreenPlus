@@ -203,8 +203,9 @@ static BareImage generated(int seed, int w, int h, bool blobs) {
     return img;
 }
 
-static BareImage thumbnail(void *user, const char *path) {
+static BareImage thumbnail(void *user, const char *path, int width, int height) {
     Preview *p = user;
+    (void)width, (void)height;
     if (strncmp(path, "gen:", 4)) return 0;
     int i = atoi(path + 4) & 63;
     if (!p->thumbs[i]) p->thumbs[i] = generated(i + 2, 480, 270, false);
@@ -242,11 +243,11 @@ int main(int argc, char **argv) {
     p.model.user = &p;
     p.model.cpu = 4.0f;
     p.model.connected = true;
-    p.model.thumbnail = thumbnail;
+    p.model.picture = thumbnail;
     p.model.run = command;
     p.model.open_path = open_path;
     p.view.page_time = -10;
-    if (!bare_window_with(.width = 1560, .height = 1000, .title = "Screen+ (preview)", .frameless = true,
+    if (!bare_window_with(.width = 1475, .height = 950, .zoom = 0.8f, .title = "Screen+ (preview)", .frameless = true,
                           .min_width = 1020, .min_height = 660))
         return 1;
     rebuild(&p);

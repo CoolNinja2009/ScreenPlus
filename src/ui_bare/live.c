@@ -151,13 +151,14 @@ static void run_job(Job *job) {
     JVal *reply = sp_request((const char *const *)job->argv);
     const char *text = reply ? json_str(json_get(reply, "text"), "") : "Screen+ isn't running";
     bool ok = reply && json_bool(json_get(reply, "ok"), 0);
+    bool quiet = !strcmp(job->argv[0], "preview");   /* asked by the library, not by you */
     lock(&g.lock);
     size_t n = strcspn(text, "\r\n");
     if (n >= sizeof g.message) n = sizeof g.message - 1;
     memcpy(g.message, text, n);
     g.message[n] = 0;
     if (!n) snprintf(g.message, sizeof g.message, "%s", ok ? "Done" : "That didn't work");
-    g.message_new = true;
+    g.message_new = !quiet;
     g.message_failed = !ok;
     unlock(&g.lock);
     json_free(reply);
@@ -185,7 +186,7 @@ static void *worker(void *arg) {
     double next = 0;
 #ifdef _WIN32
     /* Opened on its own (not by Screen+): start the service beside it, in the tray. */
-    if (!sp_service_running()) {
+    if (!getenv("BARE_CAPTURE") && !sp_service_running()) {   /* a capture is a test: never start one */
         wchar_t exe[MAX_PATH], cmd[MAX_PATH + 16];
         DWORD n = GetModuleFileNameW(NULL, exe, MAX_PATH);
         wchar_t *slash = n && n < MAX_PATH ? wcsrchr(exe, L'\\') : NULL;
@@ -243,14 +244,10 @@ static void *worker(void *arg) {
 
 /* ---- the window's side -------------------------------------------------------- */
 
-typedef struct Thumb { char *path; BareImage image; bool tried; double used; } Thumb;
-
 typedef struct Live {
     SpView view;
     SpModel model;
     JVal *docs[DOC_COUNT];
-    Thumb thumbs[512];
-    int thumb_count, loads_this_frame;
     char message[512];
     char theme_key[64];
 } Live;
@@ -273,38 +270,6 @@ static void enqueue(void *user, const char *const *argv) {
     cond_signal(&g.wake);
     unlock(&g.lock);
     for (int i = 0; i < job.argc; i++) free(job.argv[i]);
-}
-
-static BareImage thumbnail(void *user, const char *path) {
-    Live *app = user;
-    for (int i = 0; i < app->thumb_count; i++)
-        if (!strcmp(app->thumbs[i].path, path)) {
-            Thumb *t = &app->thumbs[i];
-            t->used = bare_time();
-            if (!t->tried && app->loads_this_frame < 4) {
-                t->tried = true;
-                app->loads_this_frame++;
-                t->image = bare_image_load(path);
-            } else if (!t->tried) {
-                bare_wake();
-            }
-            return t->image;
-        }
-    if (app->thumb_count == (int)(sizeof app->thumbs / sizeof app->thumbs[0])) {
-        /* full: drop the least recently used */
-        int old = 0;
-        for (int i = 1; i < app->thumb_count; i++) if (app->thumbs[i].used < app->thumbs[old].used) old = i;
-        bare_image_free(app->thumbs[old].image);
-        free(app->thumbs[old].path);
-        app->thumbs[old] = app->thumbs[--app->thumb_count];
-    }
-    size_t n = strlen(path);
-    char *copy = malloc(n + 1);
-    if (!copy) return 0;
-    memcpy(copy, path, n + 1);
-    app->thumbs[app->thumb_count++] = (Thumb){ copy, 0, false, bare_time() };
-    bare_wake();
-    return 0;
 }
 
 static void open_path(void *user, const char *path) {
@@ -383,7 +348,6 @@ static void take_updates(Live *app) {
 
 static void frame(void *user) {
     Live *app = user;
-    app->loads_this_frame = 0;
     take_updates(app);
     apply_theme(app);
     app->model.backdrop = bare_window_backdrop();
@@ -408,7 +372,7 @@ static bool already_open(void) {
 int main(int argc, char **argv) {
 #ifdef _WIN32
     (void)argc; (void)argv;
-    if (already_open()) return 0;
+    if (!getenv("BARE_CAPTURE") && already_open()) return 0;
 #else
     if (argc > 1) sp_set_cli(argv[1]);
 #endif
@@ -417,13 +381,13 @@ int main(int argc, char **argv) {
     cond_init(&g.wake);
     g.page = SP_LIBRARY;
     app.model.user = &app;
-    app.model.thumbnail = thumbnail;
     app.model.run = enqueue;
     app.model.open_path = open_path;
     app.model.cpu = -1;
     sp_theme_set(system_dark(), BARE_RGB(0, 215, 5), 0);
     /* The title ends in a space so a second launch finds this window and not the classic one. */
-    if (!bare_window_with(.width = 1560, .height = 1000, .title = "Screen+ ", .frameless = true,
+    /* the classic window's size (1180 x 760), the layout drawn at 80% */
+    if (!bare_window_with(.width = 1475, .height = 950, .zoom = 0.8f, .title = "Screen+ ", .frameless = true,
                           .min_width = 1020, .min_height = 660))
         return 1;
 #ifdef _WIN32

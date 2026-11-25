@@ -10,6 +10,8 @@
 #include "../common/util.h"
 #include "../common/json.h"
 #include "../common/log.h"
+#include "../common/paths.h"
+#include "preview.h"
 #include "../renderer/html/wallpaper_api.h"
 #include <stdarg.h>
 #include <stddef.h>
@@ -257,6 +259,10 @@ static void cmd_status(Reply *r)
     sb_printf(b, ",\"severity\":%d,\"paused\":%s,\"audio\":%s,\"notice\":", sev, g_app.cfg.s.paused ? "true" : "false",
               g_app.cfg.s.audio ? "true" : "false");
     jstr(b, g_app.notice);
+    wchar_t previews[SP_MAX_PATH];   /* recorded page previews, <id>.gif / <id>.jpg (app/preview_capture.c) */
+    path_join(previews, SP_COUNTOF(previews), paths_cache(), L"previews");
+    sb_puts(b, ",\"previews\":");
+    jstr(b, previews);
     sb_printf(b, ",\"renderer\":{\"running\":%s,\"pid\":%lu,\"safeMode\":%s,\"gaveUp\":%s,\"restarts\":%d,\"host\":",
               g_app.engineProcess ? "true" : "false", g_app.enginePid, g_app.safeMode ? "true" : "false",
               g_app.engineGaveUp ? "true" : "false", g_app.engineRestarts);
@@ -608,6 +614,62 @@ static void cmd_favourite(Reply *r, const Req *q)
     ui_on_config_changed();
     say(r, L"\"%ls\" is %ls favourite.\n", e->name, on ? L"a" : L"not a");
     sb_printf(&r->data, "{\"favourite\":%s}", on ? "true" : "false");
+}
+
+/* rename <wallpaper> <new name...> */
+static void cmd_rename(Reply *r, const Req *q)
+{
+    if (q->argc < 3) {
+        fail(r, L"Usage: screenplus rename <wallpaper> <new name>");
+        return;
+    }
+    WallpaperEntry *e = find_wallpaper(r, q->argv[1]);
+    if (!e) return;
+    wchar_t name[SP_NAME_LEN] = L"";
+    for (int i = 2; i < q->argc; i++) {
+        if (i > 2) str_cat(name, SP_COUNTOF(name), L" ");
+        str_cat(name, SP_COUNTOF(name), q->argv[i]);
+    }
+    wchar_t *s = name;
+    while (iswspace(*s)) s++;
+    size_t n = wcslen(s);
+    while (n && iswspace(s[n - 1])) s[--n] = 0;
+    if (!n) {
+        fail(r, L"A name can't be empty.");
+        return;
+    }
+    wchar_t old[SP_NAME_LEN];
+    str_copy(old, SP_COUNTOF(old), e->name);
+    str_copy(e->name, SP_COUNTOF(e->name), s);
+    app_save_config();
+    ui_on_config_changed();
+    say(r, L"\"%ls\" is now \"%ls\".\n", old, e->name);
+    sb_puts(&r->data, "{\"name\":");
+    jstr(&r->data, e->name);
+    sb_puts(&r->data, "}");
+}
+
+/* preview <wallpaper>: records a page's preview for the library (once a run) if it has none */
+static void cmd_preview(Reply *r, const Req *q)
+{
+    if (q->argc < 2) {
+        fail(r, L"Usage: screenplus preview <wallpaper>");
+        return;
+    }
+    WallpaperEntry *e = find_wallpaper(r, q->argv[1]);
+    if (!e) return;
+    if (e->type != WP_HTML) {
+        fail(r, L"\"%ls\" isn't a page: its file is its preview.", e->name);
+        return;
+    }
+    wchar_t jpg[SP_MAX_PATH];
+    preview_paths(e->id, NULL, jpg, SP_COUNTOF(jpg));
+    if (file_exists(jpg)) {
+        say(r, L"\"%ls\" has a preview.\n", e->name);
+        return;
+    }
+    preview_request(e->id, NULL);
+    say(r, L"Recording a preview of \"%ls\".\n", e->name);
 }
 
 /* collection: list; collection add|remove <name> <wallpaper>... */
@@ -1811,6 +1873,10 @@ static void run(Reply *r, const Req *q)
         cmd_next(r);
     } else if (str_ieq(c, L"favourite") || str_ieq(c, L"favorite") || str_ieq(c, L"fav")) {
         cmd_favourite(r, q);
+    } else if (str_ieq(c, L"rename")) {
+        cmd_rename(r, q);
+    } else if (str_ieq(c, L"preview")) {
+        cmd_preview(r, q);
     } else if (str_ieq(c, L"collection") || str_ieq(c, L"collections")) {
         cmd_collection(r, q);
     } else if (str_ieq(c, L"volume") || str_ieq(c, L"vol")) {

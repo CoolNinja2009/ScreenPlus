@@ -60,6 +60,8 @@ static const char k_help[] =
     "  slideshow [on|off] [every <minutes>] [shuffle on|off] [from all|favourites|<collection>]\n"
     "  schedule [on|off | day <wallpaper> | night <wallpaper> | times <day hour> <night hour>]\n"
     "  favourite <wallpaper> [on|off|toggle]\n"
+    "  rename <wallpaper> <new name>\n"
+    "  preview <wallpaper>   Record a page's preview picture if it has none\n"
     "  collection [list | add <name> <wallpaper>... | remove <name> <wallpaper>... | play <name> [every <minutes>]]\n"
     "  look [set <key> <value>... | reset]   Colour grading of what's showing\n"
     "  upscale [off|smooth|sharp]            Upscaling of a video or image smaller than the display\n"
