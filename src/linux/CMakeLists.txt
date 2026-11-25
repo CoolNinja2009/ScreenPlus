@@ -7,9 +7,21 @@ set(CMAKE_C_EXTENSIONS ON)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 set(ROOT ${CMAKE_SOURCE_DIR}/src)
-option(SCREENPLUS_BARE_UI "Build the optional Bare UI client" OFF)
+# The Bare window (src/ui_bare): built when Bare's source is there (beside this checkout, or -DBARE_SOURCE_DIR=...).
+# It uses the system's SDL3 like screenplus-ui.so, and Vulkan (install.sh brings a driver).
+set(BARE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/../../Bare" CACHE PATH "Bare source checkout")
+if(EXISTS "${BARE_SOURCE_DIR}/CMakeLists.txt")
+    set(SP_BARE_DEFAULT ON)
+else()
+    set(SP_BARE_DEFAULT OFF)
+endif()
+option(SCREENPLUS_BARE_UI "Build screenplus-bare-ui, the Bare window (needs Bare's source)" ${SP_BARE_DEFAULT})
 if(SCREENPLUS_BARE_UI)
+    set(BARE_SDL3_SYSTEM ON CACHE BOOL "" FORCE)
     add_subdirectory(${CMAKE_SOURCE_DIR}/src/ui_bare ${CMAKE_BINARY_DIR}/ui_bare)
+    # beside `screenplus`, which starts it; the Ubuntu .deb's own SDL3 is there too
+    set_target_properties(screenplus-bare-ui PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+                          INSTALL_RPATH "\$ORIGIN")
     install(TARGETS screenplus-bare-ui DESTINATION lib/screenplus)
 endif()
 set(SHARED
@@ -98,6 +110,8 @@ if(SCREENPLUS_ENGINE)
 endif()
 if(SCREENPLUS_UI)
     install(TARGETS screenplus-ui DESTINATION lib/screenplus)
+endif()
+if(SCREENPLUS_UI OR SCREENPLUS_BARE_UI)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/resources/fonts DESTINATION lib/screenplus)
 endif()
 install(FILES ${CMAKE_SOURCE_DIR}/resources/depth.html ${CMAKE_SOURCE_DIR}/resources/splat.html DESTINATION lib/screenplus)

@@ -133,7 +133,8 @@ static BareImage wallpaper_picture(const SpModel *m, const JVal *w, bool big) {
     if (!w) return 0;
     const char *id = json_str(json_get(w, "id"), ""), *path = json_str(json_get(w, "path"), "");
     const char *thumb = json_str(json_get(w, "thumbnail"), ""), *type = json_str(json_get(w, "type"), "");
-    const char *previews = json_str(json_get(m->status, "previews"), "");
+    const char *previews = json_str(json_get(m->status, "previews"), m->previews ? m->previews : "");
+    if (!*previews && m->previews) previews = m->previews;
     bool failed;
     if (m->picture) return picture_file(m, thumb, big, &failed);
     bool url = !strncmp(path, "http://", 7) || !strncmp(path, "https://", 8);

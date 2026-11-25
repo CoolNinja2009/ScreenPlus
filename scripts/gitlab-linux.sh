@@ -120,6 +120,7 @@ pack_deb() {
     mkdir -p debian "$pkg/DEBIAN"
     touch debian/control          # dpkg-shlibdeps wants to be in a source package
     local opt=(-O --warnings=0) bin=("$app/screenplus" "$app/screenplus-engine" "$app/screenplus-ui.so" "$app/screenplus-depth.so")
+    [ -f "$app/screenplus-bare-ui" ] && bin+=("$app/screenplus-bare-ui")   # built when Bare's source was there
     if [ -n "$own" ]; then
         # Libraries the package carries itself have no package to depend on; what they need is counted
         opt+=(--ignore-missing-info -l"$app" -l"$app/ffmpeg")
@@ -201,5 +202,6 @@ if [ "$kind" != build ]; then
     /usr/bin/screenplus version | grep -F "$ver"
     /usr/bin/screenplus help > /dev/null
     if ldd /usr/lib/screenplus/screenplus-ui.so /usr/lib/screenplus/screenplus-engine /usr/lib/screenplus/screenplus-depth.so | grep 'not found'; then exit 1; fi
+    if [ -f /usr/lib/screenplus/screenplus-bare-ui ] && ldd /usr/lib/screenplus/screenplus-bare-ui | grep 'not found'; then exit 1; fi
 fi
 ls -la release

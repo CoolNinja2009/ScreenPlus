@@ -23,6 +23,7 @@ typedef struct SpModel {
     const char *message;    /* the last command's answer, shown as a toast (NULL: none) */
     double message_time;    /* bare_time() when it arrived */
     bool message_failed;
+    const char *previews;   /* where Screen+ keeps pages' recorded previews, if the service doesn't say */
     /* Callbacks into the host. */
     void *user;
     /* Pictures come from bare_picture; a host with pictures of its own (the sample data) answers instead. */

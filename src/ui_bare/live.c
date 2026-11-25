@@ -26,6 +26,8 @@ typedef CONDITION_VARIABLE Cond;
 #include <time.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <sys/file.h>
 typedef pthread_mutex_t Lock;
 #define lock_init(l)   pthread_mutex_init((l), NULL)
 #define lock(l)        pthread_mutex_lock(l)
@@ -367,13 +369,38 @@ static bool already_open(void) {
     }
     return true;
 }
+#else
+/* One window: a lock held while it's open (Wayland lets no one else raise it). */
+static bool already_open(void) {
+    const char *dir = getenv("XDG_RUNTIME_DIR");
+    char path[512];
+    snprintf(path, sizeof path, "%s/screenplus-bare-ui.lock", dir && *dir ? dir : "/tmp");
+    int fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    return fd >= 0 && flock(fd, LOCK_EX | LOCK_NB) && errno == EWOULDBLOCK;   /* fd stays open: the lock lasts */
+}
 #endif
+
+/* Where the service keeps pages' recorded previews (src/common/paths.c), for one too old to say. */
+static void previews_dir(char *out, size_t size) {
+    out[0] = 0;
+#ifdef _WIN32
+    const wchar_t *over = _wgetenv(L"SCREENPLUS_DATA_DIR"), *local = _wgetenv(L"LOCALAPPDATA");
+    wchar_t dir[1024];
+    if (over && *over) swprintf(dir, 1024, L"%ls\\cache\\previews", over);
+    else if (local && *local) swprintf(dir, 1024, L"%ls\\ScreenPlus\\cache\\previews", local);
+    else return;
+    if (!WideCharToMultiByte(CP_UTF8, 0, dir, -1, out, (int)size, NULL, NULL)) out[0] = 0;
+#else
+    const char *over = getenv("SCREENPLUS_DATA_DIR"), *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
+    if (over && *over) snprintf(out, size, "%s/cache/previews", over);
+    else if (xdg && *xdg) snprintf(out, size, "%s/screenplus/cache/previews", xdg);
+    else if (home && *home) snprintf(out, size, "%s/.local/share/screenplus/cache/previews", home);
+#endif
+}
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
-#ifdef _WIN32
     if (!getenv("BARE_CAPTURE") && already_open()) return 0;
-#endif
     static Live app;
     lock_init(&g.lock);
     cond_init(&g.wake);
@@ -382,6 +409,9 @@ int main(int argc, char **argv) {
     app.model.run = enqueue;
     app.model.open_path = open_path;
     app.model.cpu = -1;
+    static char previews[1024];
+    previews_dir(previews, sizeof previews);
+    app.model.previews = previews;
     sp_theme_set(system_dark(), BARE_RGB(0, 215, 5), 0);
     /* The title ends in a space so a second launch finds this window and not the classic one. */
     /* the classic window's size (1180 x 760), the layout drawn at 80% */
