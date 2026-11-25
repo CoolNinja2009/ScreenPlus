@@ -11,6 +11,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#include "../common/ipc.h"
+
 static StrBuf request_json(const char *const *argv) {
     StrBuf b = { 0 };
     sb_puts(&b, "{\"argv\":[");
@@ -21,9 +24,6 @@ static StrBuf request_json(const char *const *argv) {
     sb_puts(&b, "]}");
     return b;
 }
-
-#ifdef _WIN32
-#include "../common/ipc.h"
 
 static char  *g_reply;
 static size_t g_reply_len;
