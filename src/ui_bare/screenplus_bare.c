@@ -2450,15 +2450,13 @@ static void settings(SpView *v, const SpModel *m) {
             ROW(IDI("set.row", i), r->icon, r->title, NULL) { setting_control(m, r, i); }
         }
         if (open) bare_close_();
-        if (want(search, "About version classic window", "About")) {
+        if (want(search, "About version", "About")) {
             bare_box(.height = 8);
             section("About");
             CARD(ID("set.about")) {
                 char ver[64];
                 snprintf(ver, sizeof ver, "Screen+ %s  \xC2\xB7  Bare UI beta", json_str(json_get(m->status, "version"), ""));
-                ROW(ID("set.about.row"), SPI_INFO, ver, NULL) {
-                    if (sp_button(ID("set.classic"), SPI_OPEN, "Classic window", SP_BTN_GLASS).clicked) RUN(m, "ui", "classic");
-                }
+                ROW(ID("set.about.row"), SPI_INFO, ver, NULL) {}
             }
         }
     }
