@@ -289,7 +289,7 @@ static void app_input(Renderer *base, const RendererInput *in)
         PostMessageW(target, WM_MOUSEWHEEL, MAKEWPARAM(mk, (short)in->wheel), MAKELPARAM((short)s.x, (short)s.y));
         break;
     }
-    case RIN_LEAVE: PostMessageW(target, WM_MOUSELEAVE, 0, 0); break;
+    case RIN_LEAVE: PostMessageW(target, WM_MOUSELEAVE, 0, 0x53502B4C); break;   /* 'SP+L': Bare lets only this through */
     default: break;
     }
 }

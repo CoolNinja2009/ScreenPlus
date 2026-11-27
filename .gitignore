@@ -53,3 +53,7 @@ docs\store\sites-without-one-click-download.md
 
 Bugs.txt
 animations.md
+
+# ---- Microsoft Store packages (make-msix.ps1)
+/store/
+*.msix
