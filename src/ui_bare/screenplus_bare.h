@@ -26,6 +26,7 @@ typedef struct SpModel {
     bool busy;              /* commands are still running */
     float cpu;              /* the renderer's CPU use, % of the machine (< 0: unknown) */
     BareImage backdrop;     /* the desktop behind the window (0: draw a plain background) */
+    bool see_through;       /* the system's glass is behind the window (macOS): draw no background */
     const char *message;    /* the last command's answer, shown as a toast (NULL: none) */
     double message_time;    /* bare_time() when it arrived */
     bool message_failed;

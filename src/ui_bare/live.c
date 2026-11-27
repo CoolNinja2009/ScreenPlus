@@ -28,6 +28,10 @@ typedef CONDITION_VARIABLE Cond;
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/file.h>
+#ifdef __APPLE__
+int sp_mac_glass_wanted(void);   /* mac_glass.m */
+int sp_mac_glass_attach(void);
+#endif
 typedef pthread_mutex_t Lock;
 #define lock_init(l)   pthread_mutex_init((l), NULL)
 #define lock(l)        pthread_mutex_lock(l)
@@ -388,7 +392,8 @@ static void frame(void *user) {
     take_updates(app);
     apply_theme(app);
     app->model.backdrop = bare_window_backdrop();
-    bare_background(sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222));
+    bare_background(app->model.see_through ? BARE_RGBA(0, 0, 0, 0)
+                    : sp.dark ? BARE_RGB(14, 22, 24) : BARE_RGB(214, 224, 222));
     sp_draw(&app->view, &app->model);
     /* SP_FRAME_LOG=<file>: frames drawn per second, every 5 s (what keeps the window awake) */
     static const char *frame_log;
@@ -471,9 +476,17 @@ int main(int argc, char **argv) {
     sp_theme_set(system_dark(), BARE_RGB(0, 215, 5), 0);
     /* The title ends in a space so a second launch finds this window and not the classic one. */
     /* the classic window's size (1180 x 760), the layout drawn at 80% */
+#ifdef __APPLE__
+    bool glass = sp_mac_glass_wanted();
+#else
+    bool glass = false;
+#endif
     if (!bare_window_with(.width = 1475, .height = 950, .zoom = 0.8f, .title = "Screen+ ", .frameless = true,
-                          .min_width = 1020, .min_height = 660))
+                          .transparent = glass, .min_width = 1020, .min_height = 660))
         return 1;
+#ifdef __APPLE__
+    app.model.see_through = glass && sp_mac_glass_attach();
+#endif
 #ifdef _WIN32
     HANDLE thread = CreateThread(NULL, 0, worker, NULL, 0, NULL);
 #else
