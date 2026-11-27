@@ -42,7 +42,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef _WIN32
+#if defined(__APPLE__)
+/* NuGet's CPU package carries the macOS arm64 build (GitHub's release assets 404 now and then); only the dylib is unpacked */
+#define ORT_FILE     L"libonnxruntime.dylib"
+#define ORT_URL      L"https://api.nuget.org/v3-flatcontainer/microsoft.ml.onnxruntime/1.24.4/microsoft.ml.onnxruntime.1.24.4.nupkg"
+#define ORT_PKG_SIZE ((int64_t)125194303)
+#define ORT_PKG_SHA  "4b978d5065b85e7004b6c6f60ca494bd978fbe6836cbf0a0b52d82b61ab99638"
+#define ORT_DLL_SIZE ((int64_t)35451632)
+#define ORT_DLL_SHA  "0db33e160224e480c17932799d1dfaea59853b8e722b57bf61932c87e03586f0"
+#elif !defined(_WIN32)
 #define ORT_FILE     L"libonnxruntime.so.1.24.4"
 #define ORT_URL      L"https://github.com/microsoft/onnxruntime/releases/download/v1.24.4/onnxruntime-linux-x64-1.24.4.tgz"
 #define ORT_PKG_SIZE ((int64_t)8155822)
@@ -527,6 +535,9 @@ static BOOL ensure_runtime(DepthJob *j)
         str_printf(cmd, SP_COUNTOF(cmd),
                    L"\"%ls\" -xf \"%ls\" -C \"%ls\" --strip-components 3 runtimes/win-x64/native/onnxruntime.dll "
                    L"runtimes/win-x64/native/onnxruntime_providers_shared.dll", tar, pkg, ortDir);
+#elif defined(__APPLE__)
+        str_printf(cmd, SP_COUNTOF(cmd), L"/usr/bin/unzip -o -j \"%ls\" runtimes/osx-arm64/native/libonnxruntime.dylib -d \"%ls\"", pkg, ortDir);
+        (void)tar;
 #else
         str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" -xzf \"%ls\" -C \"%ls\" --strip-components 2 onnxruntime-linux-x64-1.24.4/lib/libonnxruntime.so.1.24.4",
                    tar, pkg, ortDir);

@@ -82,6 +82,10 @@ BOOL scr_enable(BOOL on, wchar_t *err, size_t cap)
         SystemParametersInfoW(SPI_SETSCREENSAVEACTIVE, FALSE, NULL, SPIF_UPDATEINIFILE | SPIF_SENDCHANGE);
         return TRUE;
     }
+    if (paths_packaged()) {   /* the package folder is read-only and its HKCU writes are private */
+        if (err) str_copy(err, cap, L"The screensaver needs the installer version of Screen+.");
+        return FALSE;
+    }
     wchar_t scr[SP_MAX_PATH], shortPath[SP_MAX_PATH];
     scr_path(scr, SP_COUNTOF(scr));
     if (!scr_sync_binary()) {

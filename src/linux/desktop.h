@@ -5,8 +5,13 @@
 #include "../common/common.h"
 #include "../settings/config.h"
 #include "../monitor/monitor.h"
+#include "../common/edid.h"
+#ifdef __APPLE__
+#include "../mac/mac.h"
+#endif
 
-typedef enum DesktopKind { DESK_UNKNOWN = 0, DESK_KDE, DESK_HYPRLAND } DesktopKind;
+/* DESK_MAC: macOS, through screenplus-engine (src/mac/engine_mac.m) like Hyprland. */
+typedef enum DesktopKind { DESK_UNKNOWN = 0, DESK_KDE, DESK_HYPRLAND, DESK_MAC } DesktopKind;
 
 DesktopKind desktop_detect(void);
 const char *desktop_name(DesktopKind k);

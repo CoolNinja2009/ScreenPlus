@@ -21,3 +21,8 @@ const wchar_t *paths_webview(void);
 const wchar_t *paths_downloads(void);   /* created when something is downloaded */
 const wchar_t *paths_exe(void);
 const wchar_t *paths_exe_dir(void);
+/* Microsoft Store (MSIX) copy: the data root is the package's own LocalCache\Local\ScreenPlus (a real path, so
+ * Explorer can read the stills; plain %LOCALAPPDATA% writes would go to a private copy anyway), and programs
+ * outside the package start the app through its execution alias, not the WindowsApps path. */
+BOOL paths_packaged(void);
+const wchar_t *paths_launch_exe(void);  /* the alias when packaged, else paths_exe() */

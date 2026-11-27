@@ -13,7 +13,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#ifndef __APPLE__
 #include <sys/sendfile.h>
+#endif
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -168,8 +170,15 @@ static void serve(int fd)
     if (send(fd, h, (size_t)n, MSG_NOSIGNAL) == n && !head) {
         off_t at = (off_t)from;
         while (len > 0) {
+#ifdef __APPLE__
+            off_t w = (off_t)SP_MIN(len, 1 << 20);          /* Darwin's sendfile: file first, the count in and out */
+            if (sendfile(f, fd, at, &w, NULL, 0) && !w) break;
+            if (w <= 0) break;
+            at += w;
+#else
             ssize_t w = sendfile(fd, f, &at, (size_t)SP_MIN(len, 1 << 20));
             if (w <= 0) break;
+#endif
             len -= w;
         }
     }

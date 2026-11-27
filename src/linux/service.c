@@ -20,6 +20,9 @@
 #include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <libproc.h>
+#endif
 
 AppState g_app;
 uint64_t g_mainEntered;
@@ -81,7 +84,8 @@ static void engine_watch(void)
             return;
         }
         if (WIFEXITED(st) && WEXITSTATUS(st) == 127) {
-            str_copy(g_app.engineError, SP_COUNTOF(g_app.engineError), L"screenplus-engine could not be started; are GTK 4, gtk4-layer-shell, libmpv and WebKitGTK installed?");
+            str_copy(g_app.engineError, SP_COUNTOF(g_app.engineError), g_desk == DESK_MAC ? L"screenplus-engine could not be started; reinstall Screen+"
+                     : L"screenplus-engine could not be started; are GTK 4, gtk4-layer-shell, libmpv and WebKitGTK installed?");
             g_app.engineGaveUp = 1;
             return;
         }
@@ -112,6 +116,9 @@ static int effective_pause(void)
 /* Plasma's lock screen, through the freedesktop name every session has. */
 static int session_locked(void)
 {
+#ifdef __APPLE__
+    return mac_session_locked();
+#endif
     static char out[256];
     const char *argv[] = { "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.ScreenSaver", "/ScreenSaver",
                            "org.freedesktop.ScreenSaver.GetActive", NULL };
@@ -161,7 +168,7 @@ static void push_to_desktop(void)
     webhost_sync(&g_app.cfg);
     if (g_desk == DESK_KDE) {
         kde_apply(&g_app.cfg, g_app.mons, g_app.monCount, effective_pause());
-    } else if (g_desk == DESK_HYPRLAND && g_engine) {
+    } else if (g_engine) {
         kill(g_engine, SIGUSR1);        /* the engine re-reads config.ini */
     }
 }
@@ -179,6 +186,9 @@ void app_refresh_monitors(void)
 {
     MonitorInfo m[SP_MAX_MONITORS];
     int n = g_desk == DESK_KDE ? kde_monitors(m, SP_MAX_MONITORS) : g_desk == DESK_HYPRLAND ? hypr_monitors(m, SP_MAX_MONITORS) : 0;
+#ifdef __APPLE__
+    if (g_desk == DESK_MAC) n = mac_monitors(m, SP_MAX_MONITORS);
+#endif
     if (n <= 0) {                       /* keep what we had: the desktop may be restarting */
         g_desktopGone = 1;
         return;
@@ -251,7 +261,7 @@ void app_set_screensaver(const wchar_t *wallpaperId)
 
 void app_restart_renderer(void)
 {
-    if (g_desk == DESK_HYPRLAND) {
+    if (g_desk != DESK_KDE) {
         engine_stop();
         g_app.crashes = 0;
         g_app.engineGaveUp = 0;
@@ -344,6 +354,9 @@ int app_open_bare_ui(void)
 
 void app_show_ui(void)
 {
+#ifdef __APPLE__
+    if (app_open_bare_ui()) return;                 /* macOS ships the Bare window only */
+#endif
     if (g_app.cfg.s.bareUi && app_open_bare_ui()) return;
     if (ui_load() && g_ui_mod.show) g_ui_mod.show();
 }
@@ -351,6 +364,11 @@ void app_show_ui(void)
 /* `screenplus ui classic`: the classic window even when the Bare one is chosen. */
 void app_show_classic_ui(void)
 {
+#ifdef __APPLE__
+    app_notice(NOTICE_INFO, L"On macOS the window is the Bare one.");
+    app_open_bare_ui();
+    return;
+#endif
     if (ui_load() && g_ui_mod.show) g_ui_mod.show();
 }
 
@@ -395,7 +413,7 @@ const wchar_t *app_engine_state_text(int *severity)
     int sev = 0;
     const wchar_t *t = L"Active";
     if (g_app.engineGaveUp) { sev = 3; t = L"Renderer stopped"; }
-    else if (g_desk == DESK_HYPRLAND && !g_engine) { sev = 2; t = L"Restarting renderer"; }
+    else if (g_desk != DESK_KDE && !g_engine) { sev = 2; t = L"Restarting renderer"; }
     else if (g_app.cfg.s.paused) { sev = 1; t = L"Paused"; }
     else if (effective_pause()) { sev = 1; t = L"Paused on battery"; }
     if (severity) *severity = sev;
@@ -404,6 +422,10 @@ const wchar_t *app_engine_state_text(int *severity)
 
 static size_t resident_bytes(pid_t pid)
 {
+#ifdef __APPLE__
+    struct proc_taskinfo ti;
+    return proc_pidinfo(pid, PROC_PIDTASKINFO, 0, &ti, sizeof ti) == (int)sizeof ti ? (size_t)ti.pti_resident_size : 0;
+#endif
     char path[64];
     long pages = 0, rss = 0;
     snprintf(path, sizeof path, "/proc/%d/statm", (int)pid);
@@ -475,7 +497,11 @@ BOOL ui_is_open(void) { return g_ui_mod.is_open && g_ui_mod.is_open(); }
 void shell_open(const wchar_t *target)
 {
     char *p = sp_utf8_dup(target);
+#ifdef __APPLE__
+    const char *argv[] = { "open", p, NULL };
+#else
     const char *argv[] = { "xdg-open", p, NULL };
+#endif
     if (p) sp_run(argv, NULL, 0);
     free(p);
 }
@@ -655,7 +681,7 @@ int service_main(void)
     else engine_start();
     if (g_desk != DESK_KDE || g_app.monCount) push_to_desktop();    /* at sign-in Plasma isn't up yet: the loop applies when it is */
     g_app.processStart = filetime_now();
-    LOGI(L"service started (%ls)", g_desk == DESK_KDE ? L"KDE Plasma" : L"Hyprland");
+    LOGI(L"service started (%s)", desktop_name(g_desk));
 
     depth_refresh_pages();
     depth_auto_all(FALSE);
@@ -695,7 +721,7 @@ int service_main(void)
         }
         url_import_tick();
         store_on_import();
-        if (g_desk == DESK_HYPRLAND) engine_watch();
+        if (g_desk != DESK_KDE) engine_watch();
         if (windowDue && g_app.monCount) {
             windowDue = 0;
             app_show_ui();
@@ -709,7 +735,7 @@ int service_main(void)
                 ui_on_config_changed();
             }
             int was = monitors_key();
-            int bat = sp_on_battery(), lock = g_desk == DESK_KDE && session_locked();
+            int bat = sp_on_battery(), lock = g_desk != DESK_HYPRLAND && session_locked();
             app_refresh_monitors();
             int back = g_desktopBack;
             g_desktopBack = 0;

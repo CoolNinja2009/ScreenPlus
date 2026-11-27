@@ -184,6 +184,7 @@ void config_defaults(Config *c)
     str_copy(c->s.depthModel, SP_COUNTOF(c->s.depthModel), L"da2-small");
     c->s.theme = THEME_SYSTEM;
     c->s.uiMotion = 0;
+    c->s.uiPour = 0;
     c->s.accentColor = 0x0A84FF;
     c->s.displayMode = DM_INDEPENDENT;
     c->s.scrAudio = 0;
@@ -544,6 +545,7 @@ static int parse_text(Config *c, wchar_t *text)
             else if (str_ieq(key, L"audio")) s->audio = parse_bool(val, s->audio);
             else if (str_ieq(key, L"auto_recover")) s->autoRecover = parse_bool(val, s->autoRecover);
             else if (str_ieq(key, L"bare_ui")) s->bareUi = parse_bool(val, s->bareUi);
+            else if (str_ieq(key, L"ui_pour")) s->uiPour = parse_bool(val, s->uiPour);
             else if (str_ieq(key, L"ui_sounds")) s->uiSounds = parse_bool(val, s->uiSounds);
             else if (str_ieq(key, L"paused")) s->paused = parse_bool(val, s->paused);
             else if (str_ieq(key, L"html_mouse")) s->htmlMouse = parse_bool(val, s->htmlMouse);
@@ -721,6 +723,7 @@ BOOL config_save(const Config *c, const wchar_t *path)
               s->theme == THEME_LIGHT ? "light" : s->theme == THEME_DARK ? "dark" : "system",
               s->uiMotion == 1 ? "reduced" : s->uiMotion == 2 ? "off" : "full", s->accentColor & 0xFFFFFF);
     sb_printf(&b, "bare_ui=%d\r\n", s->bareUi);
+    sb_printf(&b, "ui_pour=%d\r\n", s->uiPour);
     sb_printf(&b, "ui_sounds=%d\r\n", s->uiSounds);
     sb_puts(&b, "language=");
     sb_put_wide(&b, s->language);

@@ -1,5 +1,8 @@
 # Screen+ for Linux: `screenplus` (CLI + background service, plain libc) and `screenplus-engine` (the Hyprland
 # renderer). KDE Plasma needs no engine: the wallpaper runs in plasmashell, in the plugin under kde/.
+# macOS builds from here too (src/mac): the same service and CLI, src/mac/engine_mac.m as screenplus-engine
+# (AppKit, AVFoundation, WebKit), desktop_mac.c for what /proc, /sys, D-Bus and PulseAudio say on Linux.
+# scripts/build-mac.sh packs Screen+.app and the .dmg.
 option(SCREENPLUS_ENGINE "Build screenplus-engine (needs GTK 4, gtk4-layer-shell, libmpv, WebKitGTK)" ON)
 
 set(CMAKE_C_STANDARD 17)
@@ -34,8 +37,18 @@ if(SP_BARE_BUILD)
                           INSTALL_RPATH "\$ORIGIN")
     install(TARGETS screenplus-bare-ui DESTINATION lib/screenplus)
 endif()
+if(APPLE)
+    enable_language(OBJC)
+    # After the Bare window: Bare's own sources never see it
+    add_compile_options("SHELL:-include ${ROOT}/mac/posix_mac.h")
+    set(SP_RULES ${ROOT}/mac/desktop_mac.c)
+    set(SP_MAC_LIBS "-framework ApplicationServices" "-framework IOKit" "-framework CoreAudio" "-framework CoreFoundation")
+else()
+    set(SP_RULES apprules.c)
+    set(SP_MAC_LIBS)
+endif()
 set(SHARED
-    compat.c winobj.c run.c desktop_hypr.c apprules.c
+    compat.c winobj.c run.c desktop_hypr.c ${SP_RULES}
     monitor.c ${ROOT}/common/util.c ${ROOT}/common/paths.c ${ROOT}/common/log.c ${ROOT}/common/json.c ${ROOT}/common/edid.c
     ${ROOT}/settings/config.c ${ROOT}/renderer/html/wallpaper_api.c)
 
@@ -43,13 +56,19 @@ include(${PROJECT_SOURCE_DIR}/cmake/lang.cmake)
 add_executable(screenplus ${ROOT}/common/i18n.c ${SP_LANG_C} cli.c service.c desktop_kde.c url_import.c http_linux.c preview.c feed.c webhost.c ${SHARED}
     ${ROOT}/app/cli_server.c ${ROOT}/app/library.c ${ROOT}/app/file_format.c ${ROOT}/app/store.c ${ROOT}/app/store_sources.c
     ${ROOT}/app/update.c ${ROOT}/app/samples_update.c ${ROOT}/app/depth.c ${ROOT}/app/rotate.c ${ROOT}/app/pptx.c)
-target_link_libraries(screenplus PRIVATE m pthread ${CMAKE_DL_LIBS})
+target_link_libraries(screenplus PRIVATE m pthread ${CMAKE_DL_LIBS} ${SP_MAC_LIBS})
 set_target_properties(screenplus PROPERTIES ENABLE_EXPORTS ON)   # screenplus-ui.so calls back into it
 
 add_compile_definitions(_GNU_SOURCE SP_VERSION_STR="${SCREENPLUS_VERSION}")
 target_compile_options(screenplus PRIVATE -Wall -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas)
 
-option(SCREENPLUS_UI "Build screenplus-ui.so, the window (needs SDL3, Cairo, Pango, fontconfig)" ON)
+# macOS has the Bare window only: no classic window there
+if(APPLE)
+    set(SP_UI_DEFAULT OFF)
+else()
+    set(SP_UI_DEFAULT ON)
+endif()
+option(SCREENPLUS_UI "Build screenplus-ui.so, the window (needs SDL3, Cairo, Pango, fontconfig)" ${SP_UI_DEFAULT})
 find_package(PkgConfig REQUIRED)
 if(SCREENPLUS_UI)
     pkg_check_modules(UI REQUIRED IMPORTED_TARGET sdl3 cairo pangocairo fontconfig)
@@ -58,7 +77,13 @@ if(SCREENPLUS_UI)
     # The Ubuntu .deb carries SDL3 and gtk4-layer-shell beside the program (scripts/build-libs-linux.sh)
     set_target_properties(screenplus-ui PROPERTIES PREFIX "" INSTALL_RPATH "\$ORIGIN")
     target_link_libraries(screenplus-ui PRIVATE PkgConfig::UI m pthread)
-    target_link_options(screenplus-ui PRIVATE -Wl,-Bsymbolic)   # its ui_* must not resolve to the service's forwarders
+    if(APPLE)
+        # two-level namespaces already bind its ui_* to itself; what it needs from the service resolves at dlopen
+        target_link_options(screenplus-ui PRIVATE -undefined dynamic_lookup)
+        set_target_properties(screenplus-ui PROPERTIES INSTALL_RPATH "@loader_path")
+    else()
+        target_link_options(screenplus-ui PRIVATE -Wl,-Bsymbolic)   # its ui_* must not resolve to the service's forwarders
+    endif()
     target_compile_options(screenplus-ui PRIVATE -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas)
 endif()
 
@@ -100,12 +125,22 @@ if(SCREENPLUS_DEPTH)
     set_target_properties(screenplus-depth PROPERTIES PREFIX "" INSTALL_RPATH "\$ORIGIN/ffmpeg")
     target_include_directories(screenplus-depth PRIVATE ${ORT_INC})
     target_link_libraries(screenplus-depth PRIVATE PkgConfig::DEPTH m pthread ${CMAKE_DL_LIBS})
-    target_link_options(screenplus-depth PRIVATE -Wl,-Bsymbolic)
+    if(APPLE)
+        target_link_options(screenplus-depth PRIVATE -undefined dynamic_lookup)
+    else()
+        target_link_options(screenplus-depth PRIVATE -Wl,-Bsymbolic)
+    endif()
     target_compile_options(screenplus-depth PRIVATE -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas -Wno-deprecated-declarations)
     install(TARGETS screenplus-depth DESTINATION lib/screenplus)
 endif()
 
-if(SCREENPLUS_ENGINE)
+if(SCREENPLUS_ENGINE AND APPLE)
+    add_executable(screenplus-engine ${ROOT}/mac/engine_mac.m ${SHARED})
+    set_source_files_properties(${ROOT}/mac/engine_mac.m PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+    target_link_libraries(screenplus-engine PRIVATE m pthread ${SP_MAC_LIBS} "-framework Cocoa" "-framework AVFoundation"
+                          "-framework CoreMedia" "-framework CoreImage" "-framework QuartzCore" "-framework WebKit")
+    target_compile_options(screenplus-engine PRIVATE -Wall -Wno-unused -Wno-missing-braces -Wno-unknown-pragmas)
+elseif(SCREENPLUS_ENGINE)
     # gtk4-layer-shell has to come before libwayland-client on the link line
     pkg_check_modules(ENGINE REQUIRED IMPORTED_TARGET gtk4-layer-shell-0 gtk4 webkitgtk-6.0 mpv epoxy)
     add_executable(screenplus-engine engine_gtk.c ${SHARED})

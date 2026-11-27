@@ -11,7 +11,7 @@ BOOL startup_set_enabled(BOOL on)
 {
     AutostartKind kind;
     HRESULT hr;
-    BOOL ok = autostart_set(on, paths_exe(), &kind, &hr);
+    BOOL ok = autostart_set(on, paths_launch_exe(), &kind, &hr);
     if (on && kind == AUTOSTART_RUN) LOGW(L"startup: logon task not registered (0x%08lX); using the Run key", (unsigned long)hr);
     else if (!ok) LOGW(L"startup: could not turn it %ls (task 0x%08lX)", on ? L"on" : L"off", (unsigned long)hr);
     else LOGI(L"startup: %ls", on ? L"logon task registered" : L"off");
@@ -24,6 +24,6 @@ void startup_sync(void)
 {
     wchar_t exe[SP_MAX_PATH];
     AutostartKind kind = autostart_query(exe, SP_COUNTOF(exe));
-    if (kind == AUTOSTART_RUN || (kind == AUTOSTART_TASK && !str_ieq(exe, paths_exe()))) startup_set_enabled(TRUE);
+    if (kind == AUTOSTART_RUN || (kind == AUTOSTART_TASK && !str_ieq(exe, paths_launch_exe()))) startup_set_enabled(TRUE);
     g_app.cfg.s.startWithWindows = kind != AUTOSTART_OFF;
 }

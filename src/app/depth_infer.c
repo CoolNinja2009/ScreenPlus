@@ -404,7 +404,11 @@ static HMODULE load_runtime(void)
         return NULL;
     }
 #else
+#ifdef __APPLE__
+    path_join(p, SP_COUNTOF(p), paths_root(), L"depth/ort/libonnxruntime.dylib");
+#else
     path_join(p, SP_COUNTOF(p), paths_root(), L"depth/ort/libonnxruntime.so.1.24.4");
+#endif
     char *lib = sp_path_utf8(p);
     HMODULE m = lib ? dlopen(lib, RTLD_NOW | RTLD_LOCAL) : NULL;
     free(lib);

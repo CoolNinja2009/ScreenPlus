@@ -9,24 +9,35 @@
 
 DesktopKind desktop_detect(void)
 {
+#ifdef __APPLE__
+    return DESK_MAC;
+#else
     const char *d = getenv("XDG_CURRENT_DESKTOP");
     if (getenv("HYPRLAND_INSTANCE_SIGNATURE")) return DESK_HYPRLAND;
     if (d && strcasestr(d, "hyprland")) return DESK_HYPRLAND;
     if ((d && strcasestr(d, "kde")) || getenv("KDE_FULL_SESSION")) return DESK_KDE;
     return DESK_UNKNOWN;
+#endif
 }
 
 const char *desktop_name(DesktopKind k)
 {
-    return k == DESK_KDE ? "KDE Plasma" : k == DESK_HYPRLAND ? "Hyprland" : "unsupported desktop";
+    return k == DESK_KDE ? "KDE Plasma" : k == DESK_HYPRLAND ? "Hyprland" : k == DESK_MAC ? "macOS" : "unsupported desktop";
 }
 
 int sp_socket_path(char *out, size_t cap)
 {
+#ifdef __APPLE__
+    const char *dir = getenv("TMPDIR");             /* per user and private, like XDG_RUNTIME_DIR */
+    int n = dir && dir[0] ? snprintf(out, cap, "%s%s%s", dir, dir[strlen(dir) - 1] == '/' ? "" : "/", SP_SOCKET_NAME)
+                          : snprintf(out, cap, "/tmp/%s-%u", SP_SOCKET_NAME, (unsigned)getuid());
+    return n > 0 && (size_t)n < cap && (size_t)n < 104;        /* sun_path is 104 bytes here */
+#else
     const char *dir = getenv("XDG_RUNTIME_DIR");
     int n = dir && dir[0] ? snprintf(out, cap, "%s/%s", dir, SP_SOCKET_NAME)
                           : snprintf(out, cap, "/tmp/%s-%u", SP_SOCKET_NAME, (unsigned)getuid());
     return n > 0 && (size_t)n < cap;
+#endif
 }
 
 int sp_run_read(const char *const *argv, char *out, size_t cap, size_t *got)
@@ -110,6 +121,9 @@ static int read_small(const char *path, char *out, size_t cap)
 
 int sp_on_battery(void)
 {
+#ifdef __APPLE__
+    if (!getenv("SCREENPLUS_POWER_DIR")) return mac_on_battery();
+#endif
     const char *power = getenv("SCREENPLUS_POWER_DIR");     /* tests */
     if (!power) power = "/sys/class/power_supply";
     DIR *d = opendir(power);

@@ -13,7 +13,13 @@ void identify_displays(const MonitorInfo *mons, int n)
         char text[160];
         snprintf(text, sizeof text, "Display %d: %ldx%ld at %ld,%ld", i + 1, (long)(mons[i].rect.right - mons[i].rect.left),
                  (long)(mons[i].rect.bottom - mons[i].rect.top), (long)mons[i].rect.left, (long)mons[i].rect.top);
+#ifdef __APPLE__
+        char script[256];
+        snprintf(script, sizeof script, "display notification \"%s\" with title \"Screen+\"", text);
+        const char *argv[] = { "osascript", "-e", script, NULL };
+#else
         const char *argv[] = { "notify-send", "-a", "Screen+", "-t", "5000", text, NULL };
+#endif
         sp_run(argv, NULL, 0);
     }
 }
@@ -21,6 +27,16 @@ void identify_displays(const MonitorInfo *mons, int n)
 int sp_pick_colour(uint32_t *rgb)
 {
     char now[16], out[64] = "";
+#ifdef __APPLE__
+    char script[128];                                   /* AppleScript's colours are 16 bits a channel */
+    unsigned r, g, b;
+    snprintf(script, sizeof script, "choose color default color {%u, %u, %u}",
+             (*rgb >> 16 & 255) * 257, (*rgb >> 8 & 255) * 257, (*rgb & 255) * 257);
+    const char *mac[] = { "osascript", "-e", script, NULL };
+    if (sp_run(mac, out, sizeof out) || sscanf(out, "%u, %u, %u", &r, &g, &b) != 3) return 0;
+    *rgb = (r / 257) << 16 | (g / 257) << 8 | (b / 257);
+    return 1;
+#else
     snprintf(now, sizeof now, "#%06X", *rgb & 0xFFFFFF);
     const char *kde[] = { "kdialog", "--getcolor", "--default", now, NULL };
     const char *gtk[] = { "zenity", "--color-selection", "--color", now, NULL };
@@ -31,6 +47,7 @@ int sp_pick_colour(uint32_t *rgb)
         return 1;
     }
     return 0;
+#endif
 }
 
 BOOL depth_choose_model(int i, HWND owner)

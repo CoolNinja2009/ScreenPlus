@@ -17,7 +17,11 @@
 #include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
+#ifdef __APPLE__
+#include "../mac/mac.h"
+#else
 #include <sys/prctl.h>
+#endif
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -174,10 +178,15 @@ static void audio_stop(void)
 static void audio_start(void)
 {
     int fd[2];
+#ifdef __APPLE__
+    return;                                         /* no system audio tap on macOS yet: pages get silence */
+#endif
     if (g_rec > 0 || pipe2(fd, O_CLOEXEC | O_NONBLOCK)) return;
     pid_t pid = fork();
     if (pid == 0) {
+#ifndef __APPLE__
         prctl(PR_SET_PDEATHSIG, SIGTERM);           /* never outlives the service */
+#endif
         int null = open("/dev/null", O_RDWR);
         dup2(null, 0); dup2(fd[1], 1); dup2(null, 2);
         fcntl(fd[1], F_SETFL, 0);
@@ -283,15 +292,17 @@ static void send_sys(void)
     static double lastAt;
     static char cpuName[128];
     unsigned long long u = 0, n = 0, s = 0, id = 0, w = 0, q = 0, sq = 0, st = 0, rx = 0, tx = 0;
+#ifdef __APPLE__
+    double totalMb = 0, availMb = 0;
+    if (!cpuName[0]) mac_cpu_name(cpuName, sizeof cpuName);
+    mac_sys_sample(&u, &id, &totalMb, &availMb, &rx, &tx);     /* u: busy ticks, id: idle ticks */
+#else
     if (!cpuName[0]) first_line_value("/proc/cpuinfo", "model name", cpuName, sizeof cpuName);
     FILE *f = fopen("/proc/stat", "r");
     if (f) {
         if (fscanf(f, "cpu %llu %llu %llu %llu %llu %llu %llu %llu", &u, &n, &s, &id, &w, &q, &sq, &st) != 8) u = 0;
         fclose(f);
     }
-    unsigned long long busy = u + n + s + q + sq + st, all = busy + id + w;
-    double cpu = all > lastAll ? 100.0 * (double)(busy - lastBusy) / (double)(all - lastAll) : 0.0;
-    lastBusy = busy; lastAll = all;
     char total[64], avail[64];
     first_line_value("/proc/meminfo", "MemTotal", total, sizeof total);
     first_line_value("/proc/meminfo", "MemAvailable", avail, sizeof avail);
@@ -307,6 +318,10 @@ static void send_sys(void)
         }
         fclose(f);
     }
+#endif
+    unsigned long long busy = u + n + s + q + sq + st, all = busy + id + w;
+    double cpu = all > lastAll ? 100.0 * (double)(busy - lastBusy) / (double)(all - lastAll) : 0.0;
+    lastBusy = busy; lastAll = all;
     double now = time_ms(), secs = lastAt ? (now - lastAt) / 1000.0 : 0.0;
     double down = secs > 0 ? (double)(rx - lastRx) / secs : 0, up = secs > 0 ? (double)(tx - lastTx) / secs : 0;
     lastAt = now; lastRx = rx; lastTx = tx;
@@ -338,6 +353,10 @@ static void mpris_value(const char *text, const char *key, char *out, size_t cap
 
 static void send_track(int force)
 {
+#ifdef __APPLE__
+    (void)force;                                    /* macOS has no public now-playing API */
+    return;
+#endif
     static char last[1024];
     static char text[32768];
     const char *names[] = { "dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus.ListNames", NULL };

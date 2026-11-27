@@ -1,0 +1,32 @@
+# macOS port, test builds only: Screen+.app and the .dmg on GitHub's Apple silicon runner, kept as a run artifact.
+# Runs on pushes to the macos-test branch or by hand; never releases anything.
+name: macOS test build
+
+on:
+  push:
+    branches: [macos-test]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: bash scripts/build-mac.sh
+      - name: Check the app
+        run: |
+          APP="build-mac/Screen+.app/Contents/MacOS"
+          ls -la "$APP"
+          "$APP/screenplus" version
+          "$APP/screenplus" help | head -5
+          otool -L "$APP"/screenplus* | grep -v "/System/\|/usr/lib/\|@executable_path" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ScreenPlus-macos
+          path: build-mac/*.dmg
+          retention-days: 14

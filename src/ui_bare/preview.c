@@ -39,7 +39,7 @@ static Setting settings[] = {
     { "schedule", "off", true }, { "lively_auto_import", "on", true }, { "url_import", "on", true },
     { "interactive_images", "off", true }, { "screensaver_audio", "off", true }, { "screensaver_displays", "all" },
     { "screensaver_exit_on_mouse", "on", true }, { "auto_update", "on", true }, { "auto_update_samples", "on", true },
-    { "theme", "dark" }, { "ui_motion", "full" }, { "accent_color", "#00D705" }, { "library_sort", "custom" },
+    { "theme", "dark" }, { "ui_motion", "full" }, { "ui_pour", "off", true }, { "accent_color", "#00D705" }, { "library_sort", "custom" },
     { "display_mode", "independent" }, { "language", "en" },
 };
 #define SETTINGS (int)(sizeof settings / sizeof settings[0])
@@ -269,6 +269,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[i], "--graphs")) p.view.graphs[0] = p.view.graphs[2] = true, p.view.presets_for = 1;
     }
     if (light) snprintf(setting("theme")->value, 32, "light");
+    if (getenv("SP_POUR")) snprintf(setting("ui_pour")->value, 32, "on");   /* captures of the pour */
     p.audio = false;
     p.model.user = &p;
     p.model.cpu = 4.0f;

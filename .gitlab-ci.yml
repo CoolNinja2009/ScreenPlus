@@ -93,7 +93,7 @@ windows:
     - powershell -NoProfile -ExecutionPolicy Bypass -File scripts\gitlab-release.ps1
     - if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
   artifacts:
-    paths: [release/]
+    paths: [release/, store/]
     expire_in: 3 days
 
 .linux:
@@ -210,6 +210,34 @@ release:
     - if [ "$SKIP" = 1 ]; then exit 0; fi
     - apk add --no-cache curl coreutils
     - sh scripts/gitlab-publish.sh
+
+# Microsoft Store: each release goes to Partner Center, and once certified (usually within a day) the Store updates
+# every installed copy itself. Runs once MSSTORE_PRODUCT_ID is set, with MSSTORE_TENANT_ID, MSSTORE_SELLER_ID,
+# MSSTORE_CLIENT_ID and MSSTORE_CLIENT_SECRET (masked) from the Entra app added under Partner Center's User management
+# (MSSTORE_PRODUCT_ID is the Store ID, 9MTSPM0ZNF19; the package's identity is in scripts/make-msix.ps1). Only one submission can be in certification: while one is, this fails without holding the release back,
+# and the next release carries the newer version. The first submission (listing, age rating) is made by hand.
+store:
+  extends: .full-build-only
+  stage: release
+  image: ubuntu:24.04
+  needs: [version, windows, release]
+  rules:
+    - if: '$SCREENPLUS_PIPELINE_MODE == "full" && $CI_PIPELINE_SOURCE != "merge_request_event" && $MSSTORE_PRODUCT_ID'
+    - when: never
+  allow_failure: true
+  variables:
+    GIT_STRATEGY: none
+    MSSTORE_CLI: https://github.com/microsoft/msstore-cli/releases/download/v0.4.4/MSStoreCLI-linux-x64.tar.gz
+    MSSTORE_CLI_SHA256: 8c1283643530afede36d935c532e252dd69240d30432775794ad1598bce3c162
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "1"
+  script:
+    - if [ "$SKIP" = 1 ]; then exit 0; fi
+    - apt-get update && apt-get install -y --no-install-recommends ca-certificates curl
+    - curl -fsSL -o msstore.tar.gz "$MSSTORE_CLI"
+    - echo "$MSSTORE_CLI_SHA256  msstore.tar.gz" | sha256sum -c -
+    - mkdir msstore && tar -xzf msstore.tar.gz -C msstore
+    - ./msstore/msstore reconfigure --tenantId "$MSSTORE_TENANT_ID" --sellerId "$MSSTORE_SELLER_ID" --clientId "$MSSTORE_CLIENT_ID" --clientSecret "$MSSTORE_CLIENT_SECRET"
+    - ./msstore/msstore publish "store/ScreenPlus-$VERSION-x64.msix" -id "$MSSTORE_PRODUCT_ID"
 
 # Leaves nothing on the developer's PC: runs after everything, whether or not the build passed. GitLab's own
 # machines are thrown away after each job, so they don't need it.

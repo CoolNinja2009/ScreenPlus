@@ -3,6 +3,9 @@
 #ifndef _WIN32
 #include "../linux/ui_icons.h"
 #include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #endif
 #include <math.h>
 #include <stdio.h>
@@ -139,7 +142,12 @@ BareFont sp_icon_font(void) {
 #else
         /* Fluent System Icons, shipped beside the program (as the classic UI uses it) or the installed app's */
         char dir[1024] = "", path[1100];
+#ifdef __APPLE__
+        uint32_t size = sizeof dir;
+        ssize_t n = _NSGetExecutablePath(dir, &size) ? 0 : (ssize_t)strlen(dir);
+#else
         ssize_t n = readlink("/proc/self/exe", dir, sizeof dir - 1);
+#endif
         if (n > 0) {
             dir[n] = 0;
             char *slash = strrchr(dir, '/');

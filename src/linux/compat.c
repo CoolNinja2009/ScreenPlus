@@ -4,9 +4,13 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fnmatch.h>
-#include <sys/random.h>
 #include <sys/stat.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#else
+#include <sys/random.h>
 #include <sys/syscall.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 
@@ -368,7 +372,16 @@ FILE *_wfopen(const wchar_t *path, const wchar_t *mode)
 /* ------------------------------------------------------------------ process, time */
 
 DWORD GetCurrentProcessId(void) { return (DWORD)getpid(); }
+#ifdef __APPLE__
+DWORD GetCurrentThreadId(void)
+{
+    uint64_t t = 0;
+    pthread_threadid_np(NULL, &t);
+    return (DWORD)t;
+}
+#else
 DWORD GetCurrentThreadId(void)  { return (DWORD)syscall(SYS_gettid); }
+#endif
 
 DWORD GetEnvironmentVariableW(LPCWSTR name, wchar_t *out, DWORD cap)
 {
@@ -386,9 +399,15 @@ DWORD GetModuleFileNameW(HMODULE m, wchar_t *out, DWORD cap)
 {
     (void)m;
     char b[MAX_PATH];
+#ifdef __APPLE__
+    char raw[MAX_PATH];
+    uint32_t size = sizeof raw;
+    if (_NSGetExecutablePath(raw, &size) || !realpath(raw, b)) return 0;
+#else
     ssize_t n = readlink("/proc/self/exe", b, sizeof b - 1);
     if (n <= 0) return 0;
     b[n] = 0;
+#endif
     int len = MultiByteToWideChar(CP_UTF8, 0, b, -1, out, (int)cap);
     return len > 0 ? (DWORD)len - 1 : 0;
 }
@@ -425,10 +444,14 @@ BOOL QueryPerformanceCounter(LARGE_INTEGER *v)
 
 void sp_random_bytes(void *p, size_t n)
 {
+#ifdef __APPLE__
+    arc4random_buf(p, n);
+#else
     if (getrandom(p, n, 0) != (ssize_t)n) {
         uint64_t t = (uint64_t)time(NULL) ^ ((uint64_t)getpid() << 32);
         memcpy(p, &t, n < sizeof t ? n : sizeof t);
     }
+#endif
 }
 
 char *sp_utf8_dup(const wchar_t *w)

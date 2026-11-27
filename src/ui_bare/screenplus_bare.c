@@ -296,6 +296,127 @@ static void title_bar(void) {
     }
 }
 
+/* Pour (setting ui_pour): the selected item is a vessel of plain accent colour. A solid stream shoots from the
+ * side facing the new item (longer for a longer jump), the old item drains into it and the new one fills from its
+ * far side, then the colour turns back into the usual glass drop. Fast, so the moving ends are smeared (motion
+ * blur: fading copies behind them, as long as they move far in a frame). Drawn by hand from the seconds since the
+ * click; the nav's own drop waits hidden. Clipping is a rectangle, so a level is the item's whole rounded shape
+ * clipped at the surface. */
+#define POUR_DRAIN 0.16f    /* seconds to empty, and to fill */
+#define POUR_LINE 16.0f     /* the stream's width */
+#define POUR_FADE 0.08f     /* colour into glass */
+#define POUR_FILLET 11.0f   /* the curve joining stream and item */
+#define POUR_BOUNCE 0.5f    /* seconds the new item wobbles after the stream lands */
+
+static float clamp01(float x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+static float lerpf(float a, float b, float t) { return a + (b - a) * t; }
+/* easy ease: slow out, fast through the middle, slow in (cubic), and how fast it moves at p */
+static float ease_io(float p) { return p < 0.5f ? 4 * p * p * p : 1 - (2 - 2 * p) * (2 - 2 * p) * (2 - 2 * p) * 0.5f; }
+static float ease_io_rate(float p) { return p < 0.5f ? 12 * p * p : 3 * (2 - 2 * p) * (2 - 2 * p); }
+
+static float pour_reach(BareRect a, BareRect b) { return 0.07f + fabsf(b.y - a.y) * 0.0002f; }   /* the stream's head */
+static float pour_seconds(BareRect a, BareRect b) { return POUR_DRAIN + 0.02f + pour_reach(a, b) + POUR_FADE; }
+
+static void pour_level(BareId id, BareRect r, float y0, float y1, float opacity) {
+    float lo = fminf(y0, y1), hi = fmaxf(y0, y1);
+    if (hi - lo < 0.5f || opacity <= 0.01f) return;
+    bare_column(.id = id, .position = BARE_ABSOLUTE, .x = r.x, .y = lo, .width = r.w, .height = hi - lo, .clip = true,
+                .opacity = opacity, .passthrough = true) {
+        bare_box(.position = BARE_ABSOLUTE, .x = 0, .y = r.y - lo, .width = r.w, .height = r.h, .radius = 22,
+                 .color = sp.accent, .passthrough = true);
+    }
+}
+
+/* A smear behind an end at y moving `speed` px/s the way `dir` (+1 down): fading slices of the line. */
+static void pour_blur(const char *id, float cx, float y, float dir, float speed) {
+    float len = fminf(fabsf(speed) / 60.0f, 44.0f);   /* how far it moves in a 60 Hz frame */
+    if (len < 2) return;
+    for (int i = 0; i < 5; i++) {
+        float k = (float)(i + 1) / 5;
+        float y1 = y - dir * len * k, h = len / 5 + 2;
+        bare_box(.id = bare_id_index(id, (uint32_t)i), .position = BARE_ABSOLUTE, .x = cx - POUR_LINE * 0.5f,
+                 .y = (dir > 0 ? y1 : y1 - h), .width = POUR_LINE, .height = h, .radius = POUR_LINE * 0.5f,
+                 .color = sp_alpha(sp.accent, (int)(150 * (1 - k))), .passthrough = true);
+    }
+}
+
+/* Where the stream meets an item's colour it flares into it on a concave curve, so the two are one shape. The
+ * curve is a small picture (one per corner, coverage supersampled: smooth edges at any scale), made again only
+ * when the accent changes; at the edge y it is r wide on each side of the stream, narrowing over r the way `out`
+ * (+1 down). */
+#define FILLET_PX 40   /* the picture's size: POUR_FILLET at up to 4x */
+static BareImage fillet_img[4];   /* right/left x down/up */
+static BareColor fillet_col;
+
+static void fillet_make(void) {
+    if (fillet_img[0] && !memcmp(&fillet_col, &sp.accent, sizeof fillet_col)) return;
+    fillet_col = sp.accent;
+    static uint8_t px[4][FILLET_PX * FILLET_PX * 4];
+    const float F = FILLET_PX;
+    for (int y = 0; y < FILLET_PX; y++)
+        for (int x = 0; x < FILLET_PX; x++) {
+            int in = 0;
+            for (int sy = 0; sy < 4; sy++)
+                for (int sx = 0; sx < 4; sx++) {
+                    float u = x + (sx + 0.5f) / 4, v = y + (sy + 0.5f) / 4;   /* u from the stream, v from the item */
+                    in += v <= F - sqrtf(fmaxf(F * F - (F - u) * (F - u), 0));
+                }
+            uint8_t a = (uint8_t)(in * 255 / 16);
+            for (int k = 0; k < 4; k++) {
+                int xx = k & 1 ? FILLET_PX - 1 - x : x, yy = k & 2 ? FILLET_PX - 1 - y : y;
+                uint8_t *p = px[k] + (yy * FILLET_PX + xx) * 4;
+                p[0] = sp.accent.r, p[1] = sp.accent.g, p[2] = sp.accent.b, p[3] = a;
+            }
+        }
+    for (int k = 0; k < 4; k++)
+        if (!fillet_img[k] || !bare_image_update(fillet_img[k], px[k]))
+            fillet_img[k] = bare_image_from_pixels(FILLET_PX, FILLET_PX, px[k]);
+}
+
+static void pour_fillet(const char *id, float cx, float y, float out, float r, float opacity) {
+    if (r < 0.5f || opacity <= 0.01f) return;
+    fillet_make();
+    float top = out > 0 ? y : y - r, half = POUR_LINE * 0.5f;
+    int up = out > 0 ? 0 : 2;
+    bare_box(.id = bare_id_index(id, 0), .position = BARE_ABSOLUTE, .x = cx + half, .y = top, .width = r, .height = r,
+             .image = fillet_img[up], .opacity = opacity, .passthrough = true);
+    bare_box(.id = bare_id_index(id, 1), .position = BARE_ABSOLUTE, .x = cx - half - r, .y = top, .width = r, .height = r,
+             .image = fillet_img[up + 1], .opacity = opacity, .passthrough = true);
+    bare_box(.id = bare_id_index(id, 2), .position = BARE_ABSOLUTE, .x = cx - half, .y = top, .width = POUR_LINE,
+             .height = r, .color = sp.accent, .opacity = opacity, .passthrough = true);
+}
+
+static void pour(BareRect a, BareRect b, BareRect box, float s) {
+    a.x -= box.x, a.y -= box.y, b.x -= box.x, b.y -= box.y;
+    float dir = b.y > a.y ? 1.0f : -1.0f;   /* 1: the new item is below */
+    float cx = a.x + a.w * 0.5f, reach = pour_reach(a, b), total = pour_seconds(a, b);
+    float a_out = dir > 0 ? a.y + a.h : a.y, b_far = dir > 0 ? b.y + b.h : b.y;
+    float drained = ease_io(clamp01(s / POUR_DRAIN)), filled = ease_io(clamp01((s - reach) / POUR_DRAIN));
+    float a_surface = lerpf(a_out - dir * a.h, a_out, drained), b_surface = b_far - dir * b.h * filled;
+    float fade = 1 - clamp01((s - (total - POUR_FADE)) / POUR_FADE);
+    pour_level(ID("nav.pour.src"), a, a_surface, a_out, 1);
+    pour_level(ID("nav.pour.dst"), b, b_far, b_surface, fade);
+    /* the stream: its head runs (eased in and out) to the new item's surface; once the old one is empty its tail
+     * follows the same way */
+    float span = b_far - a_out, hp = clamp01(s / reach), tp = clamp01((s - POUR_DRAIN - 0.02f) / reach);
+    float head = a_out + span * ease_io(hp), tail = a_out - dir * 2 + (span + dir * 2) * ease_io(tp);
+    if (dir * (head - b_surface) > 0) head = b_surface;
+    if (dir * (tail - b_surface) > 0) tail = b_surface;
+    float len = dir * (head - tail);
+    if (len > 0.5f) {
+        bare_box(.id = ID("nav.pour.stream"), .position = BARE_ABSOLUTE, .x = cx - POUR_LINE * 0.5f, .y = fminf(head, tail),
+                 .width = POUR_LINE, .height = len, .radius = POUR_LINE * 0.5f, .color = sp.accent, .passthrough = true);
+        /* joined to the old item while the tail is still in it, to the new one once the head lands */
+        float rmax = fminf(POUR_FILLET, len);
+        if (tp <= 0 && drained < 1)
+            pour_fillet("nav.pour.join.a", cx, a_out, dir, rmax, clamp01((1 - drained) * 4));
+        if (head == b_surface)
+            pour_fillet("nav.pour.join.b", cx, b_surface, -dir, rmax, fade);
+        if (hp < 1 && dir * (head - b_surface) < 0) pour_blur("nav.pour.blur.head", cx, head, dir, span * ease_io_rate(hp) / reach);
+        if (tp > 0 && tp < 1) pour_blur("nav.pour.blur.tail", cx, tail, dir, span * ease_io_rate(tp) / reach);
+    }
+}
+
 static void sidebar(SpView *v, const SpModel *m) {
     static const char *names[] = { "Library", "Displays", "Customise", "Store", "Settings" };
     static const char *icons[] = { SPI_LIBRARY, SPI_DISPLAY, SPI_PALETTE, SPI_STORE, SPI_SETTINGS };
@@ -313,7 +434,44 @@ static void sidebar(SpView *v, const SpModel *m) {
             box = bare_this().rect;
             BareRect r = rects[v->page];
             bool have = r.w > 0;
-            bool moving = have && blob_was.w > 0 && fabsf(blob_was.y - r.y) > 3;
+            static int shown = -1, pour_from = -1;
+            static double pour_at, land_at = -1;
+            static float pour_len, land_dir, land_amp;
+            if ((int)v->page != shown) {
+                bool can = shown >= 0 && have && rects[shown].w > 0 && sp.motion >= 1 && setting_on(m, "ui_pour");
+                pour_from = can ? shown : -1;
+                pour_at = bare_time();
+                land_at = -1;
+                if (can) {
+                    pour_len = pour_seconds(rects[shown], r);
+                    land_at = pour_at + pour_reach(rects[shown], r);
+                    land_dir = r.y > rects[shown].y ? 1.0f : -1.0f;
+                    land_amp = fminf(4.0f + fabsf(r.y - rects[shown].y) * 0.012f, 8.0f);   /* a longer fall hits harder */
+                }
+                shown = (int)v->page;
+            }
+            float pt = pour_from >= 0 ? (float)((bare_time() - pour_at) / pour_len) : 1.0f;
+            bool pouring = pour_from >= 0 && pt < 1;
+            /* The stream landing knocks the new item along the fall, and it springs back: a damped spring's
+             * response to a hit (about 5.5 wobbles a second, gone within half a second), the item, its colour,
+             * label and then its glass drop all together. */
+            float since = land_at > 0 ? (float)(bare_time() - land_at) : -1;
+            bool bouncing = since >= 0 && since < POUR_BOUNCE;
+            float bounce = bouncing ? land_dir * land_amp * expf(-10.0f * since) * sinf(34.5f * since) : 0;
+            if (bouncing) bare_wake_in(0.0f);
+            else if (since >= POUR_BOUNCE) land_at = -1;
+            if (pouring) {
+                pour(rects[pour_from], (BareRect){ r.x, r.y + bounce, r.w, r.h }, box, pt * pour_len);
+                bare_wake_in(0.0f);
+            } else {
+                pour_from = -1;
+            }
+            static bool poured;   /* the frame the pour ends, the drop takes over in place, not fading in */
+            bool handoff = poured && !pouring;
+            poured = pouring;
+            /* the poured colour turns back into the glass drop over its last POUR_FADE seconds */
+            float blob_in = pouring ? clamp01((pt * pour_len - (pour_len - POUR_FADE)) / POUR_FADE) : 1.0f;
+            bool moving = !pouring && have && blob_was.w > 0 && fabsf(blob_was.y - r.y) > 3;
             /* In flight the drop clears into a lens and stretches along its path, like a drop of water. */
             static float last_y;
             float speed = fabsf(blob_was.y - last_y);
@@ -324,10 +482,11 @@ static void sidebar(SpView *v, const SpModel *m) {
             BareState blob = bare_box(.id = ID("nav.blob"), .position = BARE_ABSOLUTE, .x = r.x - box.x + stretch * 0.15f,
                      .y = r.y - box.y - stretch * 0.5f,
                      .width = have ? r.w - stretch * 0.3f : 10, .height = have ? r.h + stretch : 10, .radius = 22, .glass = g,
-                     .opacity = have ? 1.0f : BARE_ZERO, .border = 1,
+                     .opacity = have && blob_in > 0.001f ? blob_in : BARE_ZERO, .border = 1,
                      .border_color = sp_alpha(sp_mix(sp.accent, BARE_WHITE, 0.55f), moving ? 110 : 160),
                      .shadow = { 0, 4, 22, 0, sp_alpha(sp.accent, moving ? 30 : 110) },
-                     .passthrough = true, .animate = sp_liquid());
+                     .offset = { 0, bounce },
+                     .passthrough = true, .animate = pouring || handoff || bouncing ? BARE_INSTANT : sp_liquid());
             blob_was = blob.rect;
             if (moving) bare_wake_in(0.0f);
             for (int i = 0; i < SP_PAGE_COUNT; i++) {
@@ -338,10 +497,12 @@ static void sidebar(SpView *v, const SpModel *m) {
                          .press = { .scale = 1.0f - 0.03f * sp.motion }, .animate = sp_spring()) {
                     BareState st = bare_this();
                     rects[i] = st.rect;
-                    BareColor c = on && !moving ? sp.on_accent : sp.ink;
-                    sp_icon(icons[i], 21, c);
-                    bare_text(names[i], .size = 18, .weight = on ? BARE_SEMIBOLD : BARE_MEDIUM, .color = c,
-                              .nowrap = true, .animate = sp_fade());
+                    BareColor c = on && !moving && !(pouring && pt < 0.85f) ? sp.on_accent : sp.ink;
+                    bare_row(.gap = 18, .align = BARE_CENTER, .offset = { 0, on ? bounce : 0 }, .animate = BARE_INSTANT) {
+                        sp_icon(icons[i], 21, c);
+                        bare_text(names[i], .size = 18, .weight = on ? BARE_SEMIBOLD : BARE_MEDIUM, .color = c,
+                                  .nowrap = true, .animate = sp_fade());
+                    }
                     if (st.clicked && !on) { v->page = (SpPage)i; v->page_time = bare_time(); v->popover = 0; sp_sound(SP_SOUND_PAGE); }
                 }
             }
@@ -2222,10 +2383,17 @@ static void settings(SpView *v, const SpModel *m) {
                 choice_row(m, ID("set.theme.c"), "theme", labels, values, 3, 50);
             }
         }
-        if (want(search, "Animations motion", "General")) CARD(ID("set.motion")) {
+        if (want(search, "Animations motion selection glide pour", "General")) CARD(ID("set.motion")) {
             ROW(ID("set.motion.row"), SPI_FILM, "Animations", NULL) {
                 static const char *labels[] = { "Full", "Reduced", "Off" }, *values[] = { "full", "reduced", "off" };
                 choice_row(m, ID("set.motion.c"), "ui_motion", labels, values, 3, 50);
+            }
+            divider();
+            ROW(ID("set.pour.row"), SPI_FILM, "Selection", NULL) {
+                static const char *labels[] = { "Glide", "Pour" };
+                bool on = setting_on(m, "ui_pour");
+                int c = sp_choices(ID("set.pour.c"), labels, 2, on, true, 50);
+                if (c >= 0 && c != (int)on) RUN(m, "settings", "set", "ui_pour", c ? "on" : "off");
             }
         }
         if (want(search, "Accent colour color", "General")) CARD(ID("set.accent")) {

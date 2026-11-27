@@ -24,7 +24,11 @@ enum { EXIT_OK = 0, EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_NOT_RUNNING = 3 };
 static int g_json, g_quiet;
 
 static const char k_help[] =
+#ifdef __APPLE__
+    "Screen+ for macOS\n"
+#else
     "Screen+ for Linux (KDE Plasma and Hyprland)\n"
+#endif
     "\n"
     "Usage: screenplus [command] [--json] [--quiet]\n"
     "With no command: an interactive prompt.\n"
@@ -382,6 +386,50 @@ int cli_main(int argc, char **argv)
 
 /* ------------------------------------------------------------------ autostart */
 
+#ifdef __APPLE__
+/* macOS: a LaunchAgent, started at login (RunAtLoad), not kept alive: `screenplus quit` stays quit. */
+static int agent_path(char *out, size_t cap)
+{
+    const char *h = getenv("HOME");
+    int n = snprintf(out, cap, "%s/Library/LaunchAgents/org.screenplus.agent.plist", h ? h : "");
+    return h && n > 0 && (size_t)n < cap;
+}
+
+int sp_autostart_get(void)
+{
+    char p[MAX_PATH];
+    return agent_path(p, sizeof p) && access(p, F_OK) == 0;
+}
+
+int sp_autostart_set(int on)
+{
+    char p[MAX_PATH];
+    if (!agent_path(p, sizeof p)) return 0;
+    if (!on) return unlink(p) == 0 || errno == ENOENT;
+    wchar_t *w = wide_from_utf8(p, -1), dir[SP_MAX_PATH];
+    path_dirname(dir, SP_COUNTOF(dir), w);
+    dir_create_recursive(dir);
+    free(w);
+    FILE *f = fopen(p, "w");
+    if (!f) return 0;
+    char *exe = sp_path_utf8(paths_exe());
+    StrBuf x = { 0 };                                   /* the path, escaped for XML */
+    for (const char *c = exe ? exe : ""; *c; c++)
+        sb_puts(&x, *c == '&' ? "&amp;" : *c == '<' ? "&lt;" : *c == '>' ? "&gt;" : (char[2]){ *c, 0 });
+    fprintf(f, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+               "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
+               "<plist version=\"1.0\"><dict>\n"
+               "  <key>Label</key><string>org.screenplus.agent</string>\n"
+               "  <key>ProgramArguments</key><array><string>%s</string><string>--daemon</string><string>--startup</string></array>\n"
+               "  <key>RunAtLoad</key><true/>\n"
+               "  <key>ProcessType</key><string>Interactive</string>\n"
+               "</dict></plist>\n", x.p ? x.p : "");
+    sb_free(&x);
+    free(exe);
+    return fclose(f) == 0;
+}
+#else
+
 static int autostart_path(char *out, size_t cap)
 {
     const char *x = getenv("XDG_CONFIG_HOME"), *h = getenv("HOME");
@@ -441,6 +489,7 @@ int sp_autostart_set(int on)
     free(exe);
     return ok;
 }
+#endif
 
 int main(int argc, char **argv)
 {
@@ -464,5 +513,11 @@ int main(int argc, char **argv)
         }
         return run(argc, argv);
     }
+#ifdef __APPLE__
+    if (!isatty(STDIN_FILENO) && (argc == 1 || !strncmp(argv[1], "-psn_", 5))) {   /* opened from Finder or the Dock */
+        char *show[] = { argv[0], "show", "--quiet", NULL };   /* starts the service first when it isn't running */
+        return cli_main(3, show);
+    }
+#endif
     return cli_main(argc, argv);
 }

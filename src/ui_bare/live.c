@@ -172,7 +172,8 @@ static void run_job(Job *job) {
     JVal *reply = sp_request((const char *const *)job->argv);
     const char *text = reply ? json_str(json_get(reply, "text"), "") : "Screen+ isn't running";
     bool ok = reply && json_bool(json_get(reply, "ok"), 0);
-    bool quiet = !strcmp(job->argv[0], "preview");   /* asked by the library, not by you */
+    /* preview: asked by the library, not by you; look: the wallpaper shows the change, so only failures say so */
+    bool quiet = !strcmp(job->argv[0], "preview") || (!strcmp(job->argv[0], "look") && ok);
     lock(&g.lock);
     size_t n = strcspn(text, "\r\n");
     if (n >= sizeof g.message) n = sizeof g.message - 1;
@@ -306,7 +307,11 @@ static void open_path(void *user, const char *path) {
     snprintf(dir, sizeof dir, "%s", path);
     char *slash = strrchr(dir, '/');
     if (slash) *slash = 0;
+#ifdef __APPLE__
+    if (!fork()) { execlp("open", "open", "-R", path, (char *)NULL); _exit(127); }    /* Finder, with the file selected */
+#else
     if (!fork()) { execlp("xdg-open", "xdg-open", dir, (char *)NULL); _exit(127); }
+#endif
 #endif
 }
 
@@ -441,6 +446,9 @@ static void previews_dir(char *out, size_t size) {
 #else
     const char *over = getenv("SCREENPLUS_DATA_DIR"), *xdg = getenv("XDG_DATA_HOME"), *home = getenv("HOME");
     if (over && *over) snprintf(out, size, "%s/cache/previews", over);
+#ifdef __APPLE__
+    else if (home && *home) snprintf(out, size, "%s/Library/Application Support/ScreenPlus/cache/previews", home);
+#endif
     else if (xdg && *xdg) snprintf(out, size, "%s/screenplus/cache/previews", xdg);
     else if (home && *home) snprintf(out, size, "%s/.local/share/screenplus/cache/previews", home);
 #endif

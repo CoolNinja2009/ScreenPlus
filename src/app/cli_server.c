@@ -2012,6 +2012,7 @@ static const struct { const wchar_t *key; size_t off; int kind; const wchar_t *d
     { L"language",            offsetof(Settings, language),          SK_LANG,  L"Window language: system, en or a code from the list in Settings" },
     { L"theme",               offsetof(Settings, theme),             SK_THEME, L"Window theme: system, light or dark" },
     { L"ui_motion",           offsetof(Settings, uiMotion),          SK_MOTION, L"Window animations: full, reduced or off" },
+    { L"ui_pour",             offsetof(Settings, uiPour),            SK_BOOL,  L"Bare window: the selection pours through a pipe instead of gliding" },
     { L"accent_color",        offsetof(Settings, accentColor),       SK_HEX,   L"UI accent colour as #RRGGBB" },
     { L"library_sort",        offsetof(Settings, librarySort),       SK_SORT,  L"Library order: custom, name, added, type or size" },
     { L"display_mode",        offsetof(Settings, displayMode),       SK_MODE,  L"Displays: independent, duplicate or span" },

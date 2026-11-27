@@ -563,6 +563,10 @@ static int cmd_samples(const wchar_t *sub)
         err(L"Usage: screenplus samples [install | check | update | status]\n");
         return EXIT_USAGE;
     }
+    if (paths_packaged()) {   /* the samples sit in the read-only package; each Store update brings them */
+        out(L"The Store keeps the sample wallpapers up to date.\n");
+        return EXIT_OK;
+    }
     wchar_t dir[SP_MAX_PATH], zip[SP_MAX_PATH], mark[SP_MAX_PATH], tar[SP_MAX_PATH], cmd[4 * SP_MAX_PATH], e[320];
     path_join(dir, SP_COUNTOF(dir), paths_exe_dir(), L"samples");
     path_join(zip, SP_COUNTOF(zip), dir, k_samples.file);
@@ -692,7 +696,8 @@ static int cmd_startup(const wchar_t *sub)
         kind = autostart_query(NULL, 0);
         if (kind == AUTOSTART_OFF) rc = EXIT_FAILED;
     } else if (str_ieq(sub, L"on") || str_ieq(sub, L"off")) {
-        path_join(exe, SP_COUNTOF(exe), paths_exe_dir(), L"ScreenPlus.exe");
+        if (paths_packaged()) str_copy(exe, SP_COUNTOF(exe), paths_launch_exe());   /* Store copy: its alias */
+        else path_join(exe, SP_COUNTOF(exe), paths_exe_dir(), L"ScreenPlus.exe");
         if (!autostart_set(str_ieq(sub, L"on"), exe, &kind, &hr)) {
             err(L"Could not change the Windows startup entry (0x%08lX).\n", (unsigned long)hr);
             rc = EXIT_FAILED;

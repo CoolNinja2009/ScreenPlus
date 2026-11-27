@@ -153,6 +153,17 @@ DNF after a Polkit authorization prompt. Debian packages update through the syst
 
 `screenplus help` lists the commands. Video links need yt-dlp.
 
+## macOS (in testing)
+
+Apple silicon, macOS 12 or newer. Not released yet: build it on the Mac with Xcode's command line tools and
+[Homebrew](https://brew.sh), then open the app (the first time on another Mac: right-click > Open).
+
+```bash
+bash scripts/build-mac.sh          # build-mac/Screen+.app and a .dmg
+open build-mac/Screen+.app
+bash scripts/mac-report.sh         # a zip on the Desktop to send back
+```
+
 ## Building
 
 Requirements: Visual Studio 2022 Build Tools (C++ and Windows SDK), [MSYS2](https://www.msys2.org) UCRT64 with

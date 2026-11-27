@@ -79,19 +79,30 @@ JVal *sp_request(const char *const *argv) {
 }
 
 #else
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 static int connect_service(void) {
-    const char *dir = getenv("XDG_RUNTIME_DIR");
     struct sockaddr_un a;
     memset(&a, 0, sizeof a);
     a.sun_family = AF_UNIX;
+#ifdef __APPLE__
+    const char *dir = getenv("TMPDIR");                     /* src/linux/run.c */
+    size_t dl = dir ? strlen(dir) : 0;
+    int n = dl ? snprintf(a.sun_path, sizeof a.sun_path, "%s%sscreenplus.sock", dir, dir[dl - 1] == '/' ? "" : "/")
+               : snprintf(a.sun_path, sizeof a.sun_path, "/tmp/screenplus.sock-%u", (unsigned)getuid());
+    if (n <= 0 || (size_t)n >= sizeof a.sun_path) return -1;
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd >= 0) fcntl(fd, F_SETFD, FD_CLOEXEC);
+#else
+    const char *dir = getenv("XDG_RUNTIME_DIR");
     int n = dir && *dir ? snprintf(a.sun_path, sizeof a.sun_path, "%s/screenplus.sock", dir)   /* src/linux/run.c */
                         : snprintf(a.sun_path, sizeof a.sun_path, "/tmp/screenplus.sock-%u", (unsigned)getuid());
     if (n <= 0 || (size_t)n >= sizeof a.sun_path) return -1;
     int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+#endif
     if (fd >= 0 && connect(fd, (struct sockaddr *)&a, sizeof a)) {
         close(fd);
         return -1;

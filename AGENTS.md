@@ -46,6 +46,34 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 - Lock: `session_locked` polls org.freedesktop.ScreenSaver every 5 s (KDE). Identify: notifications. Colour dialog: kdialog or zenity.
 - Not ported: screensaver, tray, GNOME, GPU depth. Doesn't apply: Lively discovery (Lively is Windows-only); stills (Plasma's plugin stays set across sign-in, so the wallpaper starts by itself).
 
+## macOS (`src/mac/`; in testing, not released)
+Apple silicon, macOS 12+. Built from `src/linux/CMakeLists.txt` (`if(APPLE)`): the Linux service and CLI unchanged
+apart from `#ifdef __APPLE__`, so Linux changes reach the Mac too. No Mac on the dev PC: a tester runs
+`bash scripts/build-mac.sh [--run]` (brew deps, `Screen+.app`, dylibbundler, ad-hoc codesign, `.dmg`) and sends back
+`scripts/mac-report.sh`'s zip. No CI builds macOS for now (the user's choice); a tester gets a source zip with
+`Bare/` beside `ScreenPlus/` (build-mac.sh uses it). Syntax-check C here with zig:
+`python -m pip install ziglang`, `zig cc -target aarch64-macos -fsyntax-only -include src/mac/posix_mac.h ...`
+(no framework headers, so not desktop_mac.c or the .m).
+- `posix_mac.h` (force-included): `SOCK_CLOEXEC`, `accept4`, `pipe2` (renamed: newer SDKs declare it). Other spots
+  are `#ifdef __APPLE__`: `/proc/self/exe` (`_NSGetExecutablePath`), `getrandom`, `sendfile`, `prctl`, `/proc/<pid>/statm`.
+- `desktop_mac.c` (plain C: CoreGraphics, IOKit, CoreAudio), shared by service and engine: displays (`mac_monitors`; ids
+  `EDID:<mfg><product>:<serial>` from CoreGraphics' vendor/model/serial, else `MAC:`), battery, lock, the frontmost
+  app and full-screen/zoomed windows (CGWindowList: pids and bounds need no Screen Recording permission), system data for
+  `feed.c`, and the app rules in place of apprules.c (Core Audio process objects, 14.2+, listeners write to a pipe).
+- `DESK_MAC` (desktop.h): the service runs `screenplus-engine` like on Hyprland (SIGUSR1 reloads).
+  `engine_mac.m` (ARC): a borderless window per display at `kCGDesktopWindowLevel` on every Space; AVPlayer for video
+  (one item looped by seeking, Core Image `AVVideoComposition` only while the look isn't neutral), NSImageView for
+  pictures/GIFs, WKWebView for pages (and for videos AVFoundation refuses: WebM/MKV), app wallpapers started with
+  `--screenplus-desktop x,y,w,h` (Bare's `.parent` has no macOS side yet). The shared headers' `BOOL` is `SP_BOOL` there.
+  `html_mouse`: a global mouse monitor + `pointer.js` while the pointer is over the bare desktop.
+- Socket `$TMPDIR/screenplus.sock`; data `~/Library/Application Support/ScreenPlus`; start at login is
+  `~/Library/LaunchAgents/org.screenplus.agent.plist`; opening the app from Finder runs `screenplus show`.
+  ONNX Runtime: NuGet's CPU package (osx-arm64 dylib, pinned in depth.c), unpacked with `unzip`.
+- Window: the Bare one only (SDL3 GPU on Metal). The classic window (screenplus-ui.so) isn't built (`SCREENPLUS_UI`
+  defaults OFF on Apple); `show` and `ui classic` open Bare.
+- Not on macOS yet (by choice: the classic window): system audio for pages, now playing, page previews (KDE's recorder), tray/menu bar, screensaver,
+  updates (DMG), app wallpapers until Bare places its window on the desktop.
+
 ## Build
 - `cmd.exe /c "<repo>\build.cmd" Release <x.y.z>`. Call it by full path; PowerShell can't resolve it relatively.
   It needs VS 2022 Build Tools + the Windows SDK. FFmpeg is prebuilt in `third_party/ffmpeg`; only
@@ -71,7 +99,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
   lists each program with the page folder it replaces. After every build `cmake/sample_apps.cmake` (target
   `sample-apps`) swaps `build\samples\<page>` for the unpacked `<Name>.spf` plus a LivelyInfo.json (Type 0), remakes
   the samples zip, samples.json, sizes.nsh and `samples_pin.h` (ScreenPlus.com's pin) from them, so setup, the portable
-  zip and the download always carry the programs just built. Setup's sample update, `samples
+  zip, the download and the Store package always carry the programs just built. Setup's sample update, `samples
   install` and the in-app update delete the pages; `library_migrate_samples` (each start, and after an update) points
   library entries at the programs, keeping the id, so `props\<id>.json` settings carry over. A running sample's exe is
   moved to `<exe>.old` before it is replaced.
@@ -81,6 +109,11 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
   release asset on GitHub and GitLab (Windows only). Needs `BARE_COMMIT` to include the sample. All 16 samples are ported. Settings live in Customise, never drawn on the wallpaper: each program has its LivelyProperties.json built in (Bare's `examples/screenplus/embed_properties.cmake`) and prints it for `--screenplus-properties`; `library.c` (`app_ask_properties`) runs a lone .exe that holds that flag's name (hidden, at most 5 s) when no LivelyProperties.json sits beside it and writes what it prints there.
 - CI signs releases through SignPath Foundation once `SIGNPATH_ORGANIZATION_ID` (variable) and `SIGNPATH_API_TOKEN`
   (secret) exist: exes first, setup rebuilt with makensis around them, then setup. Setup is in `.signpath/`.
+- Microsoft Store: `scripts/make-msix.ps1` packs `build\` with `installer/msix/AppxManifest.xml` into `store\` (unsigned,
+  the Store signs; the windows job runs it) and the GitLab `store` job submits it with the msstore CLI once the
+  `MSSTORE_*` variables exist; the Store then updates installed copies. A packaged copy (`paths_packaged`) keeps data in
+  the package's `LocalCache\Local\ScreenPlus`, starts at sign-in through the `ScreenPlus.exe` alias, skips the Run-key
+  fallback, has no screensaver, sample downloads or self-update, and treats the VC++ runtime as present (VCLibs dependency).
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use
   nsDialogs custom pages.
 

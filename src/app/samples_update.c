@@ -296,6 +296,11 @@ static DWORD WINAPI worker(LPVOID p)
 static BOOL start(BOOL install, BOOL user)
 {
     if (g_job) return FALSE;
+    if (paths_packaged()) {   /* the samples sit in the read-only package; each Store update brings them */
+        set_status(0, -1, 0, L"The Store keeps the sample wallpapers up to date.");
+        ui_on_status();
+        return FALSE;
+    }
     SamplesJob *j = (SamplesJob *)calloc(1, sizeof *j);
     if (!j) return FALSE;
     j->install = install;

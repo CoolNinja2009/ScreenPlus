@@ -8,6 +8,7 @@
 #endif
 #include "autostart.h"
 #include "util.h"
+#include "paths.h"
 #include <taskschd.h>
 #include <sddl.h>
 
@@ -226,7 +227,7 @@ AutostartKind autostart_query(wchar_t *exe, size_t cap)
 BOOL autostart_set(BOOL on, const wchar_t *exe, AutostartKind *kind, HRESULT *taskHr)
 {
     HRESULT hr = on ? task_register(exe) : task_delete();
-    if (on && FAILED(hr)) run_write(exe);   /* the slower way in, but a way in */
+    if (on && FAILED(hr) && !paths_packaged()) run_write(exe);   /* the slower way in (a Store copy's HKCU writes are private) */
     else run_delete();                      /* one way in: the task, or none */
     AutostartKind now = autostart_query(NULL, 0);
     if (kind) *kind = now;

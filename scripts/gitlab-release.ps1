@@ -112,6 +112,8 @@ Invoke-Native 'Build' { cmd.exe /c "build.cmd Release $ver `"-DSCREENPLUS_BARE_U
 # ---- package
 $setup = "build\ScreenPlus-Setup-$ver.exe"
 if (-not (Test-Path $setup)) { throw "Installer was not built: $setup" }
+# Microsoft Store package: kept out of release\ (an unsigned MSIX is no use to anyone); the store job uploads it
+& "$PSScriptRoot\make-msix.ps1" -Version $ver -Build build -Out store
 $stage = 'dist\ScreenPlus'
 New-Item -ItemType Directory -Force $stage | Out-Null
 Copy-Item build\ScreenPlus.exe, build\*.dll $stage

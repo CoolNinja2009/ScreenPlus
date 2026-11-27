@@ -443,6 +443,10 @@ BOOL vcruntime_ok(wchar_t *found, size_t cap)
     DWORD v[4] = { 0 }, size;                     /* Installed, Major, Minor, Bld */
     static const wchar_t *names[4] = { L"Installed", L"Major", L"Minor", L"Bld" };
     if (found && cap) found[0] = 0;
+    if (paths_packaged()) {   /* the Store package depends on Microsoft.VCLibs.140.00.UWPDesktop */
+        if (found && cap) str_copy(found, cap, L"package");
+        return TRUE;
+    }
     if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, VCRUN_KEY, 0, KEY_QUERY_VALUE | KEY_WOW64_64KEY, &k) != ERROR_SUCCESS) return FALSE;
     for (int i = 0; i < 4; i++) {
         size = sizeof v[i];

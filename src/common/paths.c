@@ -2,11 +2,13 @@
 #include "util.h"
 #ifdef _WIN32
 #include <shlobj.h>
+#include <appmodel.h>
 #endif
 
 static wchar_t g_root[SP_MAX_PATH], g_config[SP_MAX_PATH], g_backup[SP_MAX_PATH], g_logs[SP_MAX_PATH],
                g_crash[SP_MAX_PATH], g_cache[SP_MAX_PATH], g_webview[SP_MAX_PATH], g_exe[SP_MAX_PATH],
-               g_exeDir[SP_MAX_PATH], g_downloads[SP_MAX_PATH];
+               g_exeDir[SP_MAX_PATH], g_downloads[SP_MAX_PATH], g_launch[SP_MAX_PATH];
+static BOOL g_packaged;
 
 void paths_init(void)
 {
@@ -16,8 +18,17 @@ void paths_init(void)
     wchar_t over[SP_MAX_PATH], env[SP_MAX_PATH];
     DWORD on = GetEnvironmentVariableW(L"SCREENPLUS_DATA_DIR", over, SP_COUNTOF(over));   /* portable / test override */
     DWORD le = GetEnvironmentVariableW(L"LOCALAPPDATA", env, SP_COUNTOF(env));   /* loads no shell DLLs at startup */
+    wchar_t pfn[PACKAGE_FAMILY_NAME_MAX_LENGTH + 1];
+    UINT32 pfnLen = SP_COUNTOF(pfn);
+    BOOL haveLocal = le > 0 && le < SP_COUNTOF(env) && dir_exists(env);
+    g_packaged = GetCurrentPackageFamilyName(&pfnLen, pfn) == ERROR_SUCCESS;
+    if (g_packaged && haveLocal) {
+        str_printf(g_launch, SP_COUNTOF(g_launch), L"%ls\\Microsoft\\WindowsApps\\ScreenPlus.exe", env);
+    }
     if (on > 0 && on < SP_COUNTOF(over)) {
         str_copy(g_root, SP_COUNTOF(g_root), over);
+    } else if (g_packaged && haveLocal) {
+        str_printf(g_root, SP_COUNTOF(g_root), L"%ls\\Packages\\%ls\\LocalCache\\Local\\%ls", env, pfn, SP_APP_ID);
     } else if (le > 0 && le < SP_COUNTOF(env) && dir_exists(env)) {
         path_join(g_root, SP_COUNTOF(g_root), env, SP_APP_ID);
     } else if (SUCCEEDED(SHGetKnownFolderPath(&FOLDERID_LocalAppData, KF_FLAG_CREATE, NULL, &local)) && local) {
@@ -32,6 +43,10 @@ void paths_init(void)
     DWORD on = GetEnvironmentVariableW(L"SCREENPLUS_DATA_DIR", over, SP_COUNTOF(over));
     if (on > 0 && on < SP_COUNTOF(over)) {
         str_copy(g_root, SP_COUNTOF(g_root), over);
+#ifdef __APPLE__
+    } else if (GetEnvironmentVariableW(L"HOME", env, SP_COUNTOF(env))) {
+        path_join(g_root, SP_COUNTOF(g_root), env, L"Library/Application Support/ScreenPlus");
+#endif
     } else {
         DWORD xd = GetEnvironmentVariableW(L"XDG_DATA_HOME", env, SP_COUNTOF(env));
         if (xd > 0 && xd < SP_COUNTOF(env)) {
@@ -67,3 +82,5 @@ const wchar_t *paths_webview(void)       { return g_webview; }
 const wchar_t *paths_downloads(void)     { return g_downloads; }
 const wchar_t *paths_exe(void)           { return g_exe; }
 const wchar_t *paths_exe_dir(void)       { return g_exeDir; }
+BOOL paths_packaged(void)                { return g_packaged; }
+const wchar_t *paths_launch_exe(void)    { return g_launch[0] ? g_launch : g_exe; }

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Microsoft Store package (scripts/make-msix.ps1 fills the @...@ values). Full trust Win32: the same binaries as
+     the installer. A packaged copy keeps its data in the package's LocalCache and starts at sign-in through the
+     ScreenPlus.exe alias (paths_packaged in src/common/paths.c); the Store updates it, so update.c stays off
+     (no uninstall.exe beside it). The screensaver isn't in the package. -->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <Identity Name="@IDENTITY_NAME@" Publisher="@PUBLISHER@" Version="@VERSION@" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Screen+</DisplayName>
+    <PublisherDisplayName>@PUBLISHER_NAME@</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+    <!-- msvcp140/vcruntime140 for ONNX Runtime (depth wallpapers); the app itself links the CRT statically -->
+    <PackageDependency Name="Microsoft.VCLibs.140.00.UWPDesktop" MinVersion="14.0.30704.0"
+      Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+    <Resource Language="bn" />
+    <Resource Language="de" />
+    <Resource Language="es" />
+    <Resource Language="fr" />
+    <Resource Language="hi" />
+    <Resource Language="it" />
+    <Resource Language="ja" />
+    <Resource Language="pt" />
+    <Resource Language="ru" />
+    <Resource Language="ta" />
+    <Resource Language="te" />
+    <Resource Language="zh-Hans" />
+  </Resources>
+
+  <Applications>
+    <Application Id="ScreenPlus" Executable="ScreenPlus.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="Screen+" Description="Live wallpapers for Windows"
+        BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <!-- %LOCALAPPDATA%\Microsoft\WindowsApps\ScreenPlus.exe: what the logon task runs -->
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="ScreenPlus.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="ScreenPlus.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+        <uap3:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="screenplus.wallpaper" Parameters="--import &quot;%1&quot;">
+            <uap:DisplayName>Screen+ wallpaper file</uap:DisplayName>
+            <uap:Logo>Assets\SpfFile.png</uap:Logo>
+            <uap:SupportedFileTypes><uap:FileType>.spf</uap:FileType></uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap3:Extension>
+        <uap3:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="screenplus.playlist" Parameters="--import &quot;%1&quot;">
+            <uap:DisplayName>Screen+ playlist</uap:DisplayName>
+            <uap:Logo>Assets\SppFile.png</uap:Logo>
+            <uap:SupportedFileTypes><uap:FileType>.spp</uap:FileType></uap:SupportedFileTypes>
+          </uap3:FileTypeAssociation>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
