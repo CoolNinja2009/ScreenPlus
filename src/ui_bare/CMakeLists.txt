@@ -6,7 +6,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 endif()
 # Bare: a checkout beside this one (Projects/Bare), else Bare at BARE_COMMIT from GitHub (CI). Move BARE_COMMIT on
 # when Screen+ needs newer Bare.
-set(BARE_COMMIT 30767ae09f297d5a9a12369e3a41c051c7b15f67)
+set(BARE_COMMIT d39ab9bf4711b27182801e488f93da3f6550efe6)
 set(BARE_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../../Bare" CACHE PATH "Bare source checkout")
 set(BARE_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(BARE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -74,6 +74,7 @@ if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     else()
         set(_bare_root "${BARE_SOURCE_DIR}")
     endif()
+    include("${_bare_root}/examples/screenplus/embed_properties.cmake")   # --screenplus-properties
     function(screenplus_sample_app name dir)   # [title]: the library's, when it isn't the file name
         set(title "${name}")
         if(ARGC GREATER 2)
@@ -83,6 +84,11 @@ if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         add_executable(sample-${dir} WIN32 "${src}/${dir}.c")
         target_link_libraries(sample-${dir} PRIVATE bare)
         target_include_directories(sample-${dir} PRIVATE "${src}/generated")
+        FetchContent_GetProperties(stb)   # ctx2d.h (text) needs stb_truetype.h
+        if(stb_SOURCE_DIR)
+            target_include_directories(sample-${dir} SYSTEM PRIVATE "${stb_SOURCE_DIR}")
+        endif()
+        screenplus_embed_properties(sample-${dir} "${src}/LivelyProperties.json")
         set_target_properties(sample-${dir} PROPERTIES OUTPUT_NAME ${dir}
                               RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/sample-apps/${dir}")
         if(MSVC)
@@ -92,9 +98,12 @@ if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         else()
             target_link_options(sample-${dir} PRIVATE -mwindows)
         endif()
+        file(WRITE "${CMAKE_BINARY_DIR}/sample-apps/${dir}.title" "${title}")   # a file: titles may hold & and the like
         add_custom_command(TARGET sample-${dir} POST_BUILD
-            COMMAND "${CMAKE_COMMAND}" "-DNAME=${name}" "-DTITLE=${title}" "-DEXE=$<TARGET_FILE:sample-${dir}>"
-                    "-DPROPS=${src}/LivelyProperties.json" "-DPREVIEW=${src}/preview.jpg" "-DOUT=${CMAKE_BINARY_DIR}/${name}.spf"
+            COMMAND "${CMAKE_COMMAND}" "-DNAME=${name}" "-DTITLE_FILE=${CMAKE_BINARY_DIR}/sample-apps/${dir}.title"
+                    "-DEXE=$<TARGET_FILE:sample-${dir}>"
+                    "-DPROPS=${src}/LivelyProperties.json" "-DPREVIEW=${src}/preview.jpg" "-DASSETS=${src}/assets"
+                    "-DLICENSE=${src}/LICENSE.txt" "-DOUT=${CMAKE_BINARY_DIR}/${name}.spf"
                     -P "${CMAKE_SOURCE_DIR}/cmake/pack_spf.cmake"
             VERBATIM)
     endfunction()
@@ -102,6 +111,34 @@ if(WIN32 AND NOT CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     screenplus_sample_app(Singularity singularity)
     screenplus_sample_app(Fluids fluid)
     screenplus_sample_app(KoiPond koi "Koi Pond")
+    screenplus_sample_app(MatrixRain matrix "Matrix Rain")
+    screenplus_sample_app(MusicTunnel tunnel "Music Tunnel")
+    screenplus_sample_app(SimpleSystem system "Simple System")
+    screenplus_sample_app(Rain rain)
+    screenplus_sample_app(TrianglesAndLight triangles "Triangles & Light")
+    screenplus_sample_app(TheHill hill "The Hill")
+    screenplus_sample_app(Parallax parallax "Parallax.js")
+    screenplus_sample_app(PeriodicTable periodic "Periodic Table")
+    screenplus_sample_app(Medusae medusae)
+    screenplus_sample_app(LivingRoom livingroom "Living Room")
+    screenplus_sample_app(MusicTV musictv "Music TV")
+    screenplus_sample_app(NullSaint nullsaint "NULL//SAINT")
+    # The programs become build\samples and the samples download after every build (cmake/sample_apps.cmake); the
+    # rows are src/common/sample_apps.h's. ScreenPlus.com pins that download (samples_pin.h), so it builds after.
+    set(_sample_targets "")
+    foreach(_d aurora singularity fluid koi matrix tunnel system rain triangles hill parallax periodic medusae livingroom
+               musictv nullsaint)
+        list(APPEND _sample_targets sample-${_d})
+    endforeach()
+    add_custom_target(sample-apps ALL
+        COMMAND "${CMAKE_COMMAND}" "-DBUILD=${CMAKE_BINARY_DIR}" "-DSAMPLES=$<TARGET_FILE_DIR:ScreenPlus>/samples"
+                "-DVERSION=${SCREENPLUS_VERSION}" "-DHEADER=${CMAKE_SOURCE_DIR}/src/common/sample_apps.h"
+                -P "${CMAKE_SOURCE_DIR}/cmake/sample_apps.cmake"
+        BYPRODUCTS "${CMAKE_BINARY_DIR}/sample-apps/stage.sig" "${CMAKE_BINARY_DIR}/samples_pin.h"
+        VERBATIM)
+    add_dependencies(sample-apps ScreenPlus ${_sample_targets})
+    add_dependencies(ScreenPlusCli sample-apps)
+    target_compile_definitions(ScreenPlusCli PRIVATE "SP_SAMPLES_PIN=\"${CMAKE_BINARY_DIR}/samples_pin.h\"")
 endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     include(CTest)

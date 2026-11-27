@@ -122,6 +122,7 @@ void library_import_dialog(HWND owner, BOOL folder);
 void library_import_lively(void);
 int  library_auto_import_lively(void); /* silent startup discovery; returns newly-added entries */
 int  library_add_samples(void);        /* the bundled samples\ wallpapers, silently; returns newly-added entries */
+int  library_migrate_samples(void);    /* Windows: library entries of a sample page move to its program; returns how many */
 void library_import_wallpaper_engine(void);
 void library_remove(const wchar_t *id);
 extern int library_slides_started;     /* presentations the last library_import handed to PowerPoint (pptx.c) */

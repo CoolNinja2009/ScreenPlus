@@ -15,6 +15,10 @@
 #include "../common/webfetch.h"
 #include "../common/scrnsave.h"
 #include "../common/autostart.h"
+#include "../common/sample_apps.h"
+#ifdef SP_SAMPLES_PIN
+#include SP_SAMPLES_PIN   /* the sample programs' zip, pinned when it was built (cmake/sample_apps.cmake) */
+#endif
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -585,6 +589,19 @@ static int cmd_samples(const wchar_t *sub)
         err(L"%ls%ls%ls\n", c_red(), e[0] ? e : L"Could not create the samples folder.", c_off());
         return EXIT_FAILED;
     }
+    /* The samples are programs now (sample_apps.h): a page in a program's own folder goes first, so none of its
+     * files stay behind (setup's own three are setup's to replace), and a program a wallpaper still runs is
+     * renamed out of the way. */
+    for (int i = 0; i < SP_SAMPLE_APP_COUNT; i++) {
+        const SampleApp *s = &k_sample_apps[i];
+        wchar_t p[SP_MAX_PATH];
+        if (!wcscmp(s->html, s->name) && wcscmp(s->name, L"Aurora") && wcscmp(s->name, L"Singularity") &&
+            wcscmp(s->name, L"KoiPond") && sample_is_page(dir, s)) {
+            sample_path(p, SP_COUNTOF(p), dir, s->name, NULL);
+            sample_delete_dir(p);
+        }
+        sample_exe_aside(dir, s);
+    }
     GetSystemDirectoryW(tar, SP_COUNTOF(tar));
     path_join(tar, SP_COUNTOF(tar), tar, L"tar.exe");
     str_printf(cmd, SP_COUNTOF(cmd), L"\"%ls\" -xf \"%ls\" -C \"%ls\"", tar, zip, dir);
@@ -600,6 +617,15 @@ static int cmd_samples(const wchar_t *sub)
     if (code != 0) {
         err(L"%lsThe sample wallpapers could not be unpacked (Windows' tar.exe is needed).%ls\n", c_red(), c_off());
         return EXIT_FAILED;
+    }
+    for (int i = 0; i < SP_SAMPLE_APP_COUNT; i++) {   /* each page whose program is here now goes */
+        const SampleApp *s = &k_sample_apps[i];
+        wchar_t p[SP_MAX_PATH];
+        sample_drop_aside(dir, s);
+        if (wcscmp(s->html, s->name) && sample_has_app(dir, s) && sample_is_page(dir, s)) {
+            sample_path(p, SP_COUNTOF(p), dir, s->html, NULL);
+            sample_delete_dir(p);
+        }
     }
     f = _wfopen(mark, L"wb");
     if (f) {

@@ -15,6 +15,7 @@
 #include "../common/paths.h"
 #include "../common/webfetch.h"
 #include "../common/json.h"
+#include "../common/sample_apps.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -112,6 +113,8 @@ typedef struct Diff {
     int     nFolders;
 } Diff;
 
+static const SampleApp *sample_named(const wchar_t *folder);
+
 static void compare(SamplesJob *j, const JVal *files, Diff *d)
 {
     wchar_t root[SP_MAX_PATH], path[SP_MAX_PATH], folder[64], seen[MAX_FOLDERS][64];
@@ -125,7 +128,8 @@ static void compare(SamplesJob *j, const JVal *files, Diff *d)
         if (!slash || slash - rel >= (ptrdiff_t)SP_COUNTOF(folder)) { free(rel); continue; }
         wcsncpy_s(folder, SP_COUNTOF(folder), rel, (size_t)(slash - rel));
         path_join(path, SP_COUNTOF(path), root, folder);
-        if (!dir_exists(path)) { free(rel); continue; }   /* never downloaded: not ours to add */
+        const SampleApp *app = sample_named(folder);
+        if (!dir_exists(path) && !(app && sample_is_page(root, app))) { free(rel); continue; }   /* never downloaded: not ours to add */
         int known = 0;
         for (int k = 0; k < nSeen && !known; k++) known = str_ieq(seen[k], folder);
         if (!known && nSeen < MAX_FOLDERS) str_copy(seen[nSeen++], SP_COUNTOF(seen[0]), folder);
@@ -145,6 +149,15 @@ static void compare(SamplesJob *j, const JVal *files, Diff *d)
     j->present = nSeen;
 }
 
+/* The sample program in samples\<folder> (sample_apps.h), or NULL. A sample whose page is still there counts as
+ * downloaded: its program replaces it (library_migrate_samples moves its entries). */
+static const SampleApp *sample_named(const wchar_t *folder)
+{
+    for (int i = 0; i < SP_SAMPLE_APP_COUNT; i++)
+        if (str_ieq(k_sample_apps[i].name, folder)) return &k_sample_apps[i];
+    return NULL;
+}
+
 /* "Rain, Aurora": each changed sample's Lively title, else its folder name. */
 static void name_folders(SamplesJob *j, const Diff *d)
 {
@@ -157,6 +170,8 @@ static void name_folders(SamplesJob *j, const Diff *d)
         JVal *v = file_exists(info) ? json_parse_file(info) : NULL;
         json_str_w(v ? json_geti(v, "Title") : NULL, title, SP_COUNTOF(title));
         json_free(v);
+        const SampleApp *app = sample_named(d->folders[i]);
+        if (!title[0] && app) str_copy(title, SP_COUNTOF(title), app->title);
         if (i) str_cat(j->titles, SP_COUNTOF(j->titles), L", ");
         str_cat(j->titles, SP_COUNTOF(j->titles), title[0] ? title : d->folders[i]);
     }
@@ -167,6 +182,16 @@ static BOOL unpack(SamplesJob *j, const wchar_t *zip, const Diff *d)
 {
     wchar_t dir[SP_MAX_PATH], tar[SP_MAX_PATH];
     samples_dir(dir, SP_COUNTOF(dir));
+    for (int i = 0; i < d->nFolders; i++) {           /* a page in its program's own folder goes; a running program moves aside */
+        const SampleApp *app = sample_named(d->folders[i]);
+        if (!app) continue;
+        if (!wcscmp(app->html, app->name) && sample_is_page(dir, app)) {
+            wchar_t p[SP_MAX_PATH];
+            sample_path(p, SP_COUNTOF(p), dir, app->name, NULL);
+            sample_delete_dir(p);
+        }
+        sample_exe_aside(dir, app);
+    }
     GetSystemDirectoryW(tar, SP_COUNTOF(tar));
     path_join(tar, SP_COUNTOF(tar), tar, L"tar.exe");
     StrBuf b = { 0 };
@@ -356,6 +381,10 @@ void samples_on_event(WPARAM wp, LPARAM lp)
         LOGI(L"samples: updated %ls (Screen+ %ls)", j->titles, j->version);
         str_printf(text, SP_COUNTOF(text), L"Updated %ls at %02u:%02u", j->titles, now.wHour, now.wMinute);
         set_status(0, -1, 0, text);
+        if (library_migrate_samples()) {           /* pages replaced by their programs: the entries follow */
+            config_save(&g_app.cfg, paths_config());
+            ui_on_config_changed();
+        }
         app_restart_renderer();                    /* a showing sample picks up its new files */
         if (j->user) app_notice(NOTICE_INFO, L"Updated %ls.", j->titles);
     }

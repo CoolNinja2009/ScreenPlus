@@ -1,8 +1,12 @@
 # pack_spf.cmake: packs a sample app wallpaper into a Screen+ file (.spf), as the app's own Export would.
-#   cmake -DNAME=Aurora [-DTITLE="Koi Pond"] -DEXE=<aurora.exe> -DPROPS=<LivelyProperties.json> -DPREVIEW=<preview.jpg> -DOUT=<Aurora.spf>
-#         -P pack_spf.cmake
-# Layout (file_format.c): manifest.json, media/wallpaper/<the exe, its properties, its preview>, thumbnail<ext>.
+#   cmake -DNAME=Aurora [-DTITLE="Koi Pond" | -DTITLE_FILE=<a file holding it>] -DEXE=<aurora.exe> -DPROPS=<LivelyProperties.json> -DPREVIEW=<preview.jpg>
+#         [-DASSETS=<dir>] [-DLICENSE=<LICENSE.txt>] -DOUT=<Aurora.spf> -P pack_spf.cmake
+# Layout (file_format.c): manifest.json, media/wallpaper/<the exe, its properties (if any), its preview, its assets'
+# files and folders, its LICENSE.txt>, thumbnail<ext>. Programs look for their assets beside themselves.
 # type 4 = WP_APP, format 1 = lively (its Customise panel is LivelyProperties.json).
+if(DEFINED TITLE_FILE AND EXISTS "${TITLE_FILE}")
+    file(READ "${TITLE_FILE}" TITLE)
+endif()
 if(NOT DEFINED TITLE)
     set(TITLE "${NAME}")   # the library's title; NAME is the file's
 endif()
@@ -12,7 +16,16 @@ file(REMOVE_RECURSE "${_stage}")
 file(MAKE_DIRECTORY "${_stage}/media/wallpaper")
 file(COPY "${EXE}" DESTINATION "${_stage}/media/wallpaper")
 get_filename_component(_exe "${EXE}" NAME)
-file(COPY "${PROPS}" "${PREVIEW}" DESTINATION "${_stage}/media/wallpaper")
+file(COPY "${PREVIEW}" DESTINATION "${_stage}/media/wallpaper")
+if(EXISTS "${PROPS}")
+    file(COPY "${PROPS}" DESTINATION "${_stage}/media/wallpaper")
+endif()
+if(DEFINED ASSETS AND IS_DIRECTORY "${ASSETS}")
+    file(COPY "${ASSETS}/" DESTINATION "${_stage}/media/wallpaper")
+endif()
+if(DEFINED LICENSE AND EXISTS "${LICENSE}")
+    file(COPY "${LICENSE}" DESTINATION "${_stage}/media/wallpaper")
+endif()
 get_filename_component(_ext "${PREVIEW}" LAST_EXT)
 string(TOLOWER "${_ext}" _ext)
 set(_thumb "thumbnail${_ext}")

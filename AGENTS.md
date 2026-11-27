@@ -60,17 +60,25 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 - CI (`.github/workflows/release.yml`) releases every push to main as the next patch version, or as
   `SCREENPLUS_VERSION` in CMakeLists.txt when that is higher; a `vX.Y.Z` tag releases that exact version.
   The portable zip carries every `samples\` wallpaper and the URL tools. The installer ships only Singularity, Koi Pond and Aurora
-  (Screen+'s own pages) and downloads the tools. The other samples are `ScreenPlus.com samples install`; `samples\samples.id` holds their
+  (Screen+'s own) and downloads the tools. The other samples are `ScreenPlus.com samples install`; `samples\samples.id` holds their
   content hash (`SAMPLES_ID`, CMakeLists.txt), and an interactive update offers "Update the sample wallpapers" (ticked)
   when it differs; auto update's silent `/UPDATE` never touches samples. In the app, Settings' "Sample wallpaper
   updates" (`samples_update.c`, `auto_update_samples`, off by default; Check now → Update) compares the downloaded
   samples' files with the latest release's `ScreenPlus-<ver>-samples.json` (every file's SHA-256, a CI release asset),
   names the changed ones and unpacks only those files from the samples zip. Files the user added and Customise
-  settings (`props\`) stay; the library is never changed.
+  settings (`props\`) stay.
+- Windows samples are the Bare programs, not the pages (Linux keeps the pages: no app host). `src/common/sample_apps.h`
+  lists each program with the page folder it replaces. After every build `cmake/sample_apps.cmake` (target
+  `sample-apps`) swaps `build\samples\<page>` for the unpacked `<Name>.spf` plus a LivelyInfo.json (Type 0), remakes
+  the samples zip, samples.json, sizes.nsh and `samples_pin.h` (ScreenPlus.com's pin) from them, so setup, the portable
+  zip and the download always carry the programs just built. Setup's sample update, `samples
+  install` and the in-app update delete the pages; `library_migrate_samples` (each start, and after an update) points
+  library entries at the programs, keeping the id, so `props\<id>.json` settings carry over. A running sample's exe is
+  moved to `<exe>.old` before it is replaced.
 - Sample app wallpapers (from now on every new sample): C programs on Bare in Bare's `examples/<dir>/` (`.parent` window
   option, `examples/screenplus/screenplus_wallpaper.h` for the stdin protocol), built with `-DSCREENPLUS_BARE_UI=ON` by
   `screenplus_sample_app` in `src/ui_bare/CMakeLists.txt` and packed by `cmake/pack_spf.cmake` into `build\<Name>.spf`, a
-  release asset on GitHub and GitLab (Windows only). Needs `BARE_COMMIT` to include the sample. So far: Aurora, Singularity, Fluids, Koi Pond.
+  release asset on GitHub and GitLab (Windows only). Needs `BARE_COMMIT` to include the sample. All 16 samples are ported. Settings live in Customise, never drawn on the wallpaper: each program has its LivelyProperties.json built in (Bare's `examples/screenplus/embed_properties.cmake`) and prints it for `--screenplus-properties`; `library.c` (`app_ask_properties`) runs a lone .exe that holds that flag's name (hidden, at most 5 s) when no LivelyProperties.json sits beside it and writes what it prints there.
 - CI signs releases through SignPath Foundation once `SIGNPATH_ORGANIZATION_ID` (variable) and `SIGNPATH_API_TOKEN`
   (secret) exist: exes first, setup rebuilt with makensis around them, then setup. Setup is in `.signpath/`.
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use
@@ -129,6 +137,7 @@ Wide format strings use `%ls`; `%s` is a narrow string on Linux, a wide one on W
 | `src/cli/cli_main.c` | `ScreenPlus.com`: local commands (help, version, start, logs, paths, path, tools, samples, vcredist, startup, screensaver), IPC for the rest |
 | `src/screensaver/screensaver.c` | Screensaver process (see above) |
 | `src/common/scrnsave.c` | Windows screensaver registration, timeout, lock-on-resume, `.scr` sync, Preview launch |
+| `src/common/sample_apps.h` | The Windows sample programs and the page folders they replace (CLI `samples`, `samples_update.c`, `library_migrate_samples`, `cmake/sample_apps.cmake` all read it) |
 | `src/ui/identify.c` | Displays page **Identify**: each display's number in its corner |
 | `src/engine/` | `engine.c` (slots, state machine; span = one slot `SP_SPAN_ID` over the bounding box of `E.mons`), `occlusion.c`, `audio_visualizer.c` (system-audio spectrum), `now_playing.c` (media session), `sysinfo.c`, `stills.c` (`still_wallpaper`: a still per display, made once per wallpaper/look/size, becomes the Windows wallpaper via `IDesktopWallpaper`; pages via `html_grab`, the rest from the file graded like `video.hlsl`; the user's own wallpaper kept in `original.txt` and restored when the setting goes off) |
 | `src/desktop/desktop_host.c` | Hosting behind the icons: Progman (24H2+), WorkerW, or fallback. A wallpaper set in Windows Settings replaces the system WorkerW above ours, seconds later and unannounced: `desktop_host_restack` (T_RESTACK for 8 s after SPI_SETDESKWALLPAPER, then T_SAFETY) |

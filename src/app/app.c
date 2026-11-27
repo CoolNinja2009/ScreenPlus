@@ -497,6 +497,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     if (forward == CMD_PAUSE) g_app.cfg.s.paused = 1;
     if (forward == CMD_RESUME) g_app.cfg.s.paused = 0;
     apply_setup_choice();
+    if (library_migrate_samples()) config_save(&g_app.cfg, paths_config());   /* sample pages -> their programs */
     app_refresh_monitors();
 
     WNDCLASSEXW wc = { sizeof wc };

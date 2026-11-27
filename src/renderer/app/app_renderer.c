@@ -10,6 +10,11 @@
  *                                                     controls come from LivelyProperties.json beside the exe)
  *   {"type":"pause","value":true}                    covered / paused: stop drawing; false: carry on
  *   {"type":"volume","value":0..100}                 0: silent
+ *   {"type":"audio","value":[64 numbers]}            the spectrum, ~30 times a second       } only what the program
+ *   {"type":"system","value":"<JSON text>"}          livelySystemInformation's data, 4 Hz  } asked for: the
+ *   {"type":"track","value":"<JSON text>"}           livelyCurrentTrack's data, on change  } window property
+ * Asking for data: the program's window gets the property "ScreenPlus.Wants" (SetPropW), a number of
+ * RENDER_WANT_AUDIO (1) | RENDER_WANT_SYSINFO (2) | RENDER_WANT_TRACK (8); it is read for the first 15 s.
  * Mouse: the desktop's mouse is posted to the window under the pointer as ordinary WM_MOUSEMOVE / WM_xBUTTONDOWN /
  * UP / WM_MOUSEWHEEL / WM_MOUSELEAVE (client coordinates), like the HTML renderer does for pages.
  *
@@ -19,11 +24,14 @@
 #include "../html/wallpaper_api.h"
 #include "../../common/util.h"
 #include "../../common/log.h"
+#include "../../common/json.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define T_APP_FIND   0x5A01   /* looking for the program's window (startup only) */
+#define T_APP_WANTS  0x5A02   /* reading the window's "ScreenPlus.Wants" (its first seconds) */
+#define APP_WANTS_MS 500
 #define APP_FIND_MS  100
 #define APP_WAIT_MS  15000
 #define APP_QUEUE_CAP (1 << 20)
@@ -32,7 +40,7 @@ typedef struct AppRenderer {
     Renderer           base;
     HWND               host, notify, child;
     WallpaperEntry     wp;
-    int                w, h, volume, paused, ready, found;
+    int                w, h, volume, paused, ready, found, wants;
     HANDLE             job, proc, exitWait;
     DWORD              pid;
     ULONGLONG          startedAt;
@@ -227,9 +235,33 @@ static void app_describe(Renderer *base, wchar_t *buf, size_t cap)
     str_printf(buf, cap, L"App: %ls (pid %lu%ls)", path_filename(r->wp.path), r->pid, r->child ? L"" : L", no window yet");
 }
 
+static int read_wants(AppRenderer *r)
+{
+    if (!r->child || !IsWindow(r->child)) return 0;
+    return (int)(INT_PTR)GetPropW(r->child, L"ScreenPlus.Wants") & (RENDER_WANT_AUDIO | RENDER_WANT_SYSINFO | RENDER_WANT_TRACK);
+}
+
 static int app_wants(Renderer *base)
 {
-    return ((AppRenderer *)base)->child ? RENDER_WANT_INPUT : 0;
+    AppRenderer *r = (AppRenderer *)base;
+    return r->child ? RENDER_WANT_INPUT | r->wants : 0;
+}
+
+static void app_feed(Renderer *base, int what, const char *payload)
+{
+    AppRenderer *r = (AppRenderer *)base;
+    if (!payload || !r->ready || r->paused > 0) return;
+    StrBuf b = { 0 };
+    if (what == RENDER_FEED_AUDIO) {
+        sb_puts(&b, "{\"type\":\"audio\",\"value\":");
+        sb_puts(&b, payload);   /* a JSON array */
+    } else {
+        sb_puts(&b, what == RENDER_FEED_TRACK ? "{\"type\":\"track\",\"value\":" : "{\"type\":\"system\",\"value\":");
+        json_write_string(&b, payload);
+    }
+    sb_puts(&b, "}\n");
+    if (!b.failed) send_text(r, b.p);
+    sb_free(&b);
 }
 
 static void app_input(Renderer *base, const RendererInput *in)
@@ -265,6 +297,15 @@ static void app_input(Renderer *base, const RendererInput *in)
 static void app_on_timer(Renderer *base, UINT_PTR id)
 {
     AppRenderer *r = (AppRenderer *)base;
+    if (id == T_APP_WANTS) {
+        int w = read_wants(r);
+        if (w != r->wants) {
+            r->wants = w;
+            renderer_post(r->notify, r->base.rid, REV_WANTS, S_OK, NULL);
+        }
+        if (GetTickCount64() - r->startedAt > APP_WAIT_MS) KillTimer(r->host, T_APP_WANTS);
+        return;
+    }
     if (id != T_APP_FIND) return;
     int got = adopt_window(r);
     if (got == 0 && GetTickCount64() - r->startedAt < APP_WAIT_MS) return;
@@ -275,6 +316,8 @@ static void app_on_timer(Renderer *base, UINT_PTR id)
         return;
     }
     r->ready = 1;
+    r->wants = read_wants(r);
+    SetTimer(r->host, T_APP_WANTS, APP_WANTS_MS, NULL);
     renderer_post(r->notify, r->base.rid, REV_WANTS, S_OK, NULL);
     renderer_post(r->notify, r->base.rid, REV_READY, S_OK, NULL);
 }
@@ -288,6 +331,7 @@ static void app_destroy(Renderer *base)
 {
     AppRenderer *r = (AppRenderer *)base;
     KillTimer(r->host, T_APP_FIND);
+    KillTimer(r->host, T_APP_WANTS);
     if (r->exitWait) UnregisterWaitEx(r->exitWait, INVALID_HANDLE_VALUE);   /* no exit event for our own kill */
     if (r->child && IsWindow(r->child)) {
         ShowWindow(r->child, SW_HIDE);
@@ -315,7 +359,7 @@ static void app_destroy(Renderer *base)
 }
 
 static const RendererVtbl k_appVtbl = { app_set_state, app_resize, app_set_audio, app_paint, app_describe, app_destroy,
-                                        app_wants, app_input, NULL, app_on_timer, app_apply };
+                                        app_wants, app_input, app_feed, app_on_timer, app_apply };
 
 Renderer *app_renderer_create(const RendererContext *ctx, wchar_t *err, size_t errCap)
 {

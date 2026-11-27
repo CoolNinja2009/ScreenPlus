@@ -512,12 +512,27 @@ Function OptionsLeave
   Call SetDownloadSizes
 FunctionEnd
 
-; samples\ (Singularity, Koi Pond, Aurora and the downloaded Lively packages, with subfolders) goes as a whole; the Aurora check keeps
+; samples\ (Singularity, Koi Pond, Aurora and the downloaded samples, with subfolders) goes as a whole; the Aurora check keeps
 ; RMDir /r away from an unrelated "samples" folder in a hand-picked install folder.
 !macro RemoveSamples
   ${If} ${FileExists} "$INSTDIR\samples\Aurora\index.html"
+  ${OrIf} ${FileExists} "$INSTDIR\samples\Aurora\aurora.exe"
     RMDir /r "$INSTDIR\samples"
   ${EndIf}
+!macroend
+
+; One of setup's own samples, a Bare program now (src/common/sample_apps.h). Its page before goes whole; a copy a
+; wallpaper still runs can't be overwritten but can be renamed (<exe>.old: the app removes it at its next start).
+; The app moves the page's library entries, settings and all, to the program (library_migrate_samples).
+!macro BundledSample NAME EXE
+  ${If} ${FileExists} "$INSTDIR\samples\${NAME}\index.html"
+    RMDir /r "$INSTDIR\samples\${NAME}"
+  ${EndIf}
+  Delete "$INSTDIR\samples\${NAME}\${EXE}.old"
+  Rename "$INSTDIR\samples\${NAME}\${EXE}" "$INSTDIR\samples\${NAME}\${EXE}.old"
+  SetOutPath "$INSTDIR\samples\${NAME}"
+  File /r "${STAGE}\samples\${NAME}\*.*"
+  Delete "$INSTDIR\samples\${NAME}\${EXE}.old"
 !macroend
 
 ; ------------------------------------------------------------------ install
@@ -546,19 +561,17 @@ Section "Install"
     !insertmacro RemoveSamples          ; downloaded ones too
   ${ElseIf} $InstMode == "keep"
   ${AndIfNot} ${FileExists} "$INSTDIR\samples\Aurora\index.html"
+  ${AndIfNot} ${FileExists} "$INSTDIR\samples\Aurora\aurora.exe"
     ; updating an earlier clean installation: still no sample
   ${Else}
-    SetOutPath "$INSTDIR\samples\Aurora"
-    File "${STAGE}\samples\Aurora\*.*"  ; the other samples are an optional download (section -Samples)
+    !insertmacro BundledSample Aurora aurora.exe   ; the other samples are an optional download (section -Samples)
     ${If} $InstMode != "keep"           ; Singularity: every default installation, never added by an update
     ${OrIf} ${FileExists} "$INSTDIR\samples\Singularity\*.*"
-      SetOutPath "$INSTDIR\samples\Singularity"
-      File /r "${STAGE}\samples\Singularity\*.*"
+      !insertmacro BundledSample Singularity singularity.exe
     ${EndIf}
     ${If} $InstMode != "keep"           ; Koi Pond: the same
     ${OrIf} ${FileExists} "$INSTDIR\samples\KoiPond\*.*"
-      SetOutPath "$INSTDIR\samples\KoiPond"
-      File /r "${STAGE}\samples\KoiPond\*.*"
+      !insertmacro BundledSample KoiPond koi.exe
     ${EndIf}
   ${EndIf}
 

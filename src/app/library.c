@@ -11,11 +11,13 @@
 #include "../common/json.h"
 #include "file_format.h"
 #ifdef _WIN32
+#include "../common/sample_apps.h"
 #include <shobjidl.h>
 #include <shlobj.h>
 #endif
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 
 #define FOLDER_IMPORT_MAX  500
 #define PACKAGE_IMPORT_MAX 2000
@@ -52,12 +54,100 @@ BOOL library_html_entry(const wchar_t *folder, wchar_t *out, size_t cap)
     return n == 1;
 }
 
-/* An app wallpaper's folder: one .exe beside a LivelyProperties.json (a bare folder of programs is not one). */
+/* A Screen+ app keeps its Customise settings inside: `app.exe --screenplus-properties` prints them
+ * (LivelyProperties.json) and exits. Only a program that knows the flag (the flag's name is in the file)
+ * is run, hidden and for at most five seconds; what it prints becomes the LivelyProperties.json beside
+ * it, which Customise reads as it reads any app's. */
+#ifdef _WIN32
+static BOOL exe_knows_properties(const wchar_t *exe)
+{
+    static const char key[] = "--screenplus-properties";
+    HANDLE f = CreateFileW(exe, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f == INVALID_HANDLE_VALUE) return FALSE;
+    BOOL found = FALSE;
+    LARGE_INTEGER size;
+    if (GetFileSizeEx(f, &size) && size.QuadPart > 0 && size.QuadPart < (512LL << 20)) {
+        HANDLE m = CreateFileMappingW(f, NULL, PAGE_READONLY, 0, 0, NULL);
+        const char *bytes = m ? MapViewOfFile(m, FILE_MAP_READ, 0, 0, 0) : NULL;
+        if (bytes) {
+            size_t n = (size_t)size.QuadPart, k = sizeof key - 1;
+            for (const char *p = bytes; !found && (p = memchr(p, '-', n - (size_t)(p - bytes))) && (size_t)(p - bytes) + k <= n; p++)
+                found = !memcmp(p, key, k);
+            UnmapViewOfFile(bytes);
+        }
+        if (m) CloseHandle(m);
+    }
+    CloseHandle(f);
+    return found;
+}
+
+static BOOL app_ask_properties(const wchar_t *exe, const wchar_t *json)
+{
+    if (!exe_knows_properties(exe)) return FALSE;
+    SECURITY_ATTRIBUTES sa = { sizeof sa, NULL, TRUE };
+    HANDLE rd, wr;
+    if (!CreatePipe(&rd, &wr, &sa, 0)) return FALSE;
+    SetHandleInformation(rd, HANDLE_FLAG_INHERIT, 0);
+    wchar_t cmd[SP_MAX_PATH + 32], dir[SP_MAX_PATH];
+    swprintf(cmd, SP_COUNTOF(cmd), L"\"%ls\" --screenplus-properties", exe);
+    path_dirname(dir, SP_COUNTOF(dir), exe);
+    STARTUPINFOW si = { sizeof si };
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = wr;
+    PROCESS_INFORMATION pi;
+    BOOL ok = CreateProcessW(NULL, cmd, NULL, NULL, TRUE, CREATE_NO_WINDOW, NULL, dir, &si, &pi);
+    CloseHandle(wr);
+    if (!ok) {
+        CloseHandle(rd);
+        return FALSE;
+    }
+    char *buf = NULL;
+    size_t n = 0, cap = 0;
+    ULONGLONG t0 = GetTickCount64();
+    for (;;) {   /* until the program closes its end, five seconds pass or it says too much */
+        DWORD avail = 0, got = 0;
+        if (!PeekNamedPipe(rd, NULL, 0, NULL, &avail, NULL)) break;
+        if (!avail) {
+            if (GetTickCount64() - t0 > 5000) break;
+            Sleep(10);
+            continue;
+        }
+        if (n + avail + 1 > cap) {
+            size_t nc = (n + avail + 1) * 2;
+            char *nb = nc <= (8u << 20) ? realloc(buf, nc) : NULL;
+            if (!nb) break;
+            buf = nb, cap = nc;
+        }
+        if (!ReadFile(rd, buf + n, avail, &got, NULL) || !got) break;
+        n += got;
+    }
+    if (WaitForSingleObject(pi.hProcess, 0) != WAIT_OBJECT_0) TerminateProcess(pi.hProcess, 1);
+    CloseHandle(pi.hProcess), CloseHandle(pi.hThread), CloseHandle(rd);
+    size_t i = 0;
+    while (buf && i < n && (buf[i] == ' ' || buf[i] == '\t' || buf[i] == '\r' || buf[i] == '\n')) i++;
+    BOOL wrote = FALSE;
+    if (buf && n - i > 2 && buf[i] == '{') {   /* "{}" is a program with no settings */
+        HANDLE f = CreateFileW(json, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (f != INVALID_HANDLE_VALUE) {
+            DWORD put = 0;
+            wrote = WriteFile(f, buf + i, (DWORD)(n - i), &put, NULL) && put == n - i;
+            CloseHandle(f);
+            if (!wrote) DeleteFileW(json);
+            else LOGI(L"library: settings of %ls asked from the program", exe);
+        }
+    }
+    free(buf);
+    return wrote;
+}
+#else   /* Linux runs no app wallpapers */
+static BOOL app_ask_properties(const wchar_t *exe, const wchar_t *json) { (void)exe; (void)json; return FALSE; }
+#endif
+
+/* An app wallpaper's folder: one .exe beside a LivelyProperties.json, or one that prints its own
+ * (a bare folder of programs is not one). */
 static BOOL app_entry(const wchar_t *folder, wchar_t *out, size_t cap)
 {
-    wchar_t p[SP_MAX_PATH];
-    path_join(p, SP_COUNTOF(p), folder, L"LivelyProperties.json");
-    if (!file_exists(p)) return FALSE;
+    wchar_t p[SP_MAX_PATH], json[SP_MAX_PATH];
     path_join(p, SP_COUNTOF(p), folder, L"*.exe");
     WIN32_FIND_DATAW fd;
     HANDLE h = FindFirstFileW(p, &fd);
@@ -67,7 +157,9 @@ static BOOL app_entry(const wchar_t *folder, wchar_t *out, size_t cap)
         if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) && ++n == 1) path_join(out, cap, folder, fd.cFileName);
     } while (FindNextFileW(h, &fd));
     FindClose(h);
-    return n == 1;
+    if (n != 1) return FALSE;
+    path_join(json, SP_COUNTOF(json), folder, L"LivelyProperties.json");
+    return file_exists(json) || app_ask_properties(out, json);
 }
 
 static int add_entry(WallpaperType t, const wchar_t *path, const wchar_t *name, int format, int flags,
@@ -99,7 +191,7 @@ static int add_file(const wchar_t *path, ImportStats *st)
     wchar_t name[SP_NAME_LEN] = L"", dir[SP_MAX_PATH], lp[SP_MAX_PATH];
     path_dirname(dir, SP_COUNTOF(dir), path);
     path_join(lp, SP_COUNTOF(lp), dir, L"LivelyProperties.json");
-    int props = t == WP_APP && file_exists(lp);   /* an app's Customise settings, in Lively's format */
+    int props = t == WP_APP && (file_exists(lp) || app_ask_properties(path, lp));   /* an app's Customise settings, in Lively's format */
     if (t == WP_HTML || props) str_copy(name, SP_COUNTOF(name), path_filename(dir));   /* named after their folder */
     return add_entry(t, path, name, props ? WPF_LIVELY : WPF_PLAIN, 0, NULL, st);
 }
@@ -424,6 +516,7 @@ int library_add_samples(void)
 {
     wchar_t root[SP_MAX_PATH], sub[SP_MAX_PATH], entry[SP_MAX_PATH];
     path_join(root, SP_COUNTOF(root), paths_exe_dir(), L"samples");
+    library_migrate_samples();   /* entries of a sample's page become its program first, so it isn't added twice */
     ImportStats st = { 0 };
     static const wchar_t *first[] = { L"Singularity", L"KoiPond", L"Aurora" };
     for (size_t i = 0; i < SP_COUNTOF(first); i++) {
@@ -443,6 +536,51 @@ int library_add_samples(void)
     if (st.added) LOGI(L"library: added %d sample wallpaper%ls", st.added, st.added == 1 ? L"" : L"s");
     return st.added;
 }
+
+#ifdef _WIN32
+/* The samples are Bare programs on Windows (sample_apps.h). Once a program is in samples\, every library entry
+ * of its page becomes the program, in place: the same id keeps its Customise settings (the page's names are the
+ * program's), collections, displays and place in the list. A name the user gave it stays. Then the page's own
+ * folder goes, and a program an update renamed aside (<exe>.old) once nothing runs it. Runs at every start
+ * (quiet and cheap when there is nothing to move) and after an in-app sample update. */
+int library_migrate_samples(void)
+{
+    wchar_t root[SP_MAX_PATH];
+    path_join(root, SP_COUNTOF(root), paths_exe_dir(), L"samples");
+    int moved = 0;
+    for (int i = 0; i < SP_SAMPLE_APP_COUNT; i++) {
+        const SampleApp *s = &k_sample_apps[i];
+        if (!sample_has_app(root, s)) continue;
+        sample_drop_aside(root, s);
+        wchar_t page[SP_MAX_PATH], exe[SP_MAX_PATH], thumb[SP_MAX_PATH];
+        sample_path(page, SP_COUNTOF(page), root, s->html, NULL);
+        sample_path(exe, SP_COUNTOF(exe), root, s->name, s->exe);
+        sample_path(thumb, SP_COUNTOF(thumb), root, s->name, L"preview.jpg");
+        size_t pl = wcslen(page);
+        for (int k = 0; k < g_app.cfg.count; k++) {
+            WallpaperEntry *e = &g_app.cfg.items[k];
+            if (e->type == WP_APP || _wcsnicmp(e->path, page, pl) != 0 || (e->path[pl] != L'\\' && e->path[pl] != L'/'))
+                continue;
+            LOGI(L"library: %ls is now the %ls program", e->path, s->title);
+            str_copy(e->path, SP_COUNTOF(e->path), exe);
+            e->type = WP_APP;
+            e->format = WPF_LIVELY;
+            e->flags = 0;
+            str_copy(e->thumb, SP_COUNTOF(e->thumb), file_exists(thumb) ? thumb : L"");
+            if (!e->name[0] || str_ieq(e->name, s->html) || str_ieq(e->name, s->name) || (s->old && str_ieq(e->name, s->old)))
+                str_copy(e->name, SP_COUNTOF(e->name), s->title);
+            e->missing = 0;
+            moved++;
+        }
+        if (wcscmp(s->html, s->name) != 0 && sample_is_page(root, s) && !sample_delete_dir(page))
+            LOGW(L"library: could not remove the old page %ls", page);
+    }
+    if (moved) LOGI(L"library: %d sample wallpaper%ls moved to the program%ls", moved, moved == 1 ? L"" : L"s", moved == 1 ? L"" : L"s");
+    return moved;
+}
+#else
+int library_migrate_samples(void) { return 0; }   /* Linux keeps the pages: no app host */
+#endif
 
 #ifndef _WIN32
 static int steam_libraries(wchar_t libs[][SP_MAX_PATH], int max)
