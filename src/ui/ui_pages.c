@@ -1857,7 +1857,8 @@ static void draw_settings(Ui *u, float cx, float cw)
         int v[] = { s->bareUi };
         y = toggle_group(u, x, y, w, idx, l, NULL, v, 1);
     }
-    if (sf_want(u, L"Auto update", L"version")) {
+    /* A Store copy: the Store updates it and its samples, and it has no screensaver (paths_packaged). */
+    if (!paths_packaged() && sf_want(u, L"Auto update", L"version")) {
         y = sf_place(u, x, y);
         UpdateState us;
         update_get(&us);
@@ -1868,7 +1869,7 @@ static void draw_settings(Ui *u, float cx, float cw)
         ui_toggle(HIT_ID(HK_TOGGLE, TOG_AUTO_UPDATE), x + w - 62, y + 19, TOG_AUTO_UPDATE, s->autoUpdate);
         y += 62 + 10;
     }
-    if (sf_want(u, L"Sample wallpaper updates", NULL)) {
+    if (!paths_packaged() && sf_want(u, L"Sample wallpaper updates", NULL)) {
         y = sf_place(u, x, y);
         SamplesState ss;                 /* Update once a check found changes; with the toggle on they update by themselves */
         samples_get(&ss);
@@ -1975,62 +1976,63 @@ static void draw_settings(Ui *u, float cx, float cw)
     }
 
 #ifdef _WIN32
-    sf_section(u, L"SCREENSAVER", NULL);
-    ScrState st;
-    scr_query(&st);
-    {
-        int on = st.ours && st.active;
-        int idx[] = { TOG_SCR_ENABLE };
-        const wchar_t *l[] = { L"Use Screen+ as the screensaver" };
-        const wchar_t *d[] = { st.policy ? L"Managed by your organisation" : !on && st.active ? L"Another screensaver is in use" : NULL };
-        int v[] = { on };
-        y = toggle_group(u, x, y, w, idx, l, d, v, 1);
+    if (!paths_packaged()) {
+        sf_section(u, L"SCREENSAVER", NULL);
+        ScrState st;
+        scr_query(&st);
+        {
+            int on = st.ours && st.active;
+            int idx[] = { TOG_SCR_ENABLE };
+            const wchar_t *l[] = { L"Use Screen+ as the screensaver" };
+            const wchar_t *d[] = { st.policy ? L"Managed by your organisation" : !on && st.active ? L"Another screensaver is in use" : NULL };
+            int v[] = { on };
+            y = toggle_group(u, x, y, w, idx, l, d, v, 1);
+        }
+        if (sf_want(u, L"Wallpaper", NULL)) {
+            y = sf_place(u, x, y);
+            ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+            WallpaperEntry *se = config_find(&g_app.cfg, config_screensaver(&g_app.cfg));
+            const wchar_t *d1 = !se ? L"None" : g_app.cfg.screensaver[0] ? se->name : L"Same as the desktop";
+            float bp = ui_button_width(L"Preview", GL_PLAY), bc = ui_button_width(L"Choose…", 0);
+            row_label(u, x, y, w - bp - bc - 60, L"Wallpaper", d1);
+            ui_button(HIT_ID(HK_SCR_PREVIEW, 0), rectf(x + w - 18 - bp, y + 14, bp, 34), L"Preview", GL_PLAY, BTN_SECONDARY);
+            ui_button(HIT_ID(HK_SCR_CHOOSE, 0), rectf(x + w - 26 - bp - bc, y + 14, bc, 34), L"Choose…", 0, BTN_SECONDARY);
+            y += 62 + 10;
+        }
+        if (sf_want(u, L"Start after (minutes)", L"timeout")) {
+            y = sf_place(u, x, y);
+            static const wchar_t *mins[] = { L"1", L"3", L"5", L"10", L"15", L"30" };
+            static const int minv[] = { 1, 3, 5, 10, 15, 30 };
+            int cur = -1;
+            for (int i = 0; i < 6; i++) if (st.timeoutSec == minv[i] * 60) cur = i;
+            ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+            row_label(u, x, y, w - 6 * 46 - 40, L"Start after (minutes)", NULL);
+            segmented(u, x + w - 18 - 6 * 46, y + 15, HK_SCR_TIMEOUT, mins, 6, cur, 46, minv);
+            y += 62 + 10;
+        }
+        if (sf_want(u, L"Displays", L"span primary monitor")) {
+            y = sf_place(u, x, y);
+            static const wchar_t *dopts[] = { L"All", L"Span", L"Primary" };
+            ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+            row_label(u, x, y, w - 3 * 84 - 40, L"Displays", NULL);
+            segmented(u, x + w - 18 - 3 * 84, y + 15, HK_SCR_DISPLAYS, dopts, 3, (int)s->scrDisplays, 84, NULL);
+            y += 62 + 10;
+        }
+        {
+            int idx2[] = { TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK };
+            const wchar_t *l2[] = { L"Play sound", L"End on mouse movement", L"Show the sign-in screen on resume" };
+            int v2[] = { s->scrAudio, s->scrExitOnMouse, st.secure };
+            y = toggle_group(u, x, y, w, idx2, l2, NULL, v2, 3);
+        }
+        if (sf_want(u, L"Windows screensaver settings", NULL)) {
+            y = sf_place(u, x, y);
+            ui_glass(rectf(x, y, w, 62), 14, 0, 0);
+            float bw = ui_button_width(L"Open", GL_OPEN);
+            row_label(u, x, y, w - bw - 60, L"Windows screensaver settings", NULL);
+            ui_button(HIT_ID(HK_SCR_WINDOWS, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Open", GL_OPEN, BTN_SECONDARY);
+            y += 62 + 10;
+        }
     }
-    if (sf_want(u, L"Wallpaper", NULL)) {
-        y = sf_place(u, x, y);
-        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        WallpaperEntry *se = config_find(&g_app.cfg, config_screensaver(&g_app.cfg));
-        const wchar_t *d1 = !se ? L"None" : g_app.cfg.screensaver[0] ? se->name : L"Same as the desktop";
-        float bp = ui_button_width(L"Preview", GL_PLAY), bc = ui_button_width(L"Choose…", 0);
-        row_label(u, x, y, w - bp - bc - 60, L"Wallpaper", d1);
-        ui_button(HIT_ID(HK_SCR_PREVIEW, 0), rectf(x + w - 18 - bp, y + 14, bp, 34), L"Preview", GL_PLAY, BTN_SECONDARY);
-        ui_button(HIT_ID(HK_SCR_CHOOSE, 0), rectf(x + w - 26 - bp - bc, y + 14, bc, 34), L"Choose…", 0, BTN_SECONDARY);
-        y += 62 + 10;
-    }
-    if (sf_want(u, L"Start after (minutes)", L"timeout")) {
-        y = sf_place(u, x, y);
-        static const wchar_t *mins[] = { L"1", L"3", L"5", L"10", L"15", L"30" };
-        static const int minv[] = { 1, 3, 5, 10, 15, 30 };
-        int cur = -1;
-        for (int i = 0; i < 6; i++) if (st.timeoutSec == minv[i] * 60) cur = i;
-        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        row_label(u, x, y, w - 6 * 46 - 40, L"Start after (minutes)", NULL);
-        segmented(u, x + w - 18 - 6 * 46, y + 15, HK_SCR_TIMEOUT, mins, 6, cur, 46, minv);
-        y += 62 + 10;
-    }
-    if (sf_want(u, L"Displays", L"span primary monitor")) {
-        y = sf_place(u, x, y);
-        static const wchar_t *dopts[] = { L"All", L"Span", L"Primary" };
-        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        row_label(u, x, y, w - 3 * 84 - 40, L"Displays", NULL);
-        segmented(u, x + w - 18 - 3 * 84, y + 15, HK_SCR_DISPLAYS, dopts, 3, (int)s->scrDisplays, 84, NULL);
-        y += 62 + 10;
-    }
-    {
-        int idx2[] = { TOG_SCR_AUDIO, TOG_SCR_MOUSE, TOG_SCR_LOCK };
-        const wchar_t *l2[] = { L"Play sound", L"End on mouse movement", L"Show the sign-in screen on resume" };
-        int v2[] = { s->scrAudio, s->scrExitOnMouse, st.secure };
-        y = toggle_group(u, x, y, w, idx2, l2, NULL, v2, 3);
-    }
-    if (sf_want(u, L"Windows screensaver settings", NULL)) {
-        y = sf_place(u, x, y);
-        ui_glass(rectf(x, y, w, 62), 14, 0, 0);
-        float bw = ui_button_width(L"Open", GL_OPEN);
-        row_label(u, x, y, w - bw - 60, L"Windows screensaver settings", NULL);
-        ui_button(HIT_ID(HK_SCR_WINDOWS, 0), rectf(x + w - 18 - bw, y + 14, bw, 34), L"Open", GL_OPEN, BTN_SECONDARY);
-        y += 62 + 10;
-    }
-
 #endif
     sf_section(u, L"PERFORMANCE", NULL);
     {
@@ -5346,8 +5348,9 @@ void pages_context(int id, int sx, int sy)
     /* what removing does: a link has no file, a download goes with its entry, anything else stays */
     int link = wallpaper_is_url(e.path), download = url_import_is_download(e.path);
     AppendMenuW(m, MF_SEPARATOR, 0, NULL);
-    AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0) | (wcscmp(g_app.cfg.screensaver, e.id) == 0 ? MF_CHECKED : 0), 4,
-                L"Use as screensaver");
+    if (!paths_packaged())
+        AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0) | (wcscmp(g_app.cfg.screensaver, e.id) == 0 ? MF_CHECKED : 0), 4,
+                    L"Use as screensaver");
 #ifdef _WIN32
     AppendMenuW(m, MF_STRING | (e.missing ? MF_GRAYED : 0), 2, link ? L"Open link in browser" : L"Show in File Explorer");
 #else

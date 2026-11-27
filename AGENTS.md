@@ -113,7 +113,9 @@ apart from `#ifdef __APPLE__`, so Linux changes reach the Mac too. No Mac on the
   the Store signs; the windows job runs it) and the GitLab `store` job submits it with the msstore CLI once the
   `MSSTORE_*` variables exist; the Store then updates installed copies. A packaged copy (`paths_packaged`) keeps data in
   the package's `LocalCache\Local\ScreenPlus`, starts at sign-in through the `ScreenPlus.exe` alias, skips the Run-key
-  fallback, has no screensaver, sample downloads or self-update, and treats the VC++ runtime as present (VCLibs dependency).
+  fallback, has no screensaver, sample downloads or self-update (their settings are hidden: `setting_listed` in
+  cli_server.c, which the Bare window follows, and `paths_packaged()` checks in ui_pages.c), and treats the VC++
+  runtime as present (VCLibs dependency).
 - The local makensis is a trimmed copy (CMakeCache `MAKENSIS`). MUI_PAGE_COMPONENTS fails with it, so use
   nsDialogs custom pages.
 

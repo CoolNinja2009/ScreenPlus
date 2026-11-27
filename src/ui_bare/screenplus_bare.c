@@ -44,6 +44,12 @@ const char *sp_setting(const SpModel *m, const char *key, const char *def) {
     return json_str(v, def);
 }
 
+/* The app lists only the settings that mean something here (a Store copy has no updates or screensaver: its
+ * cli_server.c setting_listed); before the first list arrives, everything shows. */
+static bool setting_listed(const SpModel *m, const char *key) {
+    return !m->settings || json_get(m->settings, key);
+}
+
 static bool setting_on(const SpModel *m, const char *key) {
     const JVal *v = json_get(m->settings, key);
     return v && ((v->t == J_BOOL && v->b) || (v->t == J_STR && !strcmp(v->str, "on")));
@@ -2356,21 +2362,24 @@ static void settings(SpView *v, const SpModel *m) {
             CARD(ID("set.general")) {
                 bool first = true;
                 for (int i = 0; i < count; i++) {
-                    if (strcmp(rows[i].section, "General") || !want(search, rows[i].title, "General")) continue;
+                    if (strcmp(rows[i].section, "General") || !want(search, rows[i].title, "General") ||
+                        !setting_listed(m, rows[i].key))
+                        continue;
                     if (!first) divider();
                     first = false;
                     ROW(IDI("set.row", i), rows[i].icon, rows[i].title, NULL) { setting_control(m, &rows[i], i); }
                 }
             }
         }
-        if (want(search, "Auto update", "General")) CARD(ID("set.update")) {
+        if (setting_listed(m, "auto_update") && want(search, "Auto update", "General")) CARD(ID("set.update")) {
             ROW(ID("set.update.row"), SPI_SYNC, "Auto update", NULL) {
                 if (sp_button(ID("set.update.check"), SPI_REFRESH, "Check now", SP_BTN_GLASS).clicked) RUN(m, "update", "check");
                 bool on = setting_on(m, "auto_update");
                 if (sp_toggle(ID("set.update.tog"), on)) RUN(m, "settings", "set", "auto_update", on ? "off" : "on");
             }
         }
-        if (want(search, "Sample wallpaper updates", "General")) CARD(ID("set.samples")) {
+        if (setting_listed(m, "auto_update_samples") && want(search, "Sample wallpaper updates", "General"))
+            CARD(ID("set.samples")) {
             ROW(ID("set.samples.row"), SPI_LAYERS, "Sample wallpaper updates", NULL) {
                 if (sp_button(ID("set.samples.check"), SPI_REFRESH, "Check now", SP_BTN_GLASS).clicked) RUN(m, "samples", "check");
                 bool on = setting_on(m, "auto_update_samples");
@@ -2425,7 +2434,7 @@ static void settings(SpView *v, const SpModel *m) {
         (void)card;
         for (int i = 0; i < count; i++) {
             const SettingRow *r = &rows[i];
-            if (!strcmp(r->section, "General") || !want(search, r->title, r->section)) continue;
+            if (!strcmp(r->section, "General") || !want(search, r->title, r->section) || !setting_listed(m, r->key)) continue;
             if (strcmp(last, r->section)) {
                 if (open) bare_close_();
                 bare_box(.height = 8);

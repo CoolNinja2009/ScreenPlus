@@ -428,6 +428,7 @@ void update_schedule(BOOL soon)
 
 BOOL update_check(BOOL install)
 {
+    if (paths_packaged()) return FALSE;   /* the Store updates a Store copy */
     return start(install, TRUE);
 }
 
@@ -445,7 +446,9 @@ void update_get(UpdateState *out)
     *out = g_state;
     ReleaseSRWLockShared(&g_lock);
     if (out->text[0]) return;
-    if (!out->supported)
+    if (paths_packaged())
+        str_copy(out->text, SP_COUNTOF(out->text), L"The Microsoft Store keeps Screen+ up to date");
+    else if (!out->supported)
         str_copy(out->text, SP_COUNTOF(out->text), L"Portable copy: updates are not installed automatically");
     else if (g_app.cfg.s.autoUpdate)
         str_copy(out->text, SP_COUNTOF(out->text), L"On");

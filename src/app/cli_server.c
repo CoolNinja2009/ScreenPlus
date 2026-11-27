@@ -2046,7 +2046,17 @@ static const wchar_t *setting_text(int kind, int v)
 }
 
 #ifdef _WIN32
-static int setting_listed(const wchar_t *key) { (void)key; return 1; }
+/* A Store copy has no self-update, sample downloads or screensaver: the Store updates it and its samples, and its
+ * package can't register a screensaver. */
+static int setting_listed(const wchar_t *key)
+{
+    static const wchar_t *const store[] = {
+        L"auto_update", L"auto_update_samples", L"screensaver_audio", L"screensaver_displays", L"screensaver_exit_on_mouse",
+    };
+    if (!paths_packaged()) return 1;
+    for (size_t i = 0; i < SP_COUNTOF(store); i++) if (str_ieq(key, store[i])) return 0;
+    return 1;
+}
 #else
 /* These mean nothing on Linux: Plasma starts the wallpaper by itself, Lively is Windows-only, there's no screensaver. */
 static int setting_listed(const wchar_t *key)
