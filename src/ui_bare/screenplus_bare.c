@@ -324,7 +324,7 @@ static void sidebar(SpView *v, const SpModel *m) {
             BareState blob = bare_box(.id = ID("nav.blob"), .position = BARE_ABSOLUTE, .x = r.x - box.x + stretch * 0.15f,
                      .y = r.y - box.y - stretch * 0.5f,
                      .width = have ? r.w - stretch * 0.3f : 10, .height = have ? r.h + stretch : 10, .radius = 22, .glass = g,
-                     .opacity = have && blob_in > 0.001f ? blob_in : BARE_ZERO, .border = 1,
+                     .opacity = have ? 1.0f : BARE_ZERO, .border = 1,
                      .border_color = sp_alpha(sp_mix(sp.accent, BARE_WHITE, 0.55f), moving ? 110 : 160),
                      .shadow = { 0, 4, 22, 0, sp_alpha(sp.accent, moving ? 30 : 110) },
                      .passthrough = true, .animate = sp_liquid());
