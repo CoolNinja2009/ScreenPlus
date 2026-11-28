@@ -166,6 +166,12 @@ static int anim_source(const Req *r, wchar_t *out, size_t cap)
         str_copy(out, cap, r->path);
         return 1;
     }
+    if (r->type == WP_APP) {                      /* a program: its recording, made once per program build */
+        preview_paths(r->id, out, NULL, cap);
+        int got = preview_app_recorded(r->id, r->path);
+        if (!got) preview_request(r->id, T.notify);
+        return got == 2;
+    }
     if (r->type != WP_HTML) return 0;
     /* No preview animation of its own: record one, like Lively. A recording that produced only
      * the still means the page does not move. */

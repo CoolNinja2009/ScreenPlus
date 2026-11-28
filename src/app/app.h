@@ -21,6 +21,7 @@
 #define T_SHELL_SAMPLES     4               /* shell window timer: the next sample wallpaper update check */
 #define T_SHELL_ROTATE      5               /* shell window timer: slideshow and schedule check (rotate.c) */
 #define T_SHELL_NOTICE      6               /* one-shot info notice dismissal */
+#define T_SHELL_UPKEEP      7               /* shell window timer: library upkeep, once, off the start path */
 #define WM_SP_SHELLCMD      (WM_APP + 70)   /* wParam: IpcCommandId, run outside the sender's call */
 #define WM_SP_PPTX          (WM_APP + 68)   /* wParam 1: a PowerPoint job finished (lParam: the job; pptx.c) */
 #define WM_SP_ENGINE_RESYNC (WM_APP + 71)   /* the engine connected after commands went unsent */
@@ -56,6 +57,7 @@ typedef struct AppState {
 
     /* diagnostics */
     double           nativeInitMs;       /* process start -> tray + engine launched */
+    int              libraryLoaded;      /* config.ini read cleanly: library_purge may run */
     double           uiReadyMs;          /* process start -> first UI frame */
     double           wallpaperMs;        /* process start -> first wallpaper frame */
     CpuSampler       cpuShell, cpuEngine;

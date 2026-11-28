@@ -104,8 +104,9 @@ static const char *file_name(const char *path) {
     return s ? s + 1 : path;
 }
 
-/* Pictures are kept at these sizes (pixels, cropped to 16:9); moving ones keep PIC_FRAMES frames. */
-enum { PIC_W = 320, PIC_H = 180, PIC_BIG_W = 640, PIC_BIG_H = 360, PIC_FRAMES = 24 };
+/* Pictures are kept at these sizes (pixels, cropped to 16:9); moving ones keep PIC_FRAMES frames: every frame of a
+ * recorded preview (40, preview_capture.c), since keeping fewer drops them unevenly and the picture judders. */
+enum { PIC_W = 320, PIC_H = 180, PIC_BIG_W = 640, PIC_BIG_H = 360, PIC_FRAMES = 40 };
 
 static bool has_ext(const char *path, const char *const *exts) {
     const char *dot = strrchr(path, '.');
@@ -146,7 +147,7 @@ static BareImage wallpaper_picture(const SpModel *m, const JVal *w, bool big) {
     if (m->picture) return picture_file(m, thumb, big, &failed);
     bool url = !strncmp(path, "http://", 7) || !strncmp(path, "https://", 8);
     char cand[7][1100];
-    int n = 0;
+    int n = 0, rec = -1;   /* rec: the recorded GIF's place */
     if (!url && (!strcmp(type, "image") || !strcmp(type, "video"))) {
         snprintf(cand[n++], sizeof cand[0], "%s", path);
     } else {
@@ -158,28 +159,34 @@ static BareImage wallpaper_picture(const SpModel *m, const JVal *w, bool big) {
             snprintf(cand[n++], sizeof cand[0], "%.*slively_p.gif", dir, path);
             snprintf(cand[n++], sizeof cand[0], "%.*spreview.gif", dir, path);
         }
-        if (*previews && *id) snprintf(cand[n++], sizeof cand[0], "%s%c%s.gif", previews, SP_SLASH, id);
+        if (*previews && *id) rec = n, snprintf(cand[n++], sizeof cand[0], "%s%c%s.gif", previews, SP_SLASH, id);
     }
     if (has_ext(thumb, k_still_ext)) snprintf(cand[n++], sizeof cand[0], "%s", thumb);
     if (*previews && *id && strcmp(type, "image") && strcmp(type, "video"))
         snprintf(cand[n++], sizeof cand[0], "%s%c%s.jpg", previews, SP_SLASH, id);
     /* the first that loads; while one loads, the ones after it get their chance */
-    bool none = true;
-    for (int i = 0; i < n; i++) {
-        BareImage img = picture_file(m, cand[i], big, &failed);
-        if (img) return img;
-        if (!failed) none = false;
+    bool none = true, unrecorded = false;
+    BareImage img = 0;
+    for (int i = 0; i < n && !img; i++) {
+        img = picture_file(m, cand[i], big, &failed);
+        if (img || !failed) none = false;
+        else if (i == rec) unrecorded = true;
     }
-    /* a page with no picture at all: the service records one (once; the pictures are tried again meanwhile) */
+    /* a page with no picture at all, or a program with no recording (what it ships is only a still): the service
+     * records one (once; the pictures are tried again meanwhile) */
+    bool ask = !strcmp(type, "app") ? unrecorded : none;
     static BareId asked[256];
     static int asked_count;
-    if (none && *previews && *id && !url && strcmp(type, "image") && strcmp(type, "video") && asked_count < 256) {
+    if (ask && *previews && *id && !url && strcmp(type, "image") && strcmp(type, "video") && asked_count < 256) {
         BareId h = bare_id(id);
-        for (int i = 0; i < asked_count; i++) if (asked[i] == h) return 0;
-        asked[asked_count++] = h;
-        RUN(m, "preview", id);
+        bool seen = false;
+        for (int i = 0; i < asked_count; i++) seen |= asked[i] == h;
+        if (!seen) {
+            asked[asked_count++] = h;
+            RUN(m, "preview", id);
+        }
     }
-    return 0;
+    return img;
 }
 
 /* Whether a box drawn last frame at `r` is on screen (not yet drawn: no). */

@@ -358,6 +358,57 @@ static void app_destroy(Renderer *base)
     free(r);
 }
 
+/* ------------------------------------------------------------------ grab */
+
+#ifndef PW_RENDERFULLCONTENT
+#define PW_RENDERFULLCONTENT 0x00000002
+#endif
+
+uint8_t *app_grab(Renderer *base, int w, int h)
+{
+    AppRenderer *r = (AppRenderer *)base;
+    if (!r || base->type != WP_APP || !r->ready || !r->child || !IsWindow(r->child) || w <= 0 || h <= 0) return NULL;
+    RECT rc;
+    GetClientRect(r->host, &rc);
+    int sw = rc.right - rc.left, sh = rc.bottom - rc.top;
+    if (sw <= 0 || sh <= 0) return NULL;
+    uint8_t *out = NULL;
+    HDC screen = GetDC(NULL);
+    HDC full = CreateCompatibleDC(screen), dst = CreateCompatibleDC(screen);
+    HBITMAP fb = CreateCompatibleBitmap(screen, sw, sh);
+    BITMAPINFO bi = { { sizeof(BITMAPINFOHEADER), w, -h, 1, 32, BI_RGB } };
+    void *bits = NULL;
+    HBITMAP db = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, NULL, 0);
+    if (full && dst && fb && db && bits) {
+        HGDIOBJ of = SelectObject(full, fb), od = SelectObject(dst, db);
+        /* the host, not the program's window: DWM composes the program's swap chain into it */
+        if (PrintWindow(r->host, full, PW_RENDERFULLCONTENT)) {
+            SetStretchBltMode(dst, HALFTONE);
+            SetBrushOrgEx(dst, 0, 0, NULL);
+            StretchBlt(dst, 0, 0, w, h, full, 0, 0, sw, sh, SRCCOPY);
+            GdiFlush();
+            size_t n = (size_t)w * h * 4;
+            int lit = 0;
+            for (size_t i = 0; i < n; i += 4) {
+                const uint8_t *p = (const uint8_t *)bits + i;
+                if (p[0] > 8 || p[1] > 8 || p[2] > 8) { lit = 1; break; }
+            }
+            if (lit && (out = (uint8_t *)malloc(n)) != NULL) {
+                memcpy(out, bits, n);
+                for (size_t i = 3; i < n; i += 4) out[i] = 255;
+            }
+        }
+        SelectObject(full, of);
+        SelectObject(dst, od);
+    }
+    if (db) DeleteObject(db);
+    if (fb) DeleteObject(fb);
+    if (dst) DeleteDC(dst);
+    if (full) DeleteDC(full);
+    ReleaseDC(NULL, screen);
+    return out;
+}
+
 static const RendererVtbl k_appVtbl = { app_set_state, app_resize, app_set_audio, app_paint, app_describe, app_destroy,
                                         app_wants, app_input, app_feed, app_on_timer, app_apply };
 

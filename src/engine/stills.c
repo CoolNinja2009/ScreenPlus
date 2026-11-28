@@ -2,7 +2,7 @@
  * look and display size and named after them (cache\stills\<display>-<content>.jpg), so a file that
  * exists is already the Windows wallpaper and a normal start does no work at all. A picture, or the
  * frame a video starts on, is cover-cropped to the display and graded the way video.hlsl grades it; a
- * web page is the live page as WebView2 drew it (html_grab, engine.c). One background thread makes and
+ * web page is the live page as WebView2 drew it (html_grab, engine.c), a program its window (app_grab). One background thread makes and
  * sets them in order, at background priority. The user's own Windows wallpaper is kept in original.txt
  * before the first still and put back when the setting goes off. */
 #include "stills.h"
@@ -26,6 +26,8 @@ typedef struct StillJob {
     wchar_t          path[SP_MAX_PATH];
     uint8_t         *jpeg;       /* a grabbed page; NULL: made from the wallpaper's file */
     size_t           jpegSize;
+    uint8_t         *bgra;       /* a grabbed program, display-sized */
+    int              bw, bh;
     int              restore;    /* the setting went off */
     int              reapply;    /* renderer failed: make the still visible even if cached */
 } StillJob;
@@ -353,7 +355,10 @@ static void make_and_set(StillJob *j)
     stills_dir(dir, SP_COUNTOF(dir));
     dir_create_recursive(dir);
     str_printf(tmp, SP_COUNTOF(tmp), L"%ls.part", j->path);
-    HRESULT hr = j->jpeg ? write_all(tmp, j->jpeg, j->jpegSize) : make_from_file(&j->wp, w, h, tmp);
+    HRESULT hr;
+    if (j->jpeg) hr = write_all(tmp, j->jpeg, j->jpegSize);
+    else if (j->bgra) hr = save_jpeg(tmp, j->bgra, j->bw, j->bh);
+    else hr = make_from_file(&j->wp, w, h, tmp);
     if (SUCCEEDED(hr) && !MoveFileExW(tmp, j->path, MOVEFILE_REPLACE_EXISTING)) hr = HRESULT_FROM_WIN32(GetLastError());
     if (SUCCEEDED(hr)) hr = set_wallpaper(&j->mon, j->path);
     if (FAILED(hr)) {
@@ -421,6 +426,7 @@ static DWORD WINAPI worker(LPVOID unused)
         if (j->restore) restore_original();
         else make_and_set(j);
         free(j->jpeg);
+        free(j->bgra);
         free(j);
     }
     SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
@@ -456,6 +462,21 @@ void stills_make(const MonitorInfo *mon, const WallpaperEntry *wp, IStream *jpeg
     }
     j->mon = *mon;
     j->wp = *wp;
+    queue(j);
+}
+
+void stills_make_pixels(const MonitorInfo *mon, const WallpaperEntry *wp, uint8_t *bgra, int w, int h)
+{
+    StillJob *j = (StillJob *)calloc(1, sizeof *j);
+    if (!j || !stills_path(mon, wp, j->path, SP_COUNTOF(j->path))) {
+        free(j);
+        free(bgra);
+        return;
+    }
+    j->mon = *mon;
+    j->wp = *wp;
+    j->bgra = bgra;
+    j->bw = w, j->bh = h;
     queue(j);
 }
 

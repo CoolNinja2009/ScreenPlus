@@ -657,7 +657,7 @@ static void cmd_rename(Reply *r, const Req *q)
     sb_puts(&r->data, "}");
 }
 
-/* preview <wallpaper>: records a page's preview for the library (once a run) if it has none */
+/* preview <wallpaper>: records a page's or program's preview for the library (once a run) if it has none */
 static void cmd_preview(Reply *r, const Req *q)
 {
     if (q->argc < 2) {
@@ -666,13 +666,13 @@ static void cmd_preview(Reply *r, const Req *q)
     }
     WallpaperEntry *e = find_wallpaper(r, q->argv[1]);
     if (!e) return;
-    if (e->type != WP_HTML) {
-        fail(r, L"\"%ls\" isn't a page: its file is its preview.", e->name);
+    if (e->type != WP_HTML && e->type != WP_APP) {
+        fail(r, L"\"%ls\" isn't a page or program: its file is its preview.", e->name);
         return;
     }
     wchar_t jpg[SP_MAX_PATH];
     preview_paths(e->id, NULL, jpg, SP_COUNTOF(jpg));
-    if (file_exists(jpg)) {
+    if (e->type == WP_APP ? preview_app_recorded(e->id, e->path) != 0 : file_exists(jpg)) {
         say(r, L"\"%ls\" has a preview.\n", e->name);
         return;
     }

@@ -1218,7 +1218,12 @@ static void stills_tick(void)
         if (!s->used || !s->shown || !s->r || s->failed || !stills_path(&s->mon, &s->wp, path, SP_COUNTOF(path)) ||
             file_exists(path))
             continue;
-        if (s->wp.type != WP_HTML && s->wp.type != WP_APP) stills_make(&s->mon, &s->wp, NULL);
+        if (s->wp.type == WP_APP) {                          /* the program's frame, else the still it ships */
+            if (s->state != RS_ACTIVE) continue;             /* paused or covered: when it shows again */
+            int w = s->mon.rect.right - s->mon.rect.left, h = s->mon.rect.bottom - s->mon.rect.top;
+            uint8_t *px = app_grab(s->r, w, h);
+            stills_make_pixels(&s->mon, &s->wp, px, w, h);
+        } else if (s->wp.type != WP_HTML) stills_make(&s->mon, &s->wp, NULL);
         else if (s->state == RS_ACTIVE) html_grab(s->r);     /* paused or covered: when it shows again */
     }
 }

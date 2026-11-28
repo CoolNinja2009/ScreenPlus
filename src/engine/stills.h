@@ -11,6 +11,8 @@
 BOOL stills_path(const MonitorInfo *mon, const WallpaperEntry *wp, wchar_t *out, size_t cap);
 /* Makes it on a background thread and sets it: jpeg is a page html_grab took, NULL makes it from the file. */
 void stills_make(const MonitorInfo *mon, const WallpaperEntry *wp, IStream *jpeg);
+/* The same from an app wallpaper's frame (app_grab; taken over and freed), NULL: from the still it ships. */
+void stills_make_pixels(const MonitorInfo *mon, const WallpaperEntry *wp, uint8_t *bgra, int w, int h);
 /* On renderer failure, reapply a cached still or make one from the wallpaper thumbnail. */
 void stills_show(const MonitorInfo *mon, const WallpaperEntry *wp);
 /* The setting went off: the user's own Windows wallpaper comes back. */

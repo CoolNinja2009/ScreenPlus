@@ -141,7 +141,7 @@ target_link_libraries(ScreenPlus PRIVATE
     ${FFMPEG_IMPLIBS} delayimp
     user32 gdi32 shell32 shlwapi ole32 oleaut32 uuid comctl32 comdlg32 advapi32 version
     d2d1 dwrite d3d11 dxgi dxguid windowscodecs dwmapi shcore uxtheme wtsapi32 powrprof psapi bcrypt ole32 avrt mmdevapi runtimeobject iphlpapi pdh winhttp mfplat mfreadwrite mfuuid
-    taskschd)
+    taskschd winmm)
 
 # Sample wallpapers besides Singularity, Koi Pond and Aurora: setup bundles only those three and, when "Sample wallpapers" is ticked, runs
 # `screenplus samples install`, which downloads this release's ScreenPlus-<version>-samples.zip (CI uploads it),

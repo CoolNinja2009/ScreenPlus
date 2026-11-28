@@ -95,6 +95,9 @@ void html_set_profile(const wchar_t *userDataFolder);
 void html_set_fps_cap(int fps);
 /* Grabs the loaded page as JPEG; the result arrives as WM_SP_HTML_GRAB (receiver releases the stream). */
 BOOL html_grab(Renderer *r);
+/* An app wallpaper's frame as drawn now, stretched to w x h (top-down BGRA, opaque; caller frees). NULL before the
+ * program has a window or while what it shows is still blank. */
+uint8_t *app_grab(Renderer *r, int w, int h);
 
 /* Shared WIC helper: decode (file path or stream), apply EXIF orientation and scale-to-cover
  * into a top-down 32-bpp DIB of exactly w x h. Caller owns the HBITMAP. */

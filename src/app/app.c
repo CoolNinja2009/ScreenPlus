@@ -1,5 +1,6 @@
 #include "app.h"
 #include "file_format.h"
+#include "preview.h"
 #include "../ui/ui.h"
 #include "../tray/tray.h"
 #include "../common/util.h"
@@ -261,6 +262,21 @@ static void handle_shell_command(uint32_t cmd)
     }
 }
 
+static void shell_upkeep(void)
+{
+    ULONGLONG t0 = GetTickCount64();
+    scr_sync_binary();
+    url_import_sweep();               /* half-finished downloads */
+    url_import_fetch_thumbs();        /* stream wallpapers without a preview image */
+    if (g_app.libraryLoaded) library_purge();   /* removed entries' files that were in use; never against a damaged library */
+    if (g_app.cfg.s.livelyImport)
+        library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
+    library_check_missing();
+    depth_auto_all(FALSE);            /* "interactive images": pictures already on the desktop that aren't yet */
+    depth_upscale_video_auto();       /* resume any selected video cache that was interrupted by shutdown */
+    LOGI(L"library upkeep took %llu ms", GetTickCount64() - t0);
+}
+
 static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     if (msg == g_msgTaskbarCreated && msg) {
@@ -353,6 +369,9 @@ static LRESULT CALLBACK shell_proc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
             samples_on_timer();
         } else if (wp == T_SHELL_ROTATE) {
             rotate_on_timer();
+        } else if (wp == T_SHELL_UPKEEP) {
+            KillTimer(h, T_SHELL_UPKEEP);
+            shell_upkeep();
         } else if (wp == T_SHELL_STARTUP) {
             KillTimer(h, T_SHELL_STARTUP);
             startup_sync();
@@ -498,6 +517,7 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     if (forward == CMD_RESUME) g_app.cfg.s.paused = 0;
     apply_setup_choice();
     if (library_migrate_samples()) config_save(&g_app.cfg, paths_config());   /* sample pages -> their programs */
+    preview_app_upkeep(g_app.cfg.items, g_app.cfg.count);                    /* stale app recordings go */
     app_refresh_monitors();
 
     WNDCLASSEXW wc = { sizeof wc };
@@ -518,19 +538,12 @@ int app_main(HINSTANCE inst, int argc, wchar_t **argv)
     tray_init(g_app.shellWnd, inst);
     g_app.nativeInitMs = (double)(filetime_now() - g_app.processStart) / 10000.0;
     LOGI(L"native init complete: %.1f ms after process creation", g_app.nativeInitMs);
-    scr_sync_binary();
-
-    /* Library upkeep after the engine is on its way: none of it changes what the desktop shows first. */
-    url_import_sweep();               /* half-finished downloads */
-    url_import_fetch_thumbs();        /* stream wallpapers without a preview image */
-    if (loaded) library_purge();      /* removed entries' files that were in use; never checked against a damaged library */
-    if (g_app.cfg.s.livelyImport)
-        library_auto_import_lively(); /* non-interactive: finds newly installed Lively packages */
-    library_check_missing();
+    g_app.libraryLoaded = loaded;
+    /* Library upkeep waits: it touches every file in the library, and at sign-in the disk is busy enough that it
+     * held the shell (and the engine's hello) for seconds. Nothing in it changes what the desktop shows first. */
+    SetTimer(g_app.shellWnd, T_SHELL_UPKEEP, signIn ? 10000 : 1500, NULL);
     if (importPath) ui_preview_file(importPath);   /* opened from Explorer: show it, add on request */
 
-    depth_auto_all(FALSE);          /* "interactive images": pictures already on the desktop that aren't yet */
-    depth_upscale_video_auto();     /* resume any selected video cache that was interrupted by shutdown */
     update_init();                  /* "Auto update": the first check a few minutes from now */
     samples_init();                 /* "Sample wallpaper updates", when on */
     rotate_init();                  /* slideshow and day/night schedule */

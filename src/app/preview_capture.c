@@ -7,6 +7,9 @@
 #include <shlobj.h>
 #include <wincodec.h>
 #include <process.h>
+#include <mmsystem.h>
+#include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,7 +22,8 @@
 #define WARMUP_MS   2500     /* after the page loaded: let intros and fade-ins settle */
 #define DEADLINE_MS 45000
 
-enum { T_WARMUP = 0x6001, T_NEXT, T_DEADLINE };
+enum { T_WARMUP = 0x6001, T_NEXT, T_DEADLINE, T_POINTER };
+#define POINTER_MS  16       /* a program's virtual pointer moves at ~60 Hz */
 
 void preview_paths(const wchar_t *id, wchar_t *gif, wchar_t *jpg, size_t cap)
 {
@@ -32,6 +36,72 @@ void preview_paths(const wchar_t *id, wchar_t *gif, wchar_t *jpg, size_t cap)
     if (jpg) {
         str_printf(name, SP_COUNTOF(name), L"%ls.jpg", id);
         path_join(jpg, cap, dir, name);
+    }
+}
+
+/* When a file arrived: the later of written and created (a program unpacked from a zip keeps the zip's 1980 write
+ * time, but is created when it lands). */
+static int written(const wchar_t *path, ULONGLONG *t)
+{
+    WIN32_FILE_ATTRIBUTE_DATA a;
+    if (!GetFileAttributesExW(path, GetFileExInfoStandard, &a)) return 0;
+    ULONGLONG w = ((ULONGLONG)a.ftLastWriteTime.dwHighDateTime << 32) | a.ftLastWriteTime.dwLowDateTime;
+    ULONGLONG c = ((ULONGLONG)a.ftCreationTime.dwHighDateTime << 32) | a.ftCreationTime.dwLowDateTime;
+    *t = SP_MAX(w, c);
+    return 1;
+}
+
+int preview_app_recorded(const wchar_t *id, const wchar_t *program)
+{
+    wchar_t gif[SP_MAX_PATH], jpg[SP_MAX_PATH];
+    ULONGLONG exe = 0, tg = 0, tj = 0, tp = 0;
+    preview_paths(id, gif, jpg, SP_MAX_PATH);
+    int hasGif = written(gif, &tg), hasJpg = written(jpg, &tj);
+    if (written(program, &tp)) exe = tp;
+    if (exe) {
+        if (hasGif && tg < exe) hasGif = !DeleteFileW(gif);
+        if (hasJpg && tj < exe) hasJpg = !DeleteFileW(jpg);
+    }
+    if (hasGif && !hasJpg) hasGif = !DeleteFileW(gif);   /* half of an old recording */
+    return hasGif ? 2 : hasJpg ? 1 : 0;
+}
+
+/* Bump when app recordings change (2: a virtual pointer, so programs that answer it move): every app recording made
+ * before is made again, once. Screen+ updates alone keep them. */
+#define APP_RECORDER_VERSION 2
+
+void preview_app_upkeep(const WallpaperEntry *items, int count)
+{
+    wchar_t mark[SP_MAX_PATH], dir[SP_MAX_PATH], gif[SP_MAX_PATH], jpg[SP_MAX_PATH];
+    path_join(dir, SP_COUNTOF(dir), paths_cache(), L"previews");
+    path_join(mark, SP_COUNTOF(mark), dir, L"app-recorder.txt");
+    char have[16] = "", want[16];
+    snprintf(want, sizeof want, "%d", APP_RECORDER_VERSION);
+    HANDLE f = CreateFileW(mark, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    if (f != INVALID_HANDLE_VALUE) {
+        DWORD n = 0;
+        ReadFile(f, have, sizeof have - 1, &n, NULL);
+        have[n] = 0;
+        CloseHandle(f);
+    }
+    int stale = strcmp(have, want) != 0;
+    for (int i = 0; i < count; i++) {
+        if (items[i].type != WP_APP) continue;
+        if (stale) {
+            preview_paths(items[i].id, gif, jpg, SP_MAX_PATH);
+            DeleteFileW(gif);
+            DeleteFileW(jpg);
+        } else {
+            preview_app_recorded(items[i].id, items[i].path);   /* older than its program */
+        }
+    }
+    if (!stale) return;
+    SHCreateDirectoryExW(NULL, dir, NULL);
+    f = CreateFileW(mark, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+    if (f != INVALID_HANDLE_VALUE) {
+        DWORD n = 0;
+        WriteFile(f, want, (DWORD)strlen(want), &n, NULL);
+        CloseHandle(f);
     }
 }
 
@@ -126,8 +196,8 @@ static struct {
     Renderer *r;
     uint8_t  *frames;              /* GIF_FRAMES * GIF_W * GIF_H * 4, BGRA */
     double    at[GIF_FRAMES];      /* grab times, ms */
-    double    start;
-    int       n, done, result;
+    double    start, ready;
+    int       n, done, result, app;
     wchar_t   gif[SP_MAX_PATH], jpg[SP_MAX_PATH];
 } C;
 
@@ -218,7 +288,8 @@ static HRESULT save_gif(IWICImagingFactory *f, const wchar_t *path)
                                                                WICBitmapDitherTypeErrorDiffusion, pal, 0.0, WICBitmapPaletteTypeCustom);
         if (SUCCEEDED(hr)) hr = IWICBitmapFrameEncode_SetPalette(fe, pal);
         if (SUCCEEDED(hr) && SUCCEEDED(IWICBitmapFrameEncode_GetMetadataQueryWriter(fe, &meta))) {
-            double d = i + 1 < C.n ? C.at[i + 1] - C.at[i] : GRAB_MS;
+            /* a program is grabbed the moment its timer fires (1 ms timers): every frame lasts exactly GRAB_MS */
+            double d = !C.app && i + 1 < C.n ? C.at[i + 1] - C.at[i] : GRAB_MS;
             PROPVARIANT v;
             PropVariantInit(&v);
             v.vt = VT_UI2;
@@ -259,7 +330,7 @@ static int write_previews(void)
     /* Fast pages change between neighbouring frames; slow drifts only across the whole recording. */
     double motion = C.n > 1 ? frame_change(frame(0), frame(C.n - 1)) : 0.0;
     for (int i = 1; i < C.n; i++) motion = SP_MAX(motion, frame_change(frame(i - 1), frame(i)));
-    int moving = C.n >= 4 && motion > 0.6;
+    int moving = C.n >= 4 && motion > (C.app ? 0.2 : 0.6);   /* a still program is exactly 0; hover is small */
     wchar_t tmp[SP_MAX_PATH];
     str_printf(tmp, SP_COUNTOF(tmp), L"%ls.tmp", C.jpg);
     HRESULT hr = save_jpeg(f, tmp, frame(C.n / 2));
@@ -286,6 +357,30 @@ static void finish(int result)
     PostQuitMessage(0);
 }
 
+static void add_frame(const uint8_t *bgra, double now)
+{
+    if (!bgra || C.n >= GIF_FRAMES) return;
+    uint8_t *dst = frame(C.n);
+    memcpy(dst, bgra, (size_t)GIF_W * GIF_H * 4);
+    for (size_t i = 3; i < (size_t)GIF_W * GIF_H * 4; i += 4) dst[i] = 255;
+    if (!C.n) C.start = now;
+    C.at[C.n++] = now;
+}
+
+static void next_grab(HWND h, int got)
+{
+    if (C.n >= GIF_FRAMES) {
+        finish(0);
+        return;
+    }
+    if (!got && !C.n) {
+        finish(5);
+        return;
+    }
+    double due = C.start + (double)C.n * GRAB_MS;     /* keep a steady pace even when a grab is slow */
+    SetTimer(h, T_NEXT, (UINT)SP_MAX(1.0, due - time_ms()), NULL);
+}
+
 static void on_grab(HWND h, IStream *st)
 {
     double now = time_ms();
@@ -295,26 +390,38 @@ static void on_grab(HWND h, IStream *st)
         HRESULT hr = S_OK;
         HBITMAP bmp = image_decode_cover(NULL, st, GIF_W, GIF_H, &hr);
         DIBSECTION ds;
-        if (bmp && GetObjectW(bmp, sizeof ds, &ds) == sizeof ds && ds.dsBm.bmBits) {
-            uint8_t *dst = frame(C.n);
-            memcpy(dst, ds.dsBm.bmBits, (size_t)GIF_W * GIF_H * 4);
-            for (size_t i = 3; i < (size_t)GIF_W * GIF_H * 4; i += 4) dst[i] = 255;
-            if (!C.n) C.start = now;
-            C.at[C.n++] = now;
-        }
+        if (bmp && GetObjectW(bmp, sizeof ds, &ds) == sizeof ds && ds.dsBm.bmBits) add_frame((const uint8_t *)ds.dsBm.bmBits, now);
         if (bmp) DeleteObject(bmp);
     }
     if (st) IStream_Release(st);
-    if (C.n >= GIF_FRAMES) {
-        finish(0);
+    next_grab(h, st != NULL);
+}
+
+/* A pointer drifting through the program in a figure eight, one loop per recording (so the GIF loops without a
+ * jump), never touching the edges. Programs that answer the pointer (fluids, hover effects) move in the preview. */
+static void move_pointer(void)
+{
+    double t = (time_ms() - C.ready) / ((double)GIF_FRAMES * GRAB_MS) * 2.0 * 3.14159265358979;
+    RendererInput in = { 0 };
+    in.kind = RIN_MOVE;
+    in.x = (int)(CAP_W * (0.5 + 0.32 * sin(t)));
+    in.y = (int)(CAP_H * (0.5 + 0.28 * sin(2.0 * t)));
+    if (C.r && C.r->vt->input) C.r->vt->input(C.r, &in);
+}
+
+/* An app's frame, taken at once: the pace is exactly GRAB_MS, so the GIF plays evenly. A blank frame (the program
+ * still starting) is skipped; one that stays blank ends the recording at the deadline. */
+static void grab_app(HWND h)
+{
+    double now = time_ms();
+    uint8_t *px = app_grab(C.r, GIF_W, GIF_H);
+    add_frame(px, now);
+    free(px);
+    if (!px && !C.n) {
+        SetTimer(h, T_NEXT, GRAB_MS, NULL);
         return;
     }
-    if (!st && !C.n) {
-        finish(5);
-        return;
-    }
-    double due = C.start + (double)C.n * GRAB_MS;     /* keep a steady pace even when a grab is slow */
-    SetTimer(h, T_NEXT, (UINT)SP_MAX(1.0, due - time_ms()), NULL);
+    next_grab(h, 1);
 }
 
 static LRESULT CALLBACK cap_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
@@ -324,8 +431,12 @@ static LRESULT CALLBACK cap_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
         RenderEvent *ev = (RenderEvent *)lp;
         if (ev && ev->code == REV_READY) {
             SetTimer(h, T_WARMUP, WARMUP_MS, NULL);
+            if (C.app) {                   /* some programs move only under the pointer: give them one */
+                C.ready = time_ms();
+                SetTimer(h, T_POINTER, POINTER_MS, NULL);
+            }
         } else if (ev && ev->code == REV_FAILED) {
-            LOGW(L"preview: the page failed: %ls", ev->msg);
+            LOGW(L"preview: the wallpaper failed: %ls", ev->msg);
             finish(4);
         }
         free(ev);
@@ -337,7 +448,10 @@ static LRESULT CALLBACK cap_proc(HWND h, UINT m, WPARAM wp, LPARAM lp)
     case WM_TIMER:
         if (wp == T_WARMUP || wp == T_NEXT) {
             KillTimer(h, wp);
-            if (!html_grab(C.r)) finish(5);
+            if (C.app) grab_app(h);
+            else if (!html_grab(C.r)) finish(5);
+        } else if (wp == T_POINTER) {
+            move_pointer();
         } else if (wp == T_DEADLINE) {
             finish(6);
         } else if (C.r && C.r->vt->on_timer) {
@@ -355,13 +469,13 @@ int preview_capture_main(const wchar_t *id)
     Config cfg;
     memset(&cfg, 0, sizeof cfg);
     config_load(&cfg, paths_config());
-    WallpaperEntry wp;
+    WallpaperEntry wp = { 0 };
     const WallpaperEntry *e = config_find(&cfg, id);
-    int ok = e && e->type == WP_HTML;
+    int ok = e && (e->type == WP_HTML || e->type == WP_APP);
     if (ok) wp = *e;
     config_free(&cfg);
     if (!ok) {
-        LOGW(L"preview: %ls is not an HTML wallpaper in the library", id);
+        LOGW(L"preview: %ls is not a page or program in the library", id);
         return 2;
     }
     preview_paths(id, C.gif, C.jpg, SP_MAX_PATH);
@@ -369,7 +483,8 @@ int preview_capture_main(const wchar_t *id)
     path_dirname(dir, SP_COUNTOF(dir), C.gif);
     SHCreateDirectoryExW(NULL, dir, NULL);
     path_join(udf, SP_COUNTOF(udf), paths_cache(), L"WebView2Capture");
-    html_capture_mode(udf);
+    C.app = wp.type == WP_APP;
+    if (!C.app) html_capture_mode(udf);
     C.frames = (uint8_t *)malloc((size_t)GIF_FRAMES * GIF_W * GIF_H * 4);
     C.result = 3;
     LOGI(L"preview: recording '%ls'", wp.name);
@@ -397,7 +512,11 @@ int preview_capture_main(const wchar_t *id)
         ctx.audio = FALSE;          /* muted */
         ctx.rasterScale = 0.5;
         wchar_t err[SP_ERR_LEN] = L"";
-        C.r = html_renderer_create(&ctx, err, SP_COUNTOF(err));
+        C.r = C.app ? app_renderer_create(&ctx, err, SP_COUNTOF(err)) : html_renderer_create(&ctx, err, SP_COUNTOF(err));
+        if (C.r && C.app) {
+            C.r->vt->set_state(C.r, RS_ACTIVE, FALSE);
+            timeBeginPeriod(1);
+        }
         if (C.r) {
             SetTimer(hwnd, T_DEADLINE, DEADLINE_MS, NULL);
             MSG msg;
@@ -406,12 +525,13 @@ int preview_capture_main(const wchar_t *id)
                 DispatchMessageW(&msg);
             }
             C.r->vt->destroy(C.r);
+            if (C.app) timeEndPeriod(1);
         } else {
             LOGW(L"preview: %ls", err);
         }
     }
     if (hwnd) DestroyWindow(hwnd);
-    html_shutdown();
+    if (!C.app) html_shutdown();
     free(C.frames);
     if (SUCCEEDED(hrCo)) CoUninitialize();
     return C.result;
