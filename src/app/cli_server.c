@@ -666,13 +666,23 @@ static void cmd_preview(Reply *r, const Req *q)
     }
     WallpaperEntry *e = find_wallpaper(r, q->argv[1]);
     if (!e) return;
-    if (e->type != WP_HTML && e->type != WP_APP) {
+#ifdef _WIN32
+    int app = e->type == WP_APP;         /* programs: Windows only */
+#else
+    int app = 0;
+#endif
+    if (e->type != WP_HTML && !app) {
         fail(r, L"\"%ls\" isn't a page or program: its file is its preview.", e->name);
         return;
     }
     wchar_t jpg[SP_MAX_PATH];
     preview_paths(e->id, NULL, jpg, SP_COUNTOF(jpg));
-    if (e->type == WP_APP ? preview_app_recorded(e->id, e->path) != 0 : file_exists(jpg)) {
+#ifdef _WIN32
+    int has = app ? preview_app_recorded(e->id, e->path) != 0 : file_exists(jpg);
+#else
+    int has = file_exists(jpg);
+#endif
+    if (has) {
         say(r, L"\"%ls\" has a preview.\n", e->name);
         return;
     }
